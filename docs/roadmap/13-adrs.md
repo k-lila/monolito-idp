@@ -269,10 +269,10 @@ sem unicidade. Isso desalinha o modelo do vocabulário do protocolo e permite do
 com o mesmo e-mail, o que num IdP é ambiguidade de identidade.
 
 A restrição decisiva é temporal: AUTH_USER_MODEL é resolvido em tempo de migration e
-referenciado por chave estrangeira por django.contrib.admin, por contenttypes e por todas
-as tabelas do django-oauth-toolkit. Trocar o modelo depois da primeira migração é uma das
-operações mais caras do ecossistema Django. A decisão precisa ser tomada antes de existir
-qualquer banco.
+referenciado por chave estrangeira por django.contrib.admin e por todas as tabelas do
+django-oauth-toolkit, e gravado como tipo de modelo pelo contenttypes. Trocar o modelo
+depois da primeira migração é uma das operações mais caras do ecossistema Django. A decisão
+precisa ser tomada antes de existir qualquer banco.
 
 ## Decisão
 

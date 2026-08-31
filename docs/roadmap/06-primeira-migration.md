@@ -48,12 +48,16 @@ não há `username`.
 ## Por que é irreversível
 
 `AUTH_USER_MODEL` é resolvido em tempo de migration e referenciado por chave estrangeira
-por três consumidores distintos:
+por dois consumidores distintos:
 
-- `django.contrib.contenttypes`, que grava o tipo do modelo de usuário;
 - `django.contrib.admin`, cujas entradas de log apontam FK ao usuário;
 - **todas as tabelas do django-oauth-toolkit** — `Application`, `AccessToken`, `Grant`,
-  `IDToken` — que resolvem `settings.AUTH_USER_MODEL` na própria migração.
+  `RefreshToken`, `IDToken` e `DeviceGrant` — que resolvem `settings.AUTH_USER_MODEL` na
+  própria migração.
+
+Há um terceiro consumidor que não é FK: o `django.contrib.contenttypes` **grava o tipo do
+modelo** de usuário. `django_content_type` não tem chave estrangeira para tabela de
+usuário nenhuma — a linha `accounts | user` ali é sinal de ancoragem, não referência.
 
 Rodar `migrate` antes de a `0001` de `accounts` existir ancora os três no User padrão do
 Django. Depois disso, o schema e as settings discordam permanentemente, e trocar o modelo
