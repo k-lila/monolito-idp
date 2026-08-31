@@ -279,7 +279,8 @@ qualquer banco.
 Vamos definir accounts.User como subclasse de AbstractUser com username = None, email
 unique como USERNAME_FIELD, REQUIRED_FIELDS vazio e um UserManager próprio para
 create_user e create_superuser por e-mail. AUTH_USER_MODEL aponta para ele desde a
-primeira linha de settings, antes de qualquer migrate.
+primeira linha de settings, antes de qualquer migrate. A chave primária é um
+BigAutoField, fixado por DEFAULT_AUTO_FIELD nas settings, e é ela que vai na claim sub.
 
 Nenhum campo especulativo entra agora. Em particular, não incluímos email_verified: sem
 fluxo de verificação implementado, a claim seria sempre falsa, e um IdP que afirma
