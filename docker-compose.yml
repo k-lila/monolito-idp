@@ -1,0 +1,39 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      # Bind em 127.0.0.1: publicacao sem endereco vira DNAT a frente do firewall do host.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # pg_isready da verde quando o servidor responde - inclusive respondendo falha de
+      # autenticacao. -U/-d mudam o log do servidor, nao o veredito.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      # A imagem sobe e derruba um servidor temporario ao inicializar o volume; sem
+      # start_period um pg_isready verde precoce seria consumido pelo depends_on do passo 11.
+      start_period: 10s
+
+  redis:
+    image: redis:7
+    ports:
+      # Bind em 127.0.0.1 pelo mesmo motivo, agravado: o Redis sobe sem requirepass.
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
+  redisdata:

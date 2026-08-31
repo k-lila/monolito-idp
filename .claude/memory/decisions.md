@@ -138,6 +138,123 @@
 - **ADR:** nenhuma.
 - **Tipo:** decisão.
 
+## [2026-08-31] TASK-003 · Bloco A implementado: os quatro gates fecham
+
+- **Decisão:** os passos 01, 02 e 03 foram executados como unidade única, pela rota `/scaffold`.
+  Produto: `requirements.txt`, `.env.example`, `.env`, `.dockerignore`, `docker-compose.yml`,
+  `scripts/gen_dev_key.sh` e o venv 3.14.6. O `quality-assurance` verificou os quatro gates
+  contra o ambiente real, executando — não relendo relatório.
+- **ADR:** nenhuma gravada. As sete de fundação seguem em `docs/roadmap/13-adrs.md`, para o
+  bloco G. Ver a entrada específica sobre duas delas, abaixo.
+- **Tipo:** decisão.
+
+## [2026-08-31] TASK-003 · O pacote `redis` faltava no requirements, e o sinal seria três blocos adiante
+
+- **Decisão:** o passo 04 configura `CACHES` com `django.core.cache.backends.redis.RedisCache`,
+  que importa o cliente PyPI `redis`; ele não é transitiva de nenhuma das oito linhas originais.
+  Sem a nona linha, o sinal seria `ModuleNotFoundError` no bloco E. **O usuário decidiu acrescentar
+  `redis==8.1.0`** — verificado no PyPI: `requires_python >=3.10`, classifier para 3.14, Python
+  puro. Mesma classe da correção do extra `[oidc]` em TASK-002: conferência do que o roadmap
+  pressupõe contra a metadata real. `docs/roadmap/01-...md` foi corrigido junto.
+- **Tipo:** decisão.
+
+## [2026-08-31] TASK-003 · A chave RSA: descartável até a primeira RP, e sem cópia
+
+- **Decisão do usuário**, tomada enquanto ainda custava nada, conforme o item 3 de
+  `docs/implementacao.md`: (1) a chave gerada agora é **descartável até a primeira relying party
+  integrar** — a janela fecha na integração, não no fim do roadmap; (2) **não há cópia** fora do
+  `.env` local, e isso é escolha declarada, não esquecimento; (3) uma chave só serve às duas
+  jornadas, porque o `.env` é um só. Consequência aceita: perder a máquina é perder a identidade
+  do IdP.
+- **Verificação:** o round-trip foi feito com `jwcrypto` — a biblioteca que o próprio DOT importa
+  para assinar —, e não só com `cryptography`: `kty: RSA`, `n` de 2048 bits, JWKS com **uma**
+  chave. Isso antecipa para o bloco A o que o gate do passo 07 verificaria, contra o que o passo
+  03 afirmava ser possível só lá.
+- **Tipo:** decisão.
+
+## [2026-08-31] TASK-003 · A regra de caracteres do `.env` — recusada no roadmap, registrada aqui
+
+- **Decisão:** o `senso-critico` mostrou que o `.env` atravessa **três gramáticas** — `django-environ`,
+  a interpolação do docker compose (que ocorre dentro do próprio `.env`) e a gramática de URL em
+  `DATABASE_URL`/`REDIS_URL`. O alfabeto de `get_random_secret_key()` inclui `$`, com ~64% de chance
+  de aparecer em 50 caracteres; um `$` faz o compose interpolar e **truncar** o valor, enquanto o
+  `django-environ` lê o valor íntegro. Manifestação: `POSTGRES_PASSWORD` mutilada no `initdb`, com
+  `password authentication failed` no passo 06 e as duas strings do `.env` perfeitamente idênticas.
+  **O usuário recusou escrever a regra no passo 01**; fica aqui, e é esta:
+  **nenhum valor entre aspas; nenhum `${...}` dentro do `.env`; `SECRET_KEY` regerada até sair sem
+  `$ # " ' \`; `POSTGRES_PASSWORD` alfanumérica (`openssl rand -hex 24`), para não exigir
+  percent-encoding na URL.** Os valores de hoje cumprem a regra — o `.env` foi escrito assim.
+- **Tipo:** decisão. **Validade:** vale a cada recriação do `.env` e a cada troca de senha.
+
+## [2026-08-31] TASK-003 · `pg_isready` não verifica o que o passo 02 afirmava, e a senha tem três detentores
+
+- **Decisão:** o passo 02 e o comentário do compose afirmavam que `pg_isready -U X -d Y` "confirma
+  que o banco do projeto aceita aquele usuário". **A ferramenta não faz isso**: retorna 0 quando o
+  servidor responde, inclusive respondendo falha de autenticação; `-U`/`-d` mudam o log do servidor,
+  não o veredito. Corrigido o texto, **mantido o comando** por decisão do usuário. Junto, registrou-se
+  o que nenhum dos treze arquivos nomeava: **o volume `pgdata` é o terceiro detentor da senha** — a
+  imagem só aplica `POSTGRES_PASSWORD` no `initdb`, então trocar a senha no `.env` com o volume já
+  criado deixa os serviços `healthy`, o gate passa, e a falha aparece no `migrate` com `.env` e
+  compose coerentes entre si.
+- **Tipo:** decisão.
+
+## [2026-08-31] TASK-003 · Duas das sete ADRs já estavam falsificadas antes de serem gravadas
+
+- **Decisão:** o `senso-critico` apontou que o mecanismo de revisão do `docs/roadmap/13-adrs.md`
+  não tem dono nem gate, e que o bloco A já produzira contradição sem propagá-la. Confirmado: a
+  **ADR 0002** mandava instalar o DOT "com o extra `oidc`", que não existe na 3.4.1; a **ADR 0005**
+  dizia "sem dependência extra" sobre o backend Redis, no mesmo dia em que `redis==8.1.0` entrou
+  por causa dele. As duas foram corrigidas **no texto ainda não gravado** — hoje custa duas frases;
+  depois do bloco G custaria uma ADR 0008 substituindo a 0002, porque ADR gravada é imutável.
+- **Tech-debt / melhorias:** **adiado, e vale para os próximos blocos** — conferir se os achados do
+  bloco contradizem alguma das sete ADRs **não é gate de bloco nenhum**. Taxa observada: 1,5 ADR
+  falsificada no primeiro dos sete blocos, com a gravação prevista para o décimo terceiro passo.
+  Quem fechar B, C, D, E e F deveria repetir a conferência no fecho de cada um.
+- **Tipo:** decisão.
+
+## [2026-08-31] TASK-003 · Portas publicadas só em `127.0.0.1`
+
+- **Decisão:** as publicações do compose não tinham endereço, então o Docker fazia bind em
+  `0.0.0.0` **e instalava DNAT à frente do firewall do host** — um UFW configurado não fechava a
+  porta, e o Redis sobe sem `requirepass`, sendo onde a sessão SSO vai viver a partir do passo 04.
+  Prefixadas com `127.0.0.1:`, preservando variáveis e defaults. Reverificado com os containers
+  recriados: `ss -ltn` mostra `127.0.0.1:5433` e `127.0.0.1:6379`, e ambos respondem do host.
+  Acesso de outra máquina da rede deixa de funcionar **por desenho**.
+- **Tipo:** decisão.
+
+## [2026-08-31] TASK-003 · `POSTGRES_PORT=5433` neste host, e o `.env` fora do alcance do rollback
+
+- **Decisão:** a 5432 do host está ocupada por um Postgres alheio (`ss -ltn`: `127.0.0.1:5432`),
+  e o bind do compose falhou. `POSTGRES_PORT=5433` **só no `.env` local**; o `.env.example` mantém
+  o default 5432 do contrato. É literalmente o caso de uso para o qual o passo 01 criou a variável.
+  Divergência ambiental, não de projeto: o próximo clone volta a 5432, e o passo 11 fixa as portas
+  **internas** literalmente, então nada vaza.
+- **Tech-debt / melhorias:** registrado no roadmap, não só aqui — `docs/implementacao.md` prometia
+  rollback gratuito por commit e nomeava uma exceção; a segunda passou a estar escrita: **`.env` é
+  untracked, nenhum `reset`/`checkout`/revert o restaura, e `git clean -xd` o apaga** junto com a
+  única cópia da chave RSA e da `SECRET_KEY`.
+- **Tipo:** decisão.
+
+## [2026-08-31] TASK-003 · Apontamentos com disposição de rejeição ou adiamento
+
+- **Rejeitado:** `2>/dev/null` no `openssl genpkey` de `scripts/gen_dev_key.sh`, sugerido pelo
+  `quality-assurance` para calar os pontos de progresso em stderr. **Decisão do usuário:** o
+  contrato do script exige não suprimir stderr, e o redirecionamento engoliria também a mensagem
+  de erro real do `openssl` — trocaria ruído cosmético por cegueira em falha de verdade.
+- **Adiado:** `CORS_ALLOWED_ORIGINS=` vazia pode ser lida como `['']` e não como `[]` pelo
+  `env.list()`, dependendo da versão do `django-environ`. Não afeta o bloco A, onde o valor vazio é
+  o correto. **Repassar ao bloco B**, que configura o middleware: uma allowlist contendo string
+  vazia é uma origem inválida registrada, e o `CorsMiddleware` deixaria de ser inerte — que é
+  exatamente a contrapartida exigida quando o usuário decidiu manter `django-cors-headers`.
+- **Adiado:** a ADR 0005 não nomeia o cliente `redis` na lista de dependências com extensão em C da
+  ADR 0001. Não é contradição — `redis` é Python puro —, mas aquela lista deixou de ser inventário
+  completo do `requirements.txt`.
+- **Aceito e resolvido nesta tarefa:** `*.pem` no `.dockerignore` (o `.gitignore` barrava do repo,
+  o contexto de build não); a contradição do extra `oidc` no catálogo de riscos do passo 01, herdada
+  do commit `1e8b060`; "oito pins" → "nove" em `docs/implementacao.md`; e "quatro causas candidatas"
+  → três para o JWKS vazio, já que "extra faltando" deixou de ser candidata.
+- **Tipo:** decisão.
+
 ---
 
 **Regra ao acrescentar:** se a decisão tem ADR, escreva **uma linha** no índice e o resto

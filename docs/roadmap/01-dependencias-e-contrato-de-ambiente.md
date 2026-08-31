@@ -62,6 +62,7 @@ django-environ==0.14.0
 django-cors-headers==4.9.0
 gunicorn==26.2.0
 whitenoise==6.12.0
+redis==8.1.0
 ```
 
 O arquivo traz **um comentário registrando que 5.2.8 é o piso de compatibilidade com
@@ -87,8 +88,16 @@ Notas sobre itens que não são óbvios pela linha:
   container, como traceback do Gunicorn em `docker logs` do serviço `app` — nunca antes,
   porque até o passo 10 quem serve é o `runserver`. É o primeiro lugar a olhar se o
   container subir e morrer sem servir nada.
+- `redis==8.1.0` — **acrescentada depois da redação original**, na mesma classe da
+  correção do extra `[oidc]`: conferência do que o roadmap pressupõe contra a metadata
+  real. O passo 04 configura `CACHES` com
+  `django.core.cache.backends.redis.RedisCache`, que importa o cliente PyPI `redis`, e
+  ele não é dependência transitiva de nenhuma das outras oito linhas. Sem esta linha o
+  sinal seria `ModuleNotFoundError` no primeiro uso efetivo do cache, no passo 10 —
+  longe daqui. É Python puro, com `requires_python >= 3.10` e classifier para Python
+  3.14.
 
-Todas as oito linhas levam pin exato, inclusive as duas últimas: dependência sem pin é a
+Todas as nove linhas levam pin exato, inclusive as duas últimas: dependência sem pin é a
 que muda sozinha entre um `pip install` e o seguinte.
 
 ### `.env.example`
@@ -216,8 +225,11 @@ inerte) e a exigência de posição do `CorsMiddleware` é cumprida no passo 04.
 - **Django abaixo de 5.2.8 com Python 3.14** — sinal: falhas de importação ou
   incompatibilidade em runtime, sem relação aparente com a versão. Contido pelo pin em
   5.2.17 e pelo comentário do piso.
-- **`django-oauth-toolkit` sem o extra `oidc`** — sinal: nenhum no boot; aparece só no
-  passo 07, com o JWKS incapaz de assinar. Contido pelo pin com o extra.
+- **`django-oauth-toolkit` sem o extra `oidc` — causa descartada** — sinal: nenhum, e não
+  haverá: o extra `oidc` **não existe** na 3.4.1 e o `jwcrypto` entra como dependência
+  incondicional do pacote. Item mantido porque a redação original o listava como risco real:
+  diante de um JWKS vazio no passo 07, "extra faltando" **não** é uma das causas candidatas —
+  olhe para `OIDC_RSA_PRIVATE_KEY` e para o escape do PEM, dos passos 03 e 04.
 - **`.env` commitado** — sinal: nenhum, até o vazamento. Contido pelo `.gitignore` nascer
   antes do `.env`.
 - **`.env` inexistente ou sem `SECRET_KEY`** — sinal: `ImproperlyConfigured` na primeira

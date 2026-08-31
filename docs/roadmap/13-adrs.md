@@ -193,8 +193,9 @@ família de RFCs em evolução.
 
 ## Decisão
 
-Vamos usar django-oauth-toolkit 3.4.1 como authorization server, instalado com o extra
-oidc, com PKCE exigido e não meramente oferecido.
+Vamos usar django-oauth-toolkit 3.4.1 como authorization server, instalado sem extra — o
+jwcrypto, que é quem viabiliza a assinatura de id_token e o JWKS, entra como dependência
+incondicional do pacote —, com PKCE exigido e não meramente oferecido.
 
 As rotas do DOT são incluídas como vêm: não reescrevemos, envelopamos nem duplicamos
 endpoint de protocolo. A única customização permitida no comportamento do servidor é o
@@ -460,7 +461,8 @@ Positivas:
   remota.
 - Usa a máquina de sessão do Django, madura, com expiração, rotação de chave no login e
   invalidação por troca de senha já resolvidas.
-- Sem dependência extra: o backend Redis é do próprio Django desde a 4.0.
+- Sem django-redis: o backend Redis é do próprio Django desde a 4.0. A única dependência
+  acrescentada é o cliente redis, que o backend nativo importa, e ela está pinada.
 
 Negativas:
 

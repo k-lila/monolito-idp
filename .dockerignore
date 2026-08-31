@@ -1,0 +1,9 @@
+.git
+.env
+# Chave privada do passo 03: o .gitignore a barra do repo, esta linha a barra do build.
+*.pem
+.venv/
+venv/
+__pycache__/
+staticfiles/
+docs/

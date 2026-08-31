@@ -16,14 +16,13 @@ progresso incremental.
 
 **Tudo de uma vez desperdiça o que o roadmap tem de melhor.** O valor do documento está no
 catálogo de falhas silenciosas. Escrevendo os treze passos antes de subir qualquer coisa,
-um JWKS respondendo `{"keys": []}` tem **quatro** causas candidatas: extra `oidc` faltando
-(01), escape do PEM errado (03), leitura sem `multiline=True` (04) ou `OIDC_ISS_ENDPOINT`
-incoerente (07). Passo a passo, tem uma. Esse diferencial de diagnóstico é o produto
-inteiro do roadmap.
+um JWKS respondendo `{"keys": []}` tem **três** causas candidatas: escape do PEM errado
+(03), leitura sem `multiline=True` (04) ou `OIDC_ISS_ENDPOINT` incoerente (07). Passo a
+passo, tem uma. Esse diferencial de diagnóstico é o produto inteiro do roadmap.
 
 ## Antes de começar
 
-### 1. Verificar os oito pins, e o Gunicorn em particular
+### 1. Verificar os nove pins, e o Gunicorn em particular
 
 O passo 01 declara `gunicorn==26.2.0` e registra que o projeto **não declara suporte a
 Python 3.14** — e que, se isso quebrar, o sinal aparece **só no passo 11**, como traceback
@@ -39,7 +38,7 @@ gunicorn --version
 Gunicorn é Python puro; importá-lo já resolve a dúvida. Um comando move um risco de dez
 passos à frente para o passo 01.
 
-Na mesma ocasião, confirmar que as oito versões existem de fato no PyPI. Falha de pin no
+Na mesma ocasião, confirmar que as nove versões existem de fato no PyPI. Falha de pin no
 passo 01 é barata; no passo 11, não.
 
 ### 2. Um commit por gate
@@ -48,6 +47,11 @@ Commit a cada "Passo concluído quando" torna o rollback gratuito — com uma ex
 importa: **commit não desfaz o passo 06**. Ali o reset é `docker compose down -v`, e ele é
 barato **só enquanto não houver dado de valor no banco**. É exatamente por isso que o passo
 06 vem antes de qualquer coisa interessante existir.
+
+E há uma segunda: **commit nenhum protege o `.env`**. O arquivo é untracked — nenhum
+`reset`, `checkout` ou revert o traz de volta —, e `git clean -xd`, que é a operação a que
+se recorre quando um passo deixou lixo na árvore, **apaga** o `.env` junto com a única
+cópia da chave RSA do passo 03 e da `SECRET_KEY`. Não há outra: é decisão declarada.
 
 ### 3. Confirmar as duas strings irreversíveis enquanto ainda custam nada
 
