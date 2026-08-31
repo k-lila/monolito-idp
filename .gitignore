@@ -1,0 +1,14 @@
+# Segredos. O .env carrega SECRET_KEY e OIDC_RSA_PRIVATE_KEY; *.pem é a chave do passo 03.
+.env
+*.pem
+
+# Python
+__pycache__/
+
+# Django — gerado por collectstatic, reproduzível
+staticfiles/
+
+# Virtualenv da jornada de construção (passos 04→10).
+# Acréscimo ao contrato do passo 01, registrado em decisions.md.
+.venv/
+venv/

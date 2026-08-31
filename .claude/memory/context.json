@@ -1,8 +1,6 @@
 {
   "_leia_primeiro": "Snapshot do que esta em execucao AGORA. Nao e log e nao e historico: tarefa concluida e REMOVIDA de tarefas_ativas. O que sobrevive a ela vai para .claude/memory/decisions.md. Quem escreve aqui e o orquestrador (thread principal); nenhum subagente toca neste arquivo. Procedimento completo em .claude/PROTOCOLO-AGENTES.md, secao 'Ciclo de vida da tarefa'.",
-
   "_regra_de_saida": "A tarefa so sai de tarefas_ativas quando as duas listas de pendencias_de_fechamento estiverem vazias. Apontamento sai da lista quando ganha disposicao registrada em decisions.md; bloqueio sai quando o BLOCK-NNN e resolvido em blockers.md. Lista vazia aqui significa 'nada em execucao' — e so significa isso se a regra for respeitada.",
-
   "_modelo_de_tarefa": {
     "task_id": "TASK-NNN — sequencial, cunhado na abertura",
     "demanda": "o pedido do usuario, em uma linha",
@@ -18,18 +16,29 @@
     ],
     "autorizacao_pre_alteracao": "pendente | concedida em AAAA-MM-DD | nao-se-aplica",
     "artefatos": {
-      "ac": ["AC-NN — <comportamento esperado, resumido>"],
-      "t": ["T-NN — <o que cobre> — <nivel>"],
-      "adrs_pendentes": ["docs/adr/NNNN-slug.md — <titulo>; redigida pelo architect, ainda nao gravada"],
-      "arquivos_tocados": ["<caminho> — criado | modificado"]
+      "ac": [
+        "AC-NN — <comportamento esperado, resumido>"
+      ],
+      "t": [
+        "T-NN — <o que cobre> — <nivel>"
+      ],
+      "adrs_pendentes": [
+        "docs/adr/NNNN-slug.md — <titulo>; redigida pelo architect, ainda nao gravada"
+      ],
+      "arquivos_tocados": [
+        "<caminho> — criado | modificado"
+      ]
     },
     "pendencias_de_fechamento": {
-      "apontamentos_sem_disposicao": ["[SEVERIDADE] <apontamento> — <agente de origem>"],
-      "bloqueios_abertos": ["BLOCK-NNN — ver .claude/memory/blockers.md"]
+      "apontamentos_sem_disposicao": [
+        "[SEVERIDADE] <apontamento> — <agente de origem>"
+      ],
+      "bloqueios_abertos": [
+        "BLOCK-NNN — ver .claude/memory/blockers.md"
+      ]
     },
     "proxima_acao": "a proxima invocacao ou a pergunta ao usuario, em uma linha"
   },
-
-  "atualizado_em": null,
+  "atualizado_em": "2026-08-31",
   "tarefas_ativas": []
 }
