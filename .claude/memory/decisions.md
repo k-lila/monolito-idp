@@ -260,3 +260,118 @@
 **Regra ao acrescentar:** se a decisão tem ADR, escreva **uma linha** no índice e o resto
 no ADR. Se não tem, escreva a entrada completa aqui. Um log que cresce sem poda não é
 memória — é sedimento.
+
+## [2026-08-31] TASK-004 · Bloco B implementado; os quatro apontamentos do `architect` fecham por verificação
+
+- **Decisão:** os passos 04 e 05 foram executados como unidade única (commit `a89a776`). A
+  tarefa ficou aberta em `context.json` porque um `/clear` cortou a rota antes do
+  encerramento; os quatro apontamentos receberam disposição agora, contra o repositório real,
+  não contra relatório.
+- **Aceito e resolvido:** (1) o `[CRITICO]` da **janela SQLite** — `find` não encontra
+  `*.sqlite3` em lugar nenhum da árvore, e `settings.DATABASES['default']` resolve para
+  `django.db.backends.postgresql`/`nova_api`; a janela entre `startproject` e a settings
+  definitiva fechou sem deixar banco órfão. (2) `config/asgi.py` **não existe** — a remoção
+  que o passo 04 exigia foi feita. (3) `TIME_ZONE = "UTC"` está escrito literalmente
+  (`config/settings.py:154`), então o `America/Chicago` do `global_settings` não foi herdado.
+- **Observação registrada:** `makemigrations --dry-run` abre conexão com o Postgres e emite
+  `RuntimeWarning` se ele estiver parado. Não é falha de gate — é ruído de diagnóstico, e
+  saber disso evita confundi-lo com erro no bloco C.
+- **Fecha também um adiado de TASK-003:** `CORS_ALLOWED_ORIGINS=` vazia no `.env` é lida como
+  `[]` — **não** como `['']` — pelo `django-environ` desta versão. A contrapartida exigida
+  quando o usuário decidiu manter `django-cors-headers` está cumprida: o `CorsMiddleware`
+  é de fato inerte nesta fase.
+- **ADR:** nenhuma. Conferência das sete ADRs de `docs/roadmap/13-adrs.md` contra os achados
+  do bloco B: nenhuma contradição encontrada (o bloco não tocou em versão, extra, backend de
+  cache nem transporte).
+- **Tipo:** decisão.
+
+## [2026-08-31] TASK-005 · Bloco C: o schema nasceu ancorado em `accounts.User`
+
+- **Decisão:** o passo 06 foi executado e o gate fecha nos quatro critérios. O usuário rodou
+  `makemigrations`, `migrate` e `createsuperuser` no terminal dele; o `writer` encontrou o
+  estado pronto, obedeceu à regra de parada do pré-voo e **validou em vez de criar**, e o
+  `quality-assurance` refez as dez verificações contra o ambiente. Commit `cf2ddde`.
+- **O que ficou provado, e só este bloco prova:** o hasher da primeira senha do projeto é
+  `argon2id` — é a **única confirmação empírica** que o `PASSWORD_HASHERS` do passo 04
+  recebe em todo o roadmap. Se tivesse vindo `pbkdf2_sha256`, nenhum outro passo acusaria.
+- **Tipo:** decisão.
+
+## [2026-08-31] TASK-005 · O aceite do passo 07 é **9 FKs**, não 7 — e o passo 06 listava quatro tabelas de seis
+
+- **Decisão:** `docs/roadmap/06-primeira-migration.md` enumerava as tabelas do
+  django-oauth-toolkit que resolvem `AUTH_USER_MODEL` como `Application, AccessToken, Grant,
+  IDToken`. São **seis**: faltavam `RefreshToken` (na própria `0001_initial`) e `DeviceGrant`
+  (na `0013`). Verificado em `oauth2_provider/models.py` da 3.4.1 instalada — seis ocorrências
+  de `settings.AUTH_USER_MODEL`, linhas 201, 520, 607, 761, 911 e 1015. Enumeração corrigida
+  no passo 06.
+- **O número a carimbar:** hoje há **3** FKs apontando para `accounts_user`
+  (`django_admin_log`, `accounts_user_groups`, `accounts_user_user_permissions`). Depois do
+  `migrate` do passo 07 devem ser **9**. Carimbar 7 — como esta rota chegou a fazer, antes da
+  conferência — reprovaria um passo 07 correto.
+- **Tipo:** decisão. **Validade:** vale para django-oauth-toolkit 3.4.1; outra versão pode ter
+  outro conjunto de modelos.
+
+## [2026-08-31] TASK-005 · O gate do passo 06 não mede o que pretende medir
+
+- **Decisão:** o passo 06 manda procurar ativamente a tabela `auth_user` depois do primeiro
+  `migrate`. `auth/migrations/0001_initial.py` cria o `User` com
+  `options={"swappable": "AUTH_USER_MODEL"}`: com `AUTH_USER_MODEL` já nas settings
+  commitadas, **`auth_user` não pode nascer em ordem nenhuma de comandos**. Pior, o erro que
+  o passo teme — `migrate` antes da `0001` de `accounts` — falharia **ruidosamente**, na
+  resolução da `swappable_dependency`, e não em silêncio. O check é verdadeiro e não pode
+  falhar; um check que só passa não mede nada. Ele só teria valor para a variante *volume
+  reaproveitado*, que o roadmap trata como risco secundário e é o risco vivo de verdade.
+- **O que substitui:** cinco sinais independentes e estritamente mais fortes, todos colhidos
+  neste bloco — (1) `min/max(applied)` em `django_migrations` numa janela de 79 ms, provando
+  volume aplicado de uma vez; (2) `accounts.0001_initial` id 15 < `admin.0001_initial` id 16,
+  provando a ordem realmente aplicada; (3) três FKs para `accounts_user`; (4) contenttype
+  `accounts | user` sem `auth | user`; (5) permissões `add/change/delete/view_user` sob
+  `app_label = accounts`. **Repassar aos blocos D a F**: quando um gate do roadmap indicar um
+  sinal, conferir se ele é falsificável no estado em que o passo roda.
+- **Texto do roadmap não alterado neste ponto** — a correção autorizada foi só a das duas
+  imprecisões factuais. A divergência fica aqui.
+- **Tipo:** decisão.
+
+## [2026-08-31] TASK-005 · Apontamentos com disposição de rejeição ou adiamento
+
+- **Rejeitado:** o `writer` supôs que a Fase 3 havia sido invocada duas vezes, ao encontrar o
+  banco já migrado. Diagnóstico errado — o usuário executou a sequência no terminal dele às
+  19:52–19:53, e o `createsuperuser` 23 segundos depois do `migrate`. Registro porque a
+  suposição errada, se absorvida, viraria desconfiança do orquestrador em vez de um fato
+  simples sobre quem executou o quê.
+- **Rejeitado:** `conname` de `accounts_user_user_permissions` truncado em 63 caracteres não é
+  defeito — é o limite de identificador do Postgres.
+- **Adiado para o passo 11:** a criação **condicional** de superusuário no entrypoint tem de
+  tolerar conta já existente. Com `teste@teste.com` no banco, `createsuperuser --noinput`
+  termina em `CommandError: That email address is already taken.` e código 1; com `set -e`, o
+  container não sobe, e a mensagem não menciona superusuário. A dívida nasceu aqui e vence lá.
+  Neste bloco o risco não se materializou porque o usuário rodou o comando interativo, e as
+  variáveis `DJANGO_SUPERUSER_*` seguem comentadas no `.env`.
+- **Adiado:** não há `AUTH_PASSWORD_VALIDATORS` nas settings — o passo 04 não os exige, então
+  não é divergência. Consequência real: **nenhuma restrição de força de senha valeu sobre a
+  primeira conta administrativa do IdP**, e não valerá sobre nenhuma outra até que alguém os
+  acrescente.
+- **Adiado:** não há suíte de testes, conforme `docs/roadmap/12-readme.md:112` ("Nenhum teste
+  automatizado nesta fase"). O único ponto deste bloco com decisão própria a cobrir, quando a
+  fase de teste chegar, é `UserManager.create_user` (`accounts/models.py:10-11`, o `ValueError`
+  com e-mail vazio) — unitário. O resto é herança de `AbstractUser`, sem decisão.
+- **Observação, para não virar depuração inútil:** `runserver` com `DEBUG=False` e sem
+  WhiteNoise não serve estático — `/admin/` renderiza sem CSS até o passo 09. Confirmado na
+  prática: o login funcionou assim.
+- **Aceito e resolvido nesta tarefa:** as duas imprecisões factuais do passo 06 (a oração sobre
+  `contenttypes` referenciar por FK, e a enumeração incompleta do DOT) e a mesma oração na
+  ADR 0003 de `docs/roadmap/13-adrs.md`.
+- **Tipo:** decisão.
+
+## [2026-08-31] TASK-005 · A conferência das sete ADRs, terceiro bloco: uma falsificada
+
+- **Decisão:** cumprindo o adiado de TASK-003 — que pedia a quem fechasse B, C, D, E e F que
+  repetisse a conferência —, o bloco C encontrou **uma** contradição: a ADR 0003 afirmava que
+  `contenttypes` referencia `AUTH_USER_MODEL` por chave estrangeira. Não referencia; grava o
+  tipo do modelo, e a verificação de FKs deste bloco é a prova. Corrigida no texto ainda não
+  gravado, com autorização do usuário. **Tally acumulado: 2,5 ADRs falsificadas em três
+  blocos** (0002 e 0005 no bloco A, 0003 aqui), com a gravação prevista para o passo 13.
+  O bloco B não contradisse nenhuma.
+- **A conferência continua não sendo gate de bloco nenhum** — segue dependendo de alguém
+  lembrar. Repassar a D, E e F.
+- **Tipo:** decisão.
