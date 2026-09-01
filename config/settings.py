@@ -19,8 +19,9 @@ DEBUG = env.bool("DEBUG")
 SECRET_KEY = env.str("SECRET_KEY")
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS")
 
-# BASE_URL e OIDC_RSA_PRIVATE_KEY ainda nao tem consumidor; sao lidas aqui para que a
-# ausencia delas falhe agora, nomeando a variavel, em vez de virar JWKS vazio no passo 07.
+# Consumidas pelo bloco OAUTH2_PROVIDER abaixo, que reusa estas duas variaveis em vez de
+# reler o ambiente: uma segunda leitura sem multiline=True produz um PEM com \n literais,
+# que o DOT aceita em silencio e devolve como JWKS vazio.
 BASE_URL = env.str("BASE_URL")
 OIDC_RSA_PRIVATE_KEY = env.str("OIDC_RSA_PRIVATE_KEY", multiline=True)
 
@@ -38,6 +39,7 @@ INSTALLED_APPS = [
     # No INSTALLED_APPS, nao so no middleware: e o app que registra o check da tag
     # `security`, o que torna uma allowlist malformada um erro de `manage.py check`.
     "corsheaders",
+    "oauth2_provider",
     "accounts",
 ]
 
@@ -106,6 +108,31 @@ PASSWORD_HASHERS = [
     "django.contrib.auth.hashers.BCryptSHA256PasswordHasher",
     "django.contrib.auth.hashers.ScryptPasswordHasher",
 ]
+
+OAUTH2_PROVIDER = {
+    # Sem ela, OIDCOnlyMixin devolve 404 em discovery, JWKS e userinfo — o servidor sobe
+    # inteiro e so os endpoints de OIDC somem.
+    "OIDC_ENABLED": True,
+    # Redundante com o default da 3.4.1, declarada porque e proibicao escrita: client
+    # publico sem PKCE e code interceptavel, e um default nao e um compromisso.
+    "PKCE_REQUIRED": True,
+    # Default ja e False. A linha existe porque a propria biblioteca documenta que defaults
+    # dela estao programados para flipar na 4.0: sem a declaracao explicita, um `pip install -U`
+    # publicaria end_session_endpoint na discovery sem uma linha de log.
+    "OIDC_RP_INITIATED_LOGOUT_ENABLED": False,
+    # Descricoes em portugues: sao renderizadas cruas na tela de consentimento e lidas pela
+    # pessoa usuaria. LANGUAGE_CODE governa a i18n do Django, nao o conteudo destas strings.
+    "SCOPES": {
+        "openid": "Confirmar sua identidade",
+        "profile": "Ver seu nome e seus dados de perfil",
+        "email": "Ver seu endereco de e-mail",
+    },
+    "OIDC_RSA_PRIVATE_KEY": OIDC_RSA_PRIVATE_KEY,
+    # Coerente com o prefixo `o/` do include: e a claim `iss` de todo id_token emitido e
+    # fica cacheada em cada relying party (ADR 0007). O rstrip evita que uma barra final no
+    # .env produza `//o`, que nao gera erro nenhum e so aparece como issuer mismatch na RP.
+    "OIDC_ISS_ENDPOINT": f"{BASE_URL.rstrip('/')}/o",
+}
 
 # Endurecimento de transporte governado por BEHIND_TLS_PROXY, nunca por DEBUG (ADR 0006):
 # DEBUG e sobre diagnostico, cookie seguro e sobre transporte. Acoplar os dois produz
