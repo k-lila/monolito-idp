@@ -132,6 +132,9 @@ OAUTH2_PROVIDER = {
     # fica cacheada em cada relying party (ADR 0007). O rstrip evita que uma barra final no
     # .env produza `//o`, que nao gera erro nenhum e so aparece como issuer mismatch na RP.
     "OIDC_ISS_ENDPOINT": f"{BASE_URL.rstrip('/')}/o",
+    # Contrato por string resolvido no boot: sem esta chave nao ha erro nenhum, o fluxo
+    # fecha e o id_token chega so com `sub`.
+    "OAUTH2_VALIDATOR_CLASS": "accounts.oauth_validators.IdPOAuth2Validator",
 }
 
 # Endurecimento de transporte governado por BEHIND_TLS_PROXY, nunca por DEBUG (ADR 0006):
