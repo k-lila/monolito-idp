@@ -491,11 +491,434 @@ Adiados por isso, não por conveniência.
   `architect`**: a equação "montar `urlpatterns` seletivamente = reescrever rotas do DOT" é
   falsa, e com ela cai a conclusão de que o inventário sob `/o/` é irremovível por construção.
   **Horizonte: o Bloco G**, que grava as sete como imutáveis. Hoje custa duas frases no texto não
-  gravado; depois de G, custa uma ADR 0008 e uma 0009. O texto **não foi ajustado** —
-  `docs/implementacao.md` §4 manda anotar, e a TASK-005 estabeleceu que a correção do texto não
-  gravado se faz com autorização explícita do usuário.
+  gravado; depois de G, custa uma ADR 0008 e uma 0009. **Ajustado em 2026-09-01**, com
+  autorização explícita do usuário e pelo precedente da TASK-005: a ADR 0002 perdeu
+  "introspecção" da lista de capacidades prontas e ganhou, nas Negativas, o registro de que a
+  view exige o scope `introspection`, que o bloco `SCOPES` não declara — nenhum token pode
+  carregá-lo, e `/o/introspect/` segue anunciado e responde 403; a ADR 0007 passou a atribuir o
+  404 à montagem atual, não ao prefixo, e ganhou a alternativa que faltava. Com isso o **RISCO
+  ESTRUTURAL 1 não sobrevive afirmado em lugar nenhum**: fora deste arquivo, `RISCO ESTRUTURAL`
+  só ocorre como rótulo de formato em `.claude/agents/architect.md:101` e
+  `.claude/commands/scaffold.md:33`.
 
 - **Tally das sete ADRs, quarto bloco: passa a 3,5 de 7 falsificadas** (0002 e 0005 no bloco A,
-  0003 no C, 0002 de novo e 0007 aqui). **A conferência continua não sendo gate de bloco
-  nenhum** — segue dependendo de alguém lembrar. Repassar a E, F e, sobretudo, a G.
+  0003 no C, 0002 de novo e 0007 aqui). O tally é histórico e não regride com a correção: as
+  duas deste bloco foram corrigidas no texto não gravado, as três dos blocos anteriores não.
+  **A conferência continua não sendo gate de bloco nenhum** — segue dependendo de alguém
+  lembrar. Repassar a E, F e, sobretudo, a G.
+- **Tipo:** decisão.
+
+## [2026-09-01] TASK-007 · Disposições da Fase 3 (bloco E)
+
+Duas disposições do usuário no gate de pré-alteração, antes de qualquer escrita.
+
+- **[CRITICO] do `architect` — ACEITO.** Divergência deliberada com `docs/roadmap/09-telas-e-estaticos.md`:
+  o backend de estáticos prescrito (`CompressedManifestStaticFilesStorage`) acopla a renderização de
+  template a artefato de build e derruba sete dos 17 casos da suíte do bloco D — os que renderizam
+  `/o/authorize/` e exigem 200. Mecanismo verificado no código pelo `architect`:
+  `ManifestStaticFilesStorage.stored_name` consulta `staticfiles.json` e levanta
+  `ValueError: Missing staticfiles manifest entry` durante a renderização. **Adotado
+  `whitenoise.storage.CompressedStaticFilesStorage`** — compressão sim, manifesto não. `collectstatic`
+  continua obrigatório para subir a aplicação; deixa de ser obrigatório para a suíte passar.
+  Descartado o atalho `WHITENOISE_MANIFEST_STRICT = False`: mantém o custo e troca uma falha ruidosa
+  (404 no recurso) por uma silenciosa (hash antigo servido sem aviso).
+  **O roadmap passa a divergir do código neste ponto**, conforme `docs/implementacao.md` §4, que manda
+  registrar em vez de absorver. O passo 12 escreve o README a partir do texto do passo 09 e
+  congelaria a versão errada.
+- **[OBSERVACAO] `LOGIN_URL` — ACEITA a forma do `architect`.** O passo 09 prescreve "resolvida por
+  `reverse`" dentro das settings; a forma não se sustenta, porque `settings.py` é lido antes do
+  URLConf. Adotado `LOGIN_URL = "login"` (e `LOGIN_REDIRECT_URL`/`LOGOUT_REDIRECT_URL` = `"home"`),
+  resolvidos por `django.shortcuts.resolve_url` em runtime. A intenção do roadmap — acoplar pelo nome
+  da rota, não pela string do path — é cumprida; a letra, não. Rota renomeada segue produzindo
+  `NoReverseMatch`, falha ruidosa.
+- **ADRs 0008 e 0009 — ADIADAS ao bloco G.** Redigidas pelo `architect` na Fase 2, não gravadas em
+  `docs/adr/` nesta tarefa por decisão do usuário. Os textos íntegros ficam abaixo: são a única cópia
+  durável, e o bloco G transcreve daqui. Numeração 0008/0009 porque 0001–0007 estão reservadas aos
+  sete textos de fundação em `docs/roadmap/13-adrs.md`.
+- **Tipo:** decisão.
+
+> **NÃO PODAR ATÉ O BLOCO G.** Os dois textos abaixo são a **única cópia durável** das ADRs
+> 0008 e 0009: elas foram redigidas pelo `architect` na TASK-007 e adiadas por decisão do
+> usuário, então não existem em `docs/adr/` nem em `docs/roadmap/13-adrs.md`. A regra de poda
+> deste arquivo (linha 260) manda escrever o resto no ADR quando há ADR — aqui não há, e é
+> por isso que o texto integral mora neste arquivo apesar do tamanho. Podar estas ~200 linhas
+> antes de o bloco G gravar os dois arquivos destrói o texto e não há de onde recuperá-lo.
+> Apontado pelo `senso-critico` no gate adversarial da TASK-007.
+
+### Texto da ADR 0008, para gravação no bloco G
+
+Destino: `docs/adr/0008-servir-estaticos-com-whitenoise-sem-manifesto-de-hash.md`
+
+# 0008. Servir estáticos com WhiteNoise sem manifesto de hash
+
+## Status
+
+Aceito — 2026-09-01
+
+## Contexto
+
+O projeto roda com DEBUG=False em todo ambiente, inclusive na jornada de construção: é
+decisão declarada, para que não exista um caminho de desenvolvimento que nunca é
+exercitado. Com DEBUG=False o runserver não serve arquivos estáticos; quem serve é o
+WhiteNoise, a partir do STATIC_ROOT, o que torna `collectstatic` um passo obrigatório
+antes de subir a aplicação.
+
+O passo 09 do roadmap prescreveu o backend `CompressedManifestStaticFilesStorage`, que
+acrescenta a esse arranjo um manifesto: `collectstatic` grava um `staticfiles.json`
+mapeando cada caminho lógico para um nome com hash, e a tag `{% static %}` passa a
+resolver por consulta a esse mapa, servindo os arquivos com nome versionado e cache
+longo.
+
+Essa resolução acontece em tempo de renderização de template, e é aí que ela deixa de ser
+um detalhe de entrega. As telas do IdP — login, home e consentimento — compartilham um
+layout que referencia a folha de estilo por `{% static %}`, e a tela de consentimento é
+exercitada por sete casos de teste de integração que renderizam `/o/authorize/` e leem o
+HTML resultante. Com manifesto estrito e sem artefato coletado, a renderização levanta
+ValueError e esses testes falham por um motivo que nada tem a ver com o que verificam. O
+teste passa a depender de um passo de build.
+
+Há uma forma de afrouxar isso sem trocar o backend: o WhiteNoise expõe
+WHITENOISE_MANIFEST_STRICT, que faz um caminho ausente do manifesto ser devolvido intacto
+em vez de levantar. Ela merece consideração explícita porque parece resolver o problema
+sem abrir mão do cache-busting.
+
+O contexto de uso é um sandbox exploratório: host único, uma réplica, uma folha de estilo
+própria mais os estáticos do admin, sem CDN e sem tráfego.
+
+## Decisão
+
+Vamos configurar o backend de arquivos estáticos como
+`whitenoise.storage.CompressedStaticFilesStorage` — compressão sim, manifesto de hash
+não —, mantendo a chave `default` do dicionário STORAGES em FileSystemStorage.
+
+`collectstatic` continua obrigatório antes de subir a aplicação, e o entrypoint do
+container continua executando-o. O que deixa de ser obrigatório é executá-lo para que a
+suíte de testes passe: sem manifesto, `{% static %}` é concatenação de STATIC_URL com o
+caminho lógico e não consulta artefato algum.
+
+Esta decisão diverge do texto do passo 09 do roadmap, e a divergência é deliberada.
+
+## Consequências
+
+Positivas:
+
+- Nenhuma renderização de template depende de um artefato de build. A suíte de
+  integração fica verde sem preparação, sem override de settings e sem detecção de
+  ambiente dentro do arquivo de configuração.
+- A omissão de `collectstatic` aparece como um 404 no recurso, direto e localizável, em
+  vez de uma exceção de template que parece problema de template.
+- O ciclo de edição de CSS deixa de ter o modo de falha "editei e a tela não mudou" por
+  hash desatualizado: o arquivo é sobrescrito na coleta seguinte e o cabeçalho de cache
+  de arquivos sem hash é curto.
+- A compressão do WhiteNoise é preservada; o custo da mudança é uma palavra na
+  configuração.
+
+Negativas:
+
+- Perdemos cache-busting por nome e o cabeçalho de cache imutável de longa duração. Cada
+  visita revalida os estáticos, o que é irrelevante em host único e deixa de ser quando
+  houver volume.
+- A garantia de que ninguém receba a versão anterior de um estático depois de um deploy
+  passa a depender do cabeçalho de cache, não do nome do arquivo — uma garantia mais
+  fraca.
+- Se o projeto sair do sandbox, esta decisão terá de ser revista, e a revisão traz de
+  volta o acoplamento entre renderização de template e artefato de build que ela remove.
+  O custo terá de ser pago naquele momento, provavelmente com uma etapa de coleta no
+  pipeline de teste.
+- O texto do passo 09 do roadmap passa a divergir do código, e quem ler o roadmap sem ler
+  esta ADR encontrará uma prescrição que não foi seguida.
+
+## Alternativas consideradas
+
+- **`CompressedManifestStaticFilesStorage`, como o roadmap prescreveu** — entrega nome
+  versionado e cache longo, que é a razão pela qual foi prescrito. Descartada porque
+  transforma a resolução de `{% static %}` numa consulta a artefato de build e, com isso,
+  faz sete casos de teste de integração dependerem de um comando externo à suíte. O
+  benefício não se realiza em host único sem tráfego; o custo se realiza toda vez que
+  alguém roda os testes.
+- **Manter o manifesto e afrouxá-lo com `WHITENOISE_MANIFEST_STRICT = False`** —
+  preservaria a prescrição do roadmap trocando a exceção por um retorno tolerante.
+  Descartada porque mantém o custo e remove o alarme: a obrigação de recoletar a cada
+  edição continua de pé, e a consequência de esquecer passa a ser servir silenciosamente
+  o arquivo com hash antigo. Trocar uma falha ruidosa por uma silenciosa é o oposto da
+  postura adotada no resto deste projeto.
+- **Configuração de estáticos condicionada ao modo de teste** — resolveria o conflito sem
+  abrir mão de nada. Descartada porque criaria exatamente o que a decisão de settings
+  única existe para evitar: um caminho de configuração que roda em produção e nunca é
+  exercitado, e outro que é exercitado e nunca roda.
+- **Executar `collectstatic` antes da suíte** — a solução do lado do processo, não da
+  configuração. Descartada porque acopla a execução dos testes a um passo manual cuja
+  omissão produz falhas cujo diagnóstico não aponta para a causa.
+
+### Texto da ADR 0009, para gravação no bloco G
+
+Destino: `docs/adr/0009-isolar-a-view-de-health-da-sessao-e-do-usuario.md`
+
+# 0009. Isolar a view de /health da sessão e do usuário
+
+## Status
+
+Aceito — 2026-09-01
+
+## Contexto
+
+O IdP expõe /health como sinal de prontidão: ele verifica banco e cache de verdade e é
+consumido pelo HEALTHCHECK do próprio container, que decide se o serviço está apto a
+receber tráfego. O contrato de resposta é um JSON de três chaves — status, database e
+cache —, sempre as mesmas em sucesso e em falha, com HTTP 200 quando tudo passa e 503
+quando algum componente falha, nomeando qual.
+
+A sessão de login usa o backend cached_db sobre Redis, e o backend Redis nativo do Django
+propaga ConnectionError em vez de degradar. Com o Redis inalcançável, todo request que
+carrega a sessão falha — o que é o comportamento correto e desejado para um IdP, conforme
+a ADR 0005.
+
+Daí nasce o problema desta decisão. A situação em que o /health mais precisa ser útil é
+exatamente a situação em que o cache está fora. Se a própria request de health carregar a
+sessão, a exceção de conexão sobe antes de a view executar qualquer verificação, e o
+endpoint responde 500 com traceback em vez de 503 nomeando o cache. O orquestrador vê um
+serviço unhealthy — o que é correto — mas perde a informação que separa um health de um
+sino: em qual dos dois lugares procurar.
+
+O carregamento de sessão não acontece por si só. Nenhum middleware da lista faz I/O de
+sessão sem que alguém toque nela: o SessionMiddleware apenas instancia o store, que é
+preguiçoso, e só grava na resposta se a sessão tiver sido modificada. Quem dispara a
+carga é a view — lendo request.user, lendo ou escrevendo request.session, usando um
+decorator de autenticação, ou renderizando um template cujos context processors fazem
+qualquer uma dessas coisas.
+
+Existe uma saída tentadora e errada: capturar a exceção de cache e responder 200 assim
+mesmo, ou configurar o cliente de cache para ignorar exceções. Ela produz um health verde
+sobre um IdP que não atende request autenticado nenhum.
+
+## Decisão
+
+Vamos implementar /health como uma view pública que não toca em sessão, em request.user
+nem em template.
+
+Ela executa duas verificações independentes — uma query trivial no banco e um set seguido
+de get no cache, comparando o valor devolvido com o gravado —, cada uma dentro do seu
+próprio try/except, e monta a resposta com django.http.JsonResponse. Cada except escreve
+"error" na chave do seu componente, força "status": "error" e o HTTP 503, e registra a
+exceção no logger, que a ADR 0006 garante estar ligado ao stdout mesmo com DEBUG=False.
+
+A distinção que a decisão fixa é entre capturar para reportar e mascarar. Capturar para
+reportar é obrigatório: sem isso a resposta é um 500 opaco. Mascarar é proibido em
+qualquer forma — responder 200 com o cache fora, omitir a chave do componente que falhou,
+capturar sem refletir a falha no corpo, ou suprimir o erro na camada do cliente de cache.
+
+O formato de três chaves é contrato consumido pelo healthcheck do container e não muda de
+forma sem que o healthcheck mude junto.
+
+## Consequências
+
+Positivas:
+
+- Com o Redis fora, /health responde 503 nomeando o cache, que é a única resposta que
+  poupa alguém de investigar Postgres e Redis um a um.
+- A verificação diz respeito ao que a aplicação precisa para atender, não a se o processo
+  está de pé: um health verde passa a significar algo.
+- A causa exata da falha — recusa de conexão, timeout, autenticação — sobrevive no log,
+  ainda que o corpo de três chaves não a carregue.
+- O endpoint responde a quem chega sem sessão e sem token, que é a condição do healthcheck
+  executado de dentro do container.
+
+Negativas:
+
+- O isolamento é disciplina, não mecanismo. Um `@login_required` acrescentado por hábito,
+  uma leitura de request.user para "logar quem chamou", ou uma troca de JsonResponse por
+  render() reintroduzem o 500 opaco sem que nada avise — e o sinal só aparece no dia em
+  que o Redis cair, que é o pior dia para descobri-lo.
+- /health fica sem autenticação, e revela a terceiros que alcancem a porta o estado de
+  banco e cache. Aceito nesta fase: a exposição da porta é responsabilidade do proxy à
+  frente, e um healthcheck autenticado não serviria ao orquestrador.
+- O contrato de três chaves passa a ser público. Mudá-lo exige mudar o healthcheck do
+  compose no mesmo movimento.
+- A verificação de cache escreve uma chave a cada chamada; num healthcheck com intervalo
+  curto, isso é escrita constante, ainda que trivial.
+
+## Alternativas consideradas
+
+- **Renderizar a resposta por template** — daria uma página legível por humanos.
+  Descartada porque arrastaria os context processors de auth e de messages, que tocam a
+  sessão, e transformaria a falha de cache num 500 exatamente quando o diagnóstico
+  importa.
+- **Proteger /health com autenticação** — reduziria a exposição do estado interno.
+  Descartada porque tornaria o endpoint inutilizável pelo healthcheck do container e,
+  pior, faria o próprio ato de proteger carregar a sessão, quebrando o 503 pela mesma
+  razão da alternativa anterior.
+- **Um único try/except envolvendo as duas verificações** — menos código. Descartada
+  porque a falha do primeiro componente esconderia o estado do segundo, e o corpo passaria
+  a mentir por omissão justamente na chave que existe para localizar o problema.
+- **Ignorar exceções de cache (IGNORE_EXCEPTIONS ou equivalente)** — daria um health
+  estável. Descartada porque estabilidade aqui é falsidade: o IdP com Redis inalcançável
+  não atende request autenticado nenhum, e a mesma supressão produziria escrita de sessão
+  perdida em silêncio. Já rejeitada pela ADR 0005 e reafirmada aqui.
+- **Healthcheck raso, respondendo 200 se o processo responde** — trivial e sem
+  dependências. Descartada porque é pior que healthcheck nenhum: o orquestrador passa a
+  confiar num sinal que não observa nada.
+
+## [2026-09-01] TASK-007 · Bloco E implementado; disposição dos apontamentos das seis fases
+
+Rota `/feature` completa: product-manager → architect → gate de pré-alteração → writer →
+quality-assurance (2 passagens) → tester (2 rodadas) → gate adversarial. Passos 09 e 10 do
+roadmap. 13 critérios de aceite, todos atendidos e verificados contra código em execução —
+inclusive o AC-11, com `docker compose stop redis` de verdade. Suíte: 17 → **30 casos, verde**.
+
+### Divergências deliberadas com o roadmap — registradas porque o passo 12 escreve o README a partir dele
+
+- **Backend de estáticos sem manifesto** e **`LOGIN_URL` por nome de rota**: ver a entrada
+  "TASK-007 · Disposições da Fase 3", acima.
+- **O form de logout mora no header de `templates/base.html`, não em `templates/home.html`**
+  como o passo 09 prescreve. Razão verificada pelo `quality-assurance`: `authorize.html` abre
+  um `<form>` em torno de todo o conteúdo, então o logout dentro do bloco de conteúdo produziria
+  **form aninhado** — HTML não tem isso, e o navegador desfaz o aninhamento de um jeito que o
+  POST de consentimento não sobrevive. No header, os dois formulários ficam **irmãos**. A tela
+  de consentimento foi conferida com exatamente 2 forms irmãos.
+
+### Correção de produção fora do escopo original, autorizada pelo usuário
+
+- **`CACHES["default"]` ganhou `OPTIONS` com `socket_connect_timeout=2` e `socket_timeout=2`.**
+  O gate adversarial apontou que, sem eles, um Redis que **aceita a conexão e não responde**
+  (`docker compose pause`, pressão de memória, firewall DROP) não produzia 503 — distinto da
+  recusa de conexão, que já funcionava e é o único modo que o AC-11 e a T-09 exercitam.
+  **O `writer` corrigiu o diagnóstico com medição**: `redis==8.1.0` define
+  `DEFAULT_SOCKET_TIMEOUT = 5` em `redis/_defaults.py`, então não havia bloqueio infinito e sim
+  bloqueio implícito de **5,03s** (medido) — acima da janela de `timeout: 3s` do healthcheck.
+  Bug real, severidade menor que a descrita, e dependente de um pin que `pip install -U` muda
+  sem aviso. Os 2s têm teto (a janela de 3s do compose) e piso (o `cached_db`, que toca o cache
+  a cada request, com round-trip local na casa do milissegundo). `retry_on_timeout` descartado:
+  só entraria em cena após 2s de silêncio e dobraria o tempo até o 503, estourando a janela que
+  o valor foi escolhido para caber. Correção **observada**: 503 em 2,02s com o Redis pausado,
+  com `redis.exceptions.TimeoutError` logado pela view, e 200 em 0,009s após o unpause.
+
+### Aceitos e resolvidos nesta tarefa
+
+- **Acomodação na T-10 desfeita (T-11).** A classe declarava `databases = {"default"}` para
+  contornar a colisão entre o `patch.object` sobre o `ConnectionProxy` e o bloqueador de banco
+  do `SimpleTestCase`. O diagnóstico do `tester` estava certo, a causa não: o problema era o
+  **alvo** do patch. Trocado para `patch("config.views.connection")` — o nome que a view usa —
+  e o `databases` removido. O bloqueador volta armado: query real futura no caminho do `health`
+  falha ruidosamente em vez de escrever no banco de teste sem rollback.
+- **Traceback em suíte verde eliminado (T-12).** Os dois casos de falha do `/health` passaram a
+  envelopar a chamada em `assertLogs("config.views", level="ERROR")`. Além de calar o ruído que
+  treina quem lê a saída a ignorar traceback, isso **assere o contrato de log** que o docstring
+  da view declara: remover qualquer um dos dois `logger.exception` agora derruba o teste
+  correspondente — verificado por mutação restaurada.
+- **Colisão de namespace `T-NN`.** `T-01` a `T-05` designavam dois testes cada: os do bloco D
+  (TASK-006) e os do bloco E. Como esta entrada e a da TASK-006 citam números — "remover
+  `COMPLIANT_BCP_RFC9700_PKCE_METHOD` deixa exatamente T-05(v) vermelho" —, quem fosse conferir
+  abriria o arquivo errado e concluiria que a memória mente. **Só os testes desta tarefa foram
+  qualificados** (`TASK-007/T-NN`); os do bloco D ficaram intocados, de modo que todas as
+  citações já gravadas seguem válidas sem edição. **Regra para as próximas tarefas: `T-NN` é
+  cunhado por tarefa e não é único no repositório — qualifique ao citar fora da tarefa que o
+  cunhou.**
+- **Dois apontamentos da Fase 5 fecharam por verificação**, não por decisão: o `/static/` sem
+  documentação e o CSS sem nome versionado já estavam absorvidos pela ADR 0008.
+
+### Adiados, com horizonte nomeado
+
+- **[CRITICO] `SECURE_SSL_REDIRECT` intercepta `/health` com `BEHIND_TLS_PROXY=True`.** A probe
+  interna, sem `X-Forwarded-Proto`, recebe 301 para `https://` e falha no handshake contra um
+  gunicorn em texto claro: container eternamente unhealthy, `docker compose up --wait` que não
+  retorna, com a aplicação atendendo normalmente pelo proxy. O passo 11 cataloga duas causas de
+  "unhealthy eterno" (curl em imagem slim, `ALLOWED_HOSTS`) e **não tem esta**. O sinal existe
+  antes, mas engana: ligar a variável deixa a suíte vermelha por 301, o que se lê como ".env
+  quebrou os testes". **Horizonte: bloco F.** Adiado porque o consumidor — o `HEALTHCHECK` — só
+  existe no passo 11, e a isenção é decisão de segurança que merece o `architect`.
+- **[MEDIO] O `/health` não tem teto próprio de tempo.** Banco e cache degradando juntos somam o
+  timeout do Postgres aos 2s do cache. **Horizonte: bloco F**, cujo `HEALTHCHECK` precisa
+  acomodar a soma ou vai expirar por fora em vez de ler o 503.
+- **[OBSERVACAO] A suíte não tem caminho até a entrega do estático.** Remover ou reordenar o
+  `WhiteNoiseMiddleware` deixa 30/30 verde com a tela de credencial sem CSS — que o passo 09
+  chama de "tela que ninguém confia". `finders.find` prova que o fonte existe; `{% static %}`
+  virou concatenação e não toca `STATIC_ROOT`; nenhum caso faz GET em `/static/`. O adversarial
+  observa que a decisão do manifesto **não deslocou o acoplamento, removeu a janela de
+  observação junto com o custo**. Adiado: fechar exigiria `collectstatic` dentro da suíte, que é
+  exatamente o que a ADR 0008 rejeita. **Horizonte: primeira edição do `MIDDLEWARE`, ou o passo
+  11 quando o entrypoint assumir a coleta.**
+- **[OBSERVACAO] `{{ application.name }}` é a única identificação de quem pede consentimento e
+  nenhum teste a asserta.** Uma edição do `<h1>` produz "Autorizar ?", a pessoa autoriza sem
+  saber a quem, e a suíte segue verde porque o `code` continua saindo. É a única informação da
+  tela sem a qual consentimento deixa de ser consentimento. **Horizonte: qualquer edição do
+  template.**
+- **[OBSERVACAO] O override congela a forma do `authorize.html` da 3.4.1 e nada compara com o
+  upstream.** Campo **oculto** novo passa pelo laço; campo **visível** novo — consentimento
+  granular por scope é o caso óbvio — desaparece em silêncio. **Horizonte: primeiro major do
+  DOT.**
+- **[OBSERVACAO] Teste do novo comportamento de timeout.** Exigiria um socket TCP que aceita e
+  nunca responde, num thread. Disposição do orquestrador: **adiado por custo de manutenção
+  desproporcional num sandbox**; a técnica está registrada aqui caso o bloco F o exija.
+- **[OBSERVACAO] Mensagem de credencial inválida em inglês** numa tela em português (string do
+  `AuthenticationForm` sob `LANGUAGE_CODE="en-us"`). Corrigir exige `LANGUAGE_CODE="pt-br"` ou
+  `error_messages` próprio — decisão fora do escopo do bloco E. A T-03 foi escrita para **não**
+  travar quando isso for corrigido: assere por classe CSS e por `form.errors`, nunca pelo texto.
+- **[OBSERVACAO] Campo de e-mail renderiza `<input type="text">`** — widget do `username` do
+  `AuthenticationForm`. Sem efeito sobre autenticação.
+- **[OBSERVACAO] `{{ form.errors }}` + `{{ form.non_field_errors }}` duplicam o erro
+  não-vinculado** no consentimento, e **"Recusar" vem antes de "Autorizar", então `Enter`
+  recusa**. Ambos vêm do template original do DOT e foram preservados por fidelidade estrutural.
+  A T-07 não congela a ordem: uma correção futura não quebra teste.
+- **[OBSERVACAO] Banco de dev acumula 12 `AccessToken`, 13 `IDToken` e 13 `RefreshToken`.** O
+  rollback por `transaction.savepoint()` sob `manage.py shell` **não funciona** — roda em
+  autocommit e é inerte. Verificação manual contra o banco de dev **persiste tokens**; a leitura
+  "nada persistido" é falsa. Some com `docker compose down -v`, que por sua vez recicla o par
+  `(iss, sub)` — ver TASK-006.
+- **[OBSERVACAO] Se o healthcheck do passo 11 fizer `grep` no corpo do `/health`**, espaçamento
+  e ordem viram contrato sem guarda. A saída ali deve ser o **código HTTP** (200 vs 503), que os
+  testes guardam.
+- **[OBSERVACAO] Nenhum documento do repositório registra o comando da suíte.** `manage.py test
+  accounts` roda 27 dos 30; o comando correto é `.venv/bin/python manage.py test`. **Horizonte:
+  passo 12.** Também não está documentado que `/static/` só responde após `collectstatic`, nem
+  que editar CSS exige `collectstatic` **e** reiniciar o runserver (o WhiteNoise monta o índice
+  no boot; `autorefresh` segue `DEBUG`).
+
+### Rejeitados, com justificativa
+
+- **Teste de open-redirect via `next`.** `config/urls.py` usa `LoginView` de estoque, sem
+  subclasse e sem `success_url_allowed_hosts`; a rejeição de `next` externo é do
+  `RedirectURLMixin` via `url_has_allowed_host_and_scheme`. Um teste aqui fixaria comportamento
+  do framework — cerimônia sob o `CLAUDE.md` deste repositório. **Passa a ser demanda no dia em
+  que alguém subclassar `LoginView` ou mexer em `success_url_allowed_hosts`.**
+- **Premissa da porta 6399 na T-09.** Se um serviço a ocupar e responder Redis, a sonda passa, o
+  corpo sai `ok` e o `assertEqual(503)` **falha**. Fragilidade de ambiente real, mas o modo de
+  falha é o seguro. Sem demanda.
+- **"Alguém lê `request.user` no `/health`" como regressão que a T-09 deveria pegar.** O
+  adversarial descartou com verificação: sem cookie de sessão, `session_key` é None e o
+  `SessionStore` não faz I/O nenhum — nem `request.user`, nem `render()`, nem os context
+  processors alcançam o Redis. A probe do container nunca envia cookie. **A frase das Negativas
+  da ADR 0009 ("uma leitura de `request.user` reintroduz o 500 opaco") é mais larga que o
+  mecanismo** — a estreitar antes do bloco G. O que a T-09 de fato pega: `@login_required`
+  (viraria 302) e qualquer **escrita** de sessão, inclusive `messages` (viraria 500).
+
+### Correção de um erro do orquestrador
+
+Registrei em `context.json` uma nota afirmando que `decisions.md` estava desatualizado sobre as
+edições em `docs/roadmap/13-adrs.md`. **Estava errado**: a entrada da TASK-006 registra "Ajustado
+em 2026-09-01, com autorização explícita do usuário" e descreve as duas correções uma a uma. Li
+aquela seção por `tail` truncado e concluí do trecho cortado. O gate adversarial pegou a
+inversão. **O fato real, que permanece: as edições de `13-adrs.md` estão no disco e fora do
+histórico do git.** `docs/implementacao.md` §2 nomeia `git checkout`/`clean` como recurso quando
+um passo deixa lixo na árvore — aplicado aqui, descarta as correções, este arquivo segue
+afirmando que foram aplicadas, e o bloco G transcreve as ADRs 0002 e 0007 falsificadas, agora
+imutáveis. **Não faz parte do bloco E e não entra nos commits dele.**
+
+### Sobre as ADRs 0008 e 0009
+
+Seguem **adiadas ao bloco G** por decisão do usuário, reafirmada depois de o gate adversarial
+argumentar que adiá-las as põe depois do único bloco capaz de falsificá-las. O texto integral
+está acima, protegido por um aviso de não-poda. **Três frases da 0009 estão expostas ao bloco F**
+e devem ser conferidas antes da gravação: a da causa que "sobrevive no log" (o timeout, agora
+corrigido, mas a frase pressupõe que sempre houve timeout), a do "endpoint responde a quem chega
+sem sessão e sem token" (falsa com `BEHIND_TLS_PROXY=True`), e a do "health verde significa
+capaz de atender" (`SELECT 1` prova conectividade, não capacidade — migration pendente passa por
+saudável). A **ADR 0008** tem uma incoerência interna: descarta `WHITENOISE_MANIFEST_STRICT` por
+"trocar falha ruidosa por silenciosa" e adota opção que faz a mesma troca na jornada de
+construção. A decisão continua defensável; o texto avalia o mesmo fato com sinais opostos em dois
+parágrafos. Vale uma frase antes de virar imutável.
+
+**Tally das sete ADRs, quinto bloco: segue em 3,5 de 7 falsificadas** — o bloco E não falsificou
+nenhuma das sete. **A conferência continua não sendo gate de bloco nenhum.** Repassar a F e,
+sobretudo, a G.
+
 - **Tipo:** decisão.
