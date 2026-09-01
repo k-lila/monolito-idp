@@ -1,10 +1,12 @@
 {% extends "base.html" %}
 
-{# Override de template do DOT, nunca da view. O que vem do original e estrutural e nao
-   pode ser reescrito: o ramo de erro, o csrf, o laco de campos ocultos e o name="allow".
-   Em especial o laco — os ocultos precisam ser emitidos pelo widget do Django, na ordem
-   de atributos que ele produz; escrever esses inputs a mao mantem a tela funcionando e
-   quebra silenciosamente quem le o form (accounts/tests/oauth_helpers.py). #}
+{% comment %}
+Override de template do DOT, nunca da view. O que vem do original e estrutural e nao
+pode ser reescrito: o ramo de erro, o csrf, o laco de campos ocultos e o name="allow".
+Em especial o laco — os ocultos precisam ser emitidos pelo widget do Django, na ordem
+de atributos que ele produz; escrever esses inputs a mao mantem a tela funcionando e
+quebra silenciosamente quem le o form (accounts/tests/oauth_helpers.py).
+{% endcomment %}
 
 {% block title %}IdP — autorizacao{% endblock %}
 

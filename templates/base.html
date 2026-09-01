@@ -7,18 +7,22 @@
     <link rel="stylesheet" href="{% static 'css/idp.css' %}">
 </head>
 <body>
-    {# Fora do bloco de conteudo: o form de logout e o form da tela em uso sao irmaos,
-       nunca aninhados. HTML nao tem form aninhado, e o navegador desfaz o aninhamento
-       de um jeito que o POST do consentimento nao sobrevive. #}
+    {% comment %}
+    Fora do bloco de conteudo: o form de logout e o form da tela em uso sao irmaos,
+    nunca aninhados. HTML nao tem form aninhado, e o navegador desfaz o aninhamento
+    de um jeito que o POST do consentimento nao sobrevive.
+    {% endcomment %}
     <header class="cabecalho">
         <a class="marca" href="{% url 'home' %}">IdP</a>
         {% if user.is_authenticated %}
             <div class="sessao">
                 <span class="identidade">{{ user.email }}</span>
-                {# Sem campo `next`: LogoutView.get_success_url prefere o next do POST, e um
-                   next vindo da tela de consentimento devolveria o usuario ja deslogado a
-                   /o/authorize/, que o manda de volta ao login. Sem ele, cai em
-                   LOGOUT_REDIRECT_URL. #}
+                {% comment %}
+                Sem campo `next`: LogoutView.get_success_url prefere o next do POST, e um
+                next vindo da tela de consentimento devolveria o usuario ja deslogado a
+                /o/authorize/, que o manda de volta ao login. Sem ele, cai em
+                LOGOUT_REDIRECT_URL.
+                {% endcomment %}
                 <form method="post" action="{% url 'logout' %}">
                     {% csrf_token %}
                     <button type="submit">Sair</button>
