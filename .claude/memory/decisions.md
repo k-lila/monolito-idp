@@ -375,3 +375,127 @@ memória — é sedimento.
 - **A conferência continua não sendo gate de bloco nenhum** — segue dependendo de alguém
   lembrar. Repassar a D, E e F.
 - **Tipo:** decisão.
+
+## [2026-09-01] TASK-006 · Bloco D: servidor OAuth2/OIDC e validador de claims
+
+- **Decisão:** os passos 07 e 08 fecharam em dois gates e dois commits (`d742dc3`, `a6b424d`),
+  como `docs/implementacao.md` prescreve. Três pontos que o roadmap não decide foram resolvidos
+  pelo `architect` e implementados: a chave RSA **reusa a variável de módulo** de
+  `config/settings.py` em vez de reler o ambiente (uma segunda leitura é um segundo lugar para
+  errar o `multiline=True`); `OIDC_RP_INITIATED_LOGOUT_ENABLED: False` entrou declarada **além
+  das cinco chaves que o passo 07 enumera**, autorizada pelo usuário, porque a biblioteca
+  documenta flips de default programados para a 4.0 e um flip publicaria `end_session_endpoint`
+  sem uma linha de log; e `get_additional_claims` ficou na **forma agnóstica ao request** (um
+  parâmetro, valores callables), porque só nessa forma o DOT soma as claims a
+  `claims_supported` — na forma de dois parâmetros a discovery anunciaria `["sub"]` enquanto o
+  servidor emite `sub`, `name` e `email`, sem reprovar AC nenhum.
+- **Issuer confirmado:** `http://localhost:8000/o`, confirmado pelo usuário **duas vezes**,
+  ciente de que a janela fecha na primeira relying party integrada e não no fim do roadmap.
+  Fecha o `CRITICO` do `product-manager` que apontava a ausência desse registro. Ver o adiado
+  sobre `sub` abaixo — o cerimonial cobriu chave e issuer e deixou o terceiro componente de fora.
+- **AC-05 reescrito antes de ser verificado:** a redação original ("`/applications/` na raiz
+  responde 404") era **verdadeira por construção** e não podia falhar, porque `config/urls.py`
+  nunca monta nada do DOT na raiz. Mesmo defeito que a TASK-005 diagnosticou no gate do passo
+  06, e que aquela tarefa pediu que os blocos D–F vigiassem. Substituído, com autorização, por
+  três sinais que discriminam: `/o/applications/` em 302, um único `include` com prefixo `o/`,
+  e `/o/logout/` em 404 **com** `end_session_endpoint` ausente da discovery.
+- **Tipo:** decisão.
+
+## [2026-09-01] TASK-006 · PKCE aceitava `plain`: o código contradizia o próprio comentário
+
+- **Decisão:** o `quality-assurance` achou, e o orquestrador reproduziu, que
+  `code_challenge_method=plain` fechava o fluxo inteiro — `code` emitido, `/o/token/` 200,
+  `id_token` RS256 na mão. Com `plain` o `code_challenge` que trafega na URL de autorização **é**
+  o `code_verifier`, então quem observa o pedido resgata o `code` — exatamente o ataque que o
+  comentário de `PKCE_REQUIRED` afirmava prevenir desde o passo 07. Corrigido em `5aa4427` com
+  `COMPLIANT_BCP_RFC9700_PKCE_METHOD: True`, autorizado pelo usuário. **Nenhum passo do roadmap
+  pede essa chave**: entra pelo mesmo argumento que trouxe `OIDC_RP_INITIATED_LOGOUT_ENABLED` —
+  um default não é um compromisso. `code_challenge_methods_supported` passou de
+  `["plain","S256"]` para `["S256"]`.
+- **Lição que sobrevive à tarefa:** `PKCE_REQUIRED` exige PKCE, **não restringe o método**. Um
+  comentário afirmando uma proteção não é a proteção, e essa distância durou dois commits sem
+  que ninguém a visse — o `check --deploy` já a nomeava em `W003` o tempo todo.
+- **Tipo:** decisão.
+
+## [2026-09-01] TASK-006 · A primeira suíte do projeto, verificada por mutação
+
+- **Decisão:** o `ESCOPO` da tarefa punha testes automatizados fora desta fase, e o usuário
+  **decidiu executá-los mesmo assim**. Cinco demandas do `quality-assurance`, uma por falha
+  silenciosa do bloco, em `accounts/tests/` (commit `c6abaee`): 17 testes no runner nativo, sem
+  dependência nova. A justificativa que decidiu: as cinco falhas deixam `manage.py check` verde,
+  logo teste é o único sinal possível para elas.
+- **A asserção que importa é T-04(v):** o conjunto de claims de identidade do `id_token` tem de
+  ser **igual** ao `claims_supported` da discovery. É a única guarda contra a troca de aridade de
+  `get_additional_claims`, que deixa o `id_token` correto e faz a discovery subdeclarar em
+  silêncio. Nenhuma peça isolada percebe; só comparar os dois lados pega.
+- **Suíte verificada por mutação, não por rodar verde** — pelo orquestrador e, de forma
+  independente, pelo `quality-assurance` na segunda passagem: remover
+  `COMPLIANT_BCP_RFC9700_PKCE_METHOD` deixa exatamente T-05(v) vermelho; `PKCE_REQUIRED=False`
+  deixa exatamente T-05(i); trocar a aridade deixa exatamente T-04(v). Teste que nunca fica
+  vermelho não é sinal, e esta suíte fica.
+- **Tipo:** decisão.
+
+## [2026-09-01] TASK-006 · O catálogo de falhas silenciosas estava invertido
+
+- **Decisão:** o `senso-critico` apontou e o orquestrador confirmou nos dois ramos, com settings
+  de mutação contra o servidor real, que o diagnóstico do JWKS vazio estava **ao contrário** —
+  em `config/settings.py`, no docstring de `accounts/tests/test_jwks.py` e no próprio
+  `docs/roadmap/07-servidor-oauth2-oidc.md:92-94`:
+
+  | causa | sinal real | natureza |
+  | --- | --- | --- |
+  | chave **ausente** (string vazia) | `{"keys": []}`, e `id_token_signing_alg_values_supported` cai de `["RS256","HS256"]` para `["HS256"]`; **os quatro endpoints seguem listados** | **silenciosa** |
+  | PEM **malformado** (`\n` literais) | `ValueError` em `jwcrypto/jwk.py:1140` → 500 em `/o/.well-known/jwks.json` e em `/o/token/`, logado por `django.request` | **ruidosa** |
+
+  Os comentários do código atribuíam a falha silenciosa ao caso ruidoso. Corrigidos nesta tarefa.
+- **Divergência do roadmap, anotada e não ajustada** (`docs/implementacao.md` §4): o passo 07
+  afirma que sem a chave "a discovery omite os endpoints de token". **Não omite** —
+  `ConnectDiscoveryInfoView` (`views/oidc.py:73-76`) monta os quatro com `required=True`,
+  incondicionalmente. Consequência que importa para quem executar os blocos seguintes: **o gate
+  do passo 07 "a discovery lista os endpoints de authorize, token, userinfo e jwks" é verdadeiro
+  por construção**, com chave ou sem — mesma classe do AC-05. O sinal falsificável é o `alg`.
+  O passo 12 escreve o README a partir do texto do passo 07 e congelaria a versão errada.
+- **Tipo:** decisão.
+
+## [2026-09-01] TASK-006 · Adiados do gate adversarial, com evidência e horizonte
+
+Três apontamentos `CRITICO` do `senso-critico`, todos **verificados** pelo orquestrador e
+nenhum deles defeito do que o Bloco D implementou — são defaults do DOT e decisões herdadas.
+Adiados por isso, não por conveniência.
+
+- **Desativar uma pessoa não desliga os tokens dela.** Verificado empiricamente: com
+  `is_active=False`, o `refresh_token` ainda troca por `access_token` novo, `id_token` novo com
+  `name` e `email`, e `/o/userinfo/` responde 200. A string `is_active` **não ocorre uma única
+  vez** no pacote `oauth2_provider` 3.4.1. Agravante: `REFRESH_TOKEN_EXPIRE_SECONDS` é `None`
+  por default, então o refresh **nunca expira** e `clear_expired()` nunca o coleta.
+  `docs/roadmap/12-readme.md:102-104` arquiva `cleartokens` sem agendamento como problema de
+  **crescimento de tabela** — a caracterização não alcança este caso. **Horizonte:** primeira RP
+  integrada mais o primeiro desligamento de pessoa. A janela de registro barato é agora, porque
+  o texto do passo 12 é escrito no bloco F.
+- **O par `(iss, sub)` é reciclado pelo reset que o próprio projeto prescreve.** `sub` é
+  `str(user.pk)`; `docker compose down -v` (nomeado em `docs/implementacao.md:47`) derruba o
+  volume, e `migrate` + `createsuperuser` recriam `id=1`. Com o `iss` fixado como permanente,
+  uma **pessoa diferente** passa a receber o par `("http://localhost:8000/o", "1")` — que a OIDC
+  Core §5.7 manda a RP usar como chave de identidade. O cerimonial de irreversibilidade foi
+  montado para a chave RSA e para o issuer e **nunca estendido ao terceiro componente do
+  contrato**. **Horizonte:** primeiro `down -v` depois da primeira integração; a mitigação é uma
+  decisão registrada agora e uma migration numa fase futura.
+- **Duas das sete ADRs contêm afirmações que este bloco falsificou.** A **ADR 0002**
+  (`13-adrs.md:213-214`) lista "introspecção" entre as capacidades que justificam a escolha do
+  DOT — e o bloco `SCOPES` deste passo removeu o scope `introspection`, de modo que
+  `/o/introspect/` segue anunciado na metadata RFC 8414 e responde 403. A **ADR 0007**
+  (`13-adrs.md:677-680`) registra o 404 da RFC 8414 na raiz como consequência **inevitável** do
+  prefixo; não é inevitável — `oauth2_provider/urls.py:107-114` documenta e exporta
+  `metadata_urlpatterns` para montagem separada na raiz, e compor entre listas que a biblioteca
+  exporta não é reescrever view nem path. Isto também **reformula o RISCO ESTRUTURAL 1 do
+  `architect`**: a equação "montar `urlpatterns` seletivamente = reescrever rotas do DOT" é
+  falsa, e com ela cai a conclusão de que o inventário sob `/o/` é irremovível por construção.
+  **Horizonte: o Bloco G**, que grava as sete como imutáveis. Hoje custa duas frases no texto não
+  gravado; depois de G, custa uma ADR 0008 e uma 0009. O texto **não foi ajustado** —
+  `docs/implementacao.md` §4 manda anotar, e a TASK-005 estabeleceu que a correção do texto não
+  gravado se faz com autorização explícita do usuário.
+
+- **Tally das sete ADRs, quarto bloco: passa a 3,5 de 7 falsificadas** (0002 e 0005 no bloco A,
+  0003 no C, 0002 de novo e 0007 aqui). **A conferência continua não sendo gate de bloco
+  nenhum** — segue dependendo de alguém lembrar. Repassar a E, F e, sobretudo, a G.
+- **Tipo:** decisão.
