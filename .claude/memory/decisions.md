@@ -922,3 +922,26 @@ nenhuma das sete. **A conferência continua não sendo gate de bloco nenhum.** R
 sobretudo, a G.
 
 - **Tipo:** decisão.
+
+---
+
+## [2026-09-01] TASK-008 — o gate visual do passo 09 pegou comentário vazando nas telas
+
+`{# ... #}` no Django é comentário **de uma linha só** — multi-linha não vira token e o texto sai
+renderizado como conteúdo. Dos seis comentários dos templates, **cinco vazavam** (dois de
+`base.html`, três de `login.html`): a tela de login servia quatro blocos de comentário de
+implementação acima do campo de senha. O sexto, no topo de `authorize.html`, é **latente** — fora de
+`{% block %}` num template que faz `{% extends %}`, o `ExtendsNode` descarta literal ali. Era
+exibição, nunca execução: nenhum comentário continha `{{ }}` ou `{% %}`, logo não houve superfície de
+injeção. Corrigido com `{% comment %}`, texto preservado palavra por palavra.
+
+**Nenhum mecanismo automático via isso**: os testes asseram campo, classe CSS e código HTTP, nunca
+que o corpo está livre de fonte vazado, e `check` não olha corpo de template. Justificativa
+retroativa do gate visual, adiado cinco vezes ao custo de um bloco. Guarda em
+`accounts/tests/test_template_comment_leak.py` (TASK-008/T-01), que assere pela **ausência dos
+delimitadores**, nunca pelo texto; mordida observada restaurando os templates do `HEAD`. Suíte 30→33.
+
+**A parte estética do gate continua sem passar** — a extensão do Chrome não conectou e nenhum olho
+humano viu as telas. **Regra que fica:** docstring de teste não cita número de linha de template.
+
+- **Tipo:** decisão.
