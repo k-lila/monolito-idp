@@ -116,6 +116,11 @@ OAUTH2_PROVIDER = {
     # Redundante com o default da 3.4.1, declarada porque e proibicao escrita: client
     # publico sem PKCE e code interceptavel, e um default nao e um compromisso.
     "PKCE_REQUIRED": True,
+    # E esta chave que faz valer a linha acima: PKCE_REQUIRED sozinho ainda aceita
+    # code_challenge_method=plain, em que o challenge e o proprio verifier em claro na
+    # requisicao de autorizacao — quem observa o pedido troca o code interceptado por um
+    # token. Restringe a S256 (RFC 9700 §2.1.1); default do DOT programado para flipar na 4.0.
+    "COMPLIANT_BCP_RFC9700_PKCE_METHOD": True,
     # Default ja e False. A linha existe porque a propria biblioteca documenta que defaults
     # dela estao programados para flipar na 4.0: sem a declaracao explicita, um `pip install -U`
     # publicaria end_session_endpoint na discovery sem uma linha de log.
