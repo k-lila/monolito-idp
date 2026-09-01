@@ -95,6 +95,22 @@ CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",  # nativo do Django; sem django-redis (ADR 0005)
         "LOCATION": env.str("REDIS_URL"),
+        # A falha que estes dois fecham nao e a recusa de conexao — essa devolve RST na
+        # hora, o except da view roda e o 503 sai —, e a do Redis que aceita a conexao e
+        # nao responde (`compose pause`, BGSAVE sob pressao de memoria, firewall que faz
+        # DROP): sem timeout `cache.set` pendura, nenhuma linha de log sai da view e quem
+        # encerra e o worker timeout do gunicorn, levando junto as outras requisicoes em
+        # voo naquele worker. Explicitos porque o default e implicito e versionado: None
+        # (bloqueio sem limite) em redis-py antigo, 5s no 8.1.0 de requirements.txt — ja
+        # acima do `timeout: 3s` do healthcheck do redis no compose. 2s cabe nessa janela
+        # e fica tres ordens de grandeza acima do round-trip local, para que um soluco do
+        # Redis nao vire erro de sessao: o SESSION_ENGINE abaixo toca o cache a cada
+        # request. Sem retry_on_timeout — o que dura menos de 2s nao estoura, e insistir
+        # contra um Redis travado so adia o 503.
+        "OPTIONS": {
+            "socket_connect_timeout": 2,
+            "socket_timeout": 2,
+        },
     }
 }
 

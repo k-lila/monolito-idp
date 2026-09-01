@@ -10,7 +10,7 @@ from django.contrib import admin
 from django.contrib.auth.views import LoginView, LogoutView
 from django.urls import include, path
 
-from config.views import home
+from config.views import health, home
 
 urlpatterns = [
     path("admin/", admin.site.urls),
@@ -22,5 +22,8 @@ urlpatterns = [
     # clique. Fora daqui, /accounts/password_reset/ e um 404 do proprio Django.
     path("accounts/login/", LoginView.as_view(), name="login"),
     path("accounts/logout/", LogoutView.as_view(), name="logout"),
+    # Sem barra final: e a URL do HEALTHCHECK do container, e APPEND_SLASH so acrescenta
+    # barra, nunca remove — /health com barra registrada aqui responderia 404 a ele.
+    path("health", health, name="health"),
     path("", home, name="home"),
 ]
