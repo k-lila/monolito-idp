@@ -21,7 +21,9 @@ ALLOWED_HOSTS = env.list("ALLOWED_HOSTS")
 
 # Consumidas pelo bloco OAUTH2_PROVIDER abaixo, que reusa estas duas variaveis em vez de
 # reler o ambiente: uma segunda leitura sem multiline=True produz um PEM com \n literais,
-# que o DOT aceita em silencio e devolve como JWKS vazio.
+# que falha ruidosamente — ValueError ao carregar a chave, 500 em /o/.well-known/jwks.json
+# e em /o/token/, logado por django.request. A falha silenciosa e a da chave ausente: JWKS
+# vazio com 200, e na discovery so o alg denuncia, caindo de RS256+HS256 para HS256.
 BASE_URL = env.str("BASE_URL")
 OIDC_RSA_PRIVATE_KEY = env.str("OIDC_RSA_PRIVATE_KEY", multiline=True)
 

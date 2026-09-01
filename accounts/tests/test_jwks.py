@@ -1,9 +1,9 @@
 """T-03 — GET /o/.well-known/jwks.json.
 
 Demanda do quality-assurance (TASK-006). Nivel integracao: o defeito que este
-teste existe para pegar e a chave PEM chegar malformada a settings (`\\n`
-literais de uma segunda leitura do ambiente sem multiline=True) — o DOT engole
-isso em silencio e serve {"keys": []}. So a view revela o resultado.
+teste existe para pegar e a chave ausente em settings — o DOT engole isso em
+silencio e serve {"keys": []} com 200. So a view revela o resultado. PEM
+malformado nao precisa de guarda aqui: levanta e vira 500 logado.
 """
 
 from django.test import TestCase
