@@ -210,8 +210,8 @@ ADR 0007.
 
 Positivas:
 
-- Authorization Code + PKCE, refresh, revogação, introspecção, descoberta e JWKS chegam
-  prontos e testados por uma comunidade grande (Jazzband), em vez de escritos aqui.
+- Authorization Code + PKCE, refresh, revogação, descoberta e JWKS chegam prontos e
+  testados por uma comunidade grande (Jazzband), em vez de escritos aqui.
 - Applications, grants e tokens são modelos do ORM: registro e inspeção de clients saem
   de graça pelo admin.
 - O contrato com as relying parties é OIDC Discovery 1.0, auto-descoberto: uma RP que
@@ -232,6 +232,11 @@ Negativas:
   (cleartokens) passa a ser obrigação operacional nossa.
 - O DOT deixa de ser dependência e passa a ser a definição do nosso contrato público;
   trocá-lo depois de haver RPs integradas é migração de protocolo, não refatoração.
+- A introspecção não chega utilizável: a view exige o scope introspection, que o bloco
+  SCOPES não declara, e nenhum token pode carregá-lo. /o/introspect/ segue roteado e
+  anunciado como introspection_endpoint na metadata RFC 8414, e responde 403. Coerente
+  com esta fase, que não tem resource server; vira pergunta de integração quando houver
+  um.
 
 ## Alternativas consideradas
 
@@ -676,8 +681,12 @@ Negativas:
 
 - O issuer passa a ter componente de path, e com isso as formas de descoberta da OIDC
   Discovery 1.0 e da RFC 8414 deixam de coincidir. Uma RP que implemente estritamente a
-  RFC 8414 procurará em {BASE_URL}/.well-known/oauth-authorization-server/o e receberá
-  404. Não prometemos essa forma de descoberta; documentamos a URL correta.
+  RFC 8414 procurará em {BASE_URL}/.well-known/oauth-authorization-server/o e hoje
+  receberá 404 — consequência da montagem atual, um único include sob /o/, e não do
+  prefixo em si: o DOT exporta metadata_urlpatterns e documenta que deployment sob
+  prefixo deve montá-la também na raiz do servidor, onde a forma path-component da RFC
+  8414 reflete o sufixo de volta no issuer. Esta fase não a montou: não prometemos essa
+  forma de descoberta e documentamos a URL correta. A escolha fica em aberto.
 - A string do issuer torna-se irreversível assim que a primeira RP integra. Levar o IdP
   para a raiz do host depois exige janela coordenada com todas elas.
 - Uma URL de login com prefixo técnico ("/o/authorize") é menos apresentável que uma na
@@ -696,4 +705,9 @@ Negativas:
   e certificado próprios, que estão fora do escopo de um compose de host único; continua
   sendo o destino natural se o IdP for exposto de verdade, e é a razão pela qual a string
   do issuer deve ser confirmada antes da primeira integração.
+- **Montar metadata_urlpatterns também na raiz, mantendo o issuer em {BASE_URL}/o** —
+  atenderia a RP estrita da RFC 8414 sem mover o issuer nem publicar as views de gestão
+  do DOT na raiz, compondo listas que a própria biblioteca exporta para esse fim. Não
+  adotada nesta fase: nenhuma RP a exige ainda, e a raiz ganharia rotas .well-known antes
+  de haver quem as consulte. Permanece disponível.
 ```
