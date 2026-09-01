@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+
+{% block title %}IdP — inicio{% endblock %}
+
+{% block content %}
+    <div class="cartao">
+        <h1>Provedor de identidade</h1>
+        {% if user.is_authenticated %}
+            <p>Sessao ativa como <span class="identidade">{{ user.email }}</span>.</p>
+            <p>Use o botao Sair, no topo, para encerrar a sessao.</p>
+        {% else %}
+            <p>Nenhuma sessao ativa.</p>
+            <p><a href="{% url 'login' %}">Entrar</a></p>
+        {% endif %}
+    </div>
+{% endblock %}

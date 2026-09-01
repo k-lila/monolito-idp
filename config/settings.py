@@ -58,8 +58,9 @@ MIDDLEWARE = [
     # fase do SPA, como erro de CORS sem pista que aponte para esta linha.
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
-    # WhiteNoiseMiddleware entra AQUI no passo 09, logo abaixo do SecurityMiddleware,
-    # para que o estatico seja servido sem atravessar sessao, CSRF e autenticacao.
+    # Logo abaixo do SecurityMiddleware: o estatico e servido sem atravessar sessao,
+    # CSRF e autenticacao. Com DEBUG=False e quem serve /static/ — o runserver nao serve.
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -194,3 +195,20 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
+STATIC_ROOT = BASE_DIR / "staticfiles"
+
+# Sem manifesto, divergindo do passo 09: o backend com manifesto faz `{% static %}`
+# consultar staticfiles.json em tempo de renderizacao, e um artefato de build ausente
+# vira ValueError na propria renderizacao — a suite roda sem collectstatic previo. A
+# chave `default` e obrigatoria: declarar STORAGES substitui o dicionario inteiro.
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},
+}
+
+# Nomes de rota, nao caminhos: as tres passam por resolve_url, que chama reverse em
+# runtime. Os defaults do Django apontam para /accounts/profile/, que nao existe aqui —
+# seria um 404 logo apos um login bem-sucedido.
+LOGIN_URL = "login"
+LOGIN_REDIRECT_URL = "home"
+LOGOUT_REDIRECT_URL = "home"

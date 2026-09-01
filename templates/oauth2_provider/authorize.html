@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{# Override de template do DOT, nunca da view. O que vem do original e estrutural e nao
+   pode ser reescrito: o ramo de erro, o csrf, o laco de campos ocultos e o name="allow".
+   Em especial o laco — os ocultos precisam ser emitidos pelo widget do Django, na ordem
+   de atributos que ele produz; escrever esses inputs a mao mantem a tela funcionando e
+   quebra silenciosamente quem le o form (accounts/tests/oauth_helpers.py). #}
+
+{% block title %}IdP — autorizacao{% endblock %}
+
+{% block content %}
+    <div class="cartao">
+        {% if not error %}
+            <form id="authorizationForm" method="post">
+                <h1>Autorizar {{ application.name }}?</h1>
+                {% csrf_token %}
+
+                {% for field in form %}
+                    {% if field.is_hidden %}
+                        {{ field }}
+                    {% endif %}
+                {% endfor %}
+
+                <p>A aplicacao solicita as seguintes permissoes:</p>
+                <ul class="permissoes">
+                    {% for scope in scopes_descriptions %}
+                        <li>{{ scope }}</li>
+                    {% endfor %}
+                </ul>
+
+                {{ form.errors }}
+                {{ form.non_field_errors }}
+
+                <div class="acoes">
+                    <input type="submit" value="Recusar"/>
+                    <input type="submit" class="primario" name="allow" value="Autorizar"/>
+                </div>
+            </form>
+        {% else %}
+            <h1>Erro: {{ error.error }}</h1>
+            <p>{{ error.description }}</p>
+        {% endif %}
+    </div>
+{% endblock %}

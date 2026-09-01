@@ -1,0 +1,160 @@
+/* Folha unica do IdP: login, home e consentimento. Sem framework e sem CDN — tela
+   onde se digita senha nao busca recurso de terceiro. */
+
+:root {
+    --fundo: #f4f5f7;
+    --superficie: #ffffff;
+    --borda: #d5d8de;
+    --texto: #1c1f24;
+    --suave: #5b6270;
+    --acento: #2f5bd7;
+    --erro: #a8261f;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background: var(--fundo);
+    color: var(--texto);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 16px;
+    line-height: 1.5;
+}
+
+.cabecalho {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding: 0.75rem 1.5rem;
+    background: var(--superficie);
+    border-bottom: 1px solid var(--borda);
+}
+
+.cabecalho .marca {
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-decoration: none;
+    color: var(--texto);
+}
+
+.cabecalho .sessao {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    color: var(--suave);
+    font-size: 0.9rem;
+}
+
+.conteudo {
+    max-width: 34rem;
+    margin: 3rem auto;
+    padding: 0 1.5rem;
+}
+
+.cartao {
+    background: var(--superficie);
+    border: 1px solid var(--borda);
+    border-radius: 8px;
+    padding: 1.75rem;
+}
+
+h1 {
+    font-size: 1.35rem;
+    margin: 0 0 1rem;
+}
+
+h2 {
+    font-size: 1.1rem;
+    margin: 0 0 0.75rem;
+}
+
+p {
+    margin: 0 0 1rem;
+}
+
+.campo {
+    margin-bottom: 1rem;
+}
+
+.campo label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-size: 0.9rem;
+    color: var(--suave);
+}
+
+input[type="text"],
+input[type="email"],
+input[type="password"] {
+    width: 100%;
+    padding: 0.6rem 0.7rem;
+    border: 1px solid var(--borda);
+    border-radius: 6px;
+    background: var(--superficie);
+    color: var(--texto);
+    font-size: 1rem;
+}
+
+input:focus {
+    outline: 2px solid var(--acento);
+    outline-offset: 1px;
+}
+
+button,
+input[type="submit"] {
+    padding: 0.55rem 1.1rem;
+    border: 1px solid var(--borda);
+    border-radius: 6px;
+    background: var(--superficie);
+    color: var(--texto);
+    font-size: 0.95rem;
+    cursor: pointer;
+}
+
+button.primario,
+input[type="submit"].primario {
+    background: var(--acento);
+    border-color: var(--acento);
+    color: #ffffff;
+}
+
+.acoes {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 1.25rem;
+}
+
+.permissoes {
+    margin: 0 0 1rem;
+    padding-left: 1.25rem;
+}
+
+.permissoes li {
+    margin-bottom: 0.25rem;
+}
+
+.erro,
+.errorlist {
+    margin: 0 0 1rem;
+    padding: 0.6rem 0.8rem;
+    list-style: none;
+    border: 1px solid var(--erro);
+    border-radius: 6px;
+    background: #fdeceb;
+    color: var(--erro);
+    font-size: 0.9rem;
+}
+
+.erro:empty,
+.errorlist:empty {
+    display: none;
+}
+
+.identidade {
+    font-weight: 600;
+}
