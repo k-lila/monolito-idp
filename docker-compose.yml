@@ -34,6 +34,30 @@ services:
       timeout: 3s
       retries: 10
 
+  app:
+    build: .
+    depends_on:
+      # A espera por Postgres e Redis e daqui, nao de laco de polling no entrypoint.
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      # As portas aqui sao as INTERNAS - 5432 e 6379 -, nunca POSTGRES_PORT/REDIS_PORT,
+      # que so valem para quem chega pelo host. Sem esta sobrescrita o container herda os
+      # enderecos da jornada de construcao, em que localhost e o proprio container, e o
+      # migrate do entrypoint falha com erro que parece de credencial ou de rede.
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      # Divergencia deliberada com o passo 11, que prescreve "8000:8000": publicacao sem
+      # endereco instala DNAT a frente do firewall do host, e o que fica exposto e um
+      # formulario de senha em HTTP claro. Mesmo precedente de postgres e redis acima.
+      - "127.0.0.1:8000:8000"
+    # Uma replica so, e isso e premissa da migracao no entrypoint: duas instancias migram
+    # concorrentemente no boot.
+
 volumes:
   pgdata:
   redisdata:

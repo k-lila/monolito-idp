@@ -91,6 +91,13 @@ WSGI_APPLICATION = "config.wsgi.application"
 
 DATABASES = {"default": env.db("DATABASE_URL")}
 
+# Teto da metade "banco" do /health, simetrico ao socket_connect_timeout do CACHES. Com
+# CONN_MAX_AGE default (0) toda request abre conexao nova, entao e na conexao que o tempo
+# mora — `SELECT 1` nao toma lock nem le relacao, e um statement_timeout guardaria um
+# cenario que nao existe. 2s e o minimo que a libpq aceita. E deste teto que o `timeout`
+# do HEALTHCHECK e derivado (ADR 0011).
+DATABASES["default"].setdefault("OPTIONS", {})["connect_timeout"] = 2
+
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",  # nativo do Django; sem django-redis (ADR 0005)
@@ -167,6 +174,12 @@ OAUTH2_PROVIDER = {
 SESSION_COOKIE_SECURE = BEHIND_TLS_PROXY
 CSRF_COOKIE_SECURE = BEHIND_TLS_PROXY
 SECURE_SSL_REDIRECT = BEHIND_TLS_PROXY
+# SecurityMiddleware.process_request roda antes de qualquer view: com SECURE_SSL_REDIRECT
+# ligado, a probe do container — que chega de dentro, em texto claro, sem X-Forwarded-Proto —
+# recebe 301 para https:// e morre no handshake contra um gunicorn em texto claro. O padrao
+# casa contra request.path.lstrip("/"), por isso `health` sem barra e ancorado nas duas pontas.
+# Inerte enquanto SECURE_SSL_REDIRECT for False (ADR 0010).
+SECURE_REDIRECT_EXEMPT = [r"^health$"]
 SECURE_HSTS_SECONDS = 31536000 if BEHIND_TLS_PROXY else 0
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https") if BEHIND_TLS_PROXY else None
 
