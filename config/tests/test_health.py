@@ -9,6 +9,7 @@ import json
 from unittest.mock import patch
 
 from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
+from django.urls import reverse
 
 from config.views import health
 
@@ -80,3 +81,31 @@ class HealthViewDatabaseDownUnitTests(SimpleTestCase):
         # "cache": "ok" continua presente e correto enquanto o banco falha —
         # e a guarda que cai se alguem unificar os dois try num so.
         self.assertEqual(body, {"status": "error", "database": "error", "cache": "ok"})
+
+
+class HealthRedirectExemptionTests(TestCase):
+    """TASK-009/T-01 — SECURE_REDIRECT_EXEMPT tem de sobreviver a duas mutacoes silenciosas.
+
+    O .env da jornada de construcao traz BEHIND_TLS_PROXY=False, entao
+    SECURE_SSL_REDIRECT e False e a isencao fica inerte na suite inteira: sem o
+    override abaixo, apagar `SECURE_REDIRECT_EXEMPT` em settings.py nao derrubaria
+    teste nenhum. reverse("health") em vez de "/health" escrito a mao morde a
+    segunda mutacao — renomear a rota `health` em urls.py sem atualizar o regex faz
+    a isencao deixar de casar, e e o path resolvido aqui, nao um literal, que
+    denunciaria isso ficando vermelho.
+    """
+
+    @override_settings(SECURE_SSL_REDIRECT=True)
+    def test_health_e_isento_do_redirecionamento_https(self):
+        response = self.client.get(reverse("health"), headers={"host": "127.0.0.1"})
+
+        self.assertEqual(response.status_code, 200)
+
+    @override_settings(SECURE_SSL_REDIRECT=True)
+    def test_rota_nao_isenta_continua_redirecionada_para_https(self):
+        # Caso de controle: sem ele, o 200 do teste acima nao distingue "a isencao
+        # funciona" de "o redirecionamento nunca esteve ligado nesta suite".
+        response = self.client.get(reverse("login"))
+
+        self.assertEqual(response.status_code, 301)
+        self.assertTrue(response["Location"].startswith("https://"))
