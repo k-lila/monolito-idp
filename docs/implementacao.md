@@ -79,7 +79,7 @@ pressuposto e só aparece meses depois, quando alguém procurar a razão de uma 
 | **D** | 07, depois 08 | Separados. O 07 omite `OAUTH2_VALIDATOR_CLASS` de propósito; juntar os dois reabre a chance de um boot com a settings apontando para módulo inexistente. | 07: discovery com `issuer` igual a `{BASE_URL}/o` e JWKS com **uma** chave. 08: `id_token` com `sub`, `name` e `email` |
 | **E** | 09, depois 10 | Podem ser a mesma sessão — o 10 só depende do 09 por `config/views.py` já existir —, mas com dois gates distintos. | 09: `/accounts/login/` com CSS, home mostrando o usuário, logout por POST. 10: `docker compose stop redis` devolve 503 com `"cache": "error"` |
 | **F** | 11, depois 12 | Separados. O 11 é onde o container entra pela primeira vez, com o `runserver` já parado. | 11: `docker compose up --wait` com os três serviços `healthy` e discovery respondendo do container. 12: alguém executa a receita do zero e obtém um `id_token` |
-| **G** | 13 | Em lote. É transcrição literal — o passo proíbe reescrever, resumir ou reordenar. | Os sete arquivos em `docs/adr/`, idênticos aos blocos do passo 13 |
+| **G** | 13 | Em lote. Transcrição literal, salvo as ADRs emendadas antes da gravação com autorização do usuário — é a última janela em que corrigir custa uma frase, porque ADR aceita é imutável. | Os onze arquivos em `docs/adr/`: 0001–0007 vindos dos blocos do passo 13, 0008–0011 de `.claude/memory/decisions.md`. Sete deles — 0002, 0004, 0005, 0006, 0008, 0009 e 0011 — foram alterados antes da gravação, com autorização explícita do usuário, para corrigir afirmações que a implementação falsificou; nos quatro que têm bloco no passo 13, o bloco foi atualizado no mesmo movimento e as duas cópias coincidem |
 
 ## Cadência
 

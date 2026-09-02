@@ -48,9 +48,18 @@ passo, e cada bloco já vem com o nome exato do arquivo de destino.
 
 ## Passo concluído quando
 
-Os sete arquivos existem em `docs/adr/`, com os nomes indicados, e o conteúdo de cada um é
-idêntico ao bloco correspondente deste documento. Cada ADR gravada ganha uma linha no
-índice de `.claude/memory/decisions.md` — isso é procedimento do orquestrador.
+Os onze arquivos existem em `docs/adr/`, com os nomes indicados. As ADRs 0001 a 0007 vêm dos
+blocos deste documento; as 0008 a 0011 não estão aqui: foram redigidas nos blocos E e F, e o
+texto de origem delas está em `.claude/memory/decisions.md`.
+
+Sete ADRs foram alteradas antes da gravação, com autorização explícita do usuário: 0002,
+0004, 0005, 0006, 0008, 0009 e 0011. As alterações corrigem afirmações que a implementação
+falsificou. Para 0002, 0004, 0005 e 0006 os blocos deste documento foram atualizados no mesmo
+movimento, e as duas cópias voltaram a coincidir; para 0008, 0009 e 0011 não há segunda cópia
+a sincronizar, porque a origem é o arquivo de memória.
+
+Cada ADR gravada ganha uma linha no índice de `.claude/memory/decisions.md` — isso é
+procedimento do orquestrador.
 
 ---
 
@@ -223,9 +232,14 @@ Negativas:
 - A superfície de configuração é grande (grants, scopes, chaves, políticas por
   application) e é possível configurar algo inseguro sem receber nenhum aviso; a
   documentação pressupõe conhecimento de OAuth2/OIDC.
-- Há falhas silenciosas conhecidas: sem chave RSA configurada o JWKS responde vazio, e
-  uma Application sem algorithm definido completa o fluxo sem emitir id_token. Nenhuma
-  das duas gera erro.
+- Há duas configurações incompletas cujo sinal não está onde se procura. Sem chave RSA, o
+  JWKS responde vazio com HTTP 200 e o único indício é o alg anunciado na discovery cair
+  de RS256+HS256 para HS256 — silenciosa de ponta a ponta. Já uma Application com o campo
+  algorithm em branco não é silenciosa nem falha onde se espera: /o/authorize/ emite o
+  code normalmente, e é o POST em /o/token/ que devolve HTTP 500 sem token nenhum, porque
+  a emissão do id_token pede a chave da Application sempre que o escopo inclui openid, e o
+  campo em branco levanta ImproperlyConfigured. Procurar um id_token ausente numa resposta
+  bem-sucedida é depurar o endpoint errado.
 - O DOT 4.0 endurecerá a postura para OAuth 2.1 e o upgrade exigirá revisão deliberada,
   não bump de versão.
 - O esquema de banco dos tokens é do DOT: as tabelas crescem e a limpeza periódica
@@ -395,8 +409,13 @@ Negativas:
   e falha de maneiras confusas quando mal formatado.
 - RS256 é mais caro em CPU que HMAC na assinatura, e a dependência de cryptography
   adiciona extensão em C ao build.
-- Se a variável estiver ausente, o sistema sobe e o JWKS responde vazio: a falha é
-  silenciosa e só aparece do lado da relying party.
+- Os dois modos de falha da variável são opostos, e o perigoso é o menos evidente.
+  Ausente, ela falha na leitura das settings nomeando a si mesma: o processo não sobe,
+  o container entra em crash-loop e o erro está na primeira linha do log. Presente e
+  vazia, o sistema sobe inteiro, o JWKS responde 200 com um conjunto vazio de chaves e
+  o único indício é o alg anunciado na discovery cair de RS256+HS256 para HS256 —
+  silenciosa de ponta a ponta, e só percebida do lado da relying party, que não
+  encontra chave com que verificar assinatura nenhuma.
 
 ## Alternativas consideradas
 
@@ -428,10 +447,17 @@ Aceito — 2026-08-29
 
 ## Contexto
 
-O IdP tem dois tipos de estado de autenticação que coexistem por desenho. Os tokens são
-stateless e assinados: a RP os valida sozinha. A sessão de login, ao contrário, é
-server-side e é o que faz o single sign-on existir — é ela que permite ao usuário chegar
-a uma segunda relying party e não redigitar a senha.
+O IdP tem dois tipos de estado de autenticação que coexistem por desenho, e ambos são
+server-side. O estado dos tokens vive nas tabelas do django-oauth-toolkit: o access_token
+entregue à relying party é uma string opaca gravada em banco, e só o id_token é JWT
+assinado, que a RP valida sozinha. A consequência prática é que a RP que precise validar o
+access_token não tem introspecção — o endpoint anunciado responde 403 (ADR 0002) — e recai
+sobre /o/userinfo/, uma chamada ao IdP por request, que é justamente o custo que a
+assinatura da ADR 0004 existe para evitar. A sessão de login é o outro estado, e é ela que
+faz o single sign-on existir — é ela que permite ao usuário chegar a uma segunda relying
+party e não redigitar a senha. O que a distingue do estado dos tokens não é ser
+server-side: é ser lida em todo request autenticado. Ela está no caminho quente, e por
+isso onde ela mora é decisão de desempenho e não só de durabilidade.
 
 Essa sessão é comportamento de produto, não detalhe de infraestrutura. Perdê-la não causa
 erro visível: causa um pedido de senha inesperado, que é exatamente a experiência que o
@@ -577,8 +603,10 @@ Positivas:
 - O ambiente inteiro sobe reprodutível com um comando, o que torna o fluxo OIDC
   demonstrável de ponta a ponta sem preparação manual.
 - Ordem de boot determinística: nenhum request chega antes das migrations.
-- O caminho que o compose executa é o mesmo caminho endurecido que se pretende usar
-  depois; não há um "modo de desenvolvimento" que nunca é exercitado.
+- Há uma configuração só, e não um "modo de desenvolvimento" separado que nunca é
+  exercitado: o compose executa o mesmo caminho de código que se pretende usar depois. O
+  ganho é do arranjo de settings única, não do arranjo inteiro — o endurecimento de
+  transporte é opt-in e fica de fora, conforme a última Negativa.
 - Logs de erro aparecem em docker logs desde o primeiro boot, o que importa num sistema
   cujos modos de falha característicos são silenciosos.
 - O healthcheck funciona na imagem enxuta sem dependência adicional.
@@ -600,6 +628,12 @@ Negativas:
 - WhiteNoise concentra no app a entrega de estáticos e não escala para tráfego alto.
 - collectstatic em runtime alonga levemente o tempo de boot.
 - Log em stdout sem coleta externa some quando o container é recriado.
+- O endurecimento de transporte é a parte desta decisão que o compose não exercita: ele
+  sobe com BEHIND_TLS_PROXY=False, e foi ligar a variável que revelou que a probe interna
+  do HEALTHCHECK recebe 301 do SecurityMiddleware e morre no handshake TLS contra um
+  Gunicorn em texto claro — container eternamente unhealthy com a aplicação atendendo
+  normalmente. A isenção que fecha isso está na ADR 0010. A segunda condição, ALLOWED_HOSTS
+  continuar listando 127.0.0.1, não tem mecanismo nenhum e vive só no README.
 
 ## Alternativas consideradas
 
