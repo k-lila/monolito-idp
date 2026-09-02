@@ -23,7 +23,17 @@
 
 | Data | Decisão | ADR |
 | --- | --- | --- |
-| — | _nenhuma ainda_ | — |
+| 2026-08-29 | Django 5.2 LTS sobre Python 3.14 como plataforma do monólito | [0001](../../docs/adr/0001-adotar-django-5-2-lts-sobre-python-3-14.md) |
+| 2026-08-29 | django-oauth-toolkit como servidor de autorização OAuth2/OIDC | [0002](../../docs/adr/0002-usar-django-oauth-toolkit-como-servidor-de-autorizacao.md) |
+| 2026-08-29 | Identidade em `User` customizado com e-mail como identificador | [0003](../../docs/adr/0003-modelar-identidade-em-user-customizado-com-email-como-identificador.md) |
+| 2026-08-29 | Assinar tokens com RS256, chave privada no ambiente | [0004](../../docs/adr/0004-assinar-tokens-com-rs256-e-custodiar-a-chave-privada-no-ambiente.md) |
+| 2026-08-29 | Sessão SSO em sessão Django com backend `cached_db` sobre Redis | [0005](../../docs/adr/0005-manter-a-sessao-sso-em-sessao-django-com-backend-cached-db.md) |
+| 2026-08-29 | Empacotar o IdP como container único orquestrado por docker-compose | [0006](../../docs/adr/0006-empacotar-o-idp-como-container-unico-orquestrado-por-docker-compose.md) |
+| 2026-08-29 | Fixar o issuer do IdP em `{BASE_URL}/o` | [0007](../../docs/adr/0007-fixar-o-issuer-do-idp-em-base-url-barra-o.md) |
+| 2026-09-01 | Servir estáticos com WhiteNoise sem manifesto de hash | [0008](../../docs/adr/0008-servir-estaticos-com-whitenoise-sem-manifesto-de-hash.md) |
+| 2026-09-01 | Isolar a view de `/health` da sessão e do usuário | [0009](../../docs/adr/0009-isolar-a-view-de-health-da-sessao-e-do-usuario.md) |
+| 2026-09-01 | Isentar `/health` do redirecionamento para HTTPS | [0010](../../docs/adr/0010-isentar-health-do-redirecionamento-para-https.md) |
+| 2026-09-01 | Dar teto de tempo ao `/health` e derivar o `HEALTHCHECK` dele | [0011](../../docs/adr/0011-dar-teto-de-tempo-ao-health-e-derivar-o-healthcheck-dele.md) |
 
 ---
 
@@ -254,6 +264,88 @@
   do commit `1e8b060`; "oito pins" → "nove" em `docs/implementacao.md`; e "quatro causas candidatas"
   → três para o JWKS vazio, já que "extra faltando" deixou de ser candidata.
 - **Tipo:** decisão.
+
+---
+
+## [2026-09-02] TASK-010 · Bloco G: as onze ADRs gravadas, e a conferência que nunca foi gate
+
+O bloco entrou como "transcrição literal em lote" e saiu com **treze alterações em sete das onze
+ADRs**. O que mudou não foi o critério — foi o que se descobriu ao aplicá-lo.
+
+**Onze, não sete.** `docs/implementacao.md` descrevia o gate como "os sete arquivos". As 0008 e
+0009 (bloco E) e as 0010 e 0011 (bloco F) tinham sido adiadas para cá, e viviam só neste arquivo.
+Os dois gates foram corrigidos, e agora registram a origem de cada faixa e as sete ADRs emendadas.
+
+**A conferência foi feita, e o método dela era o defeito.** Desde a TASK-003 estava registrado que
+conferir os achados de cada bloco contra as ADRs "não é gate de bloco nenhum", com instrução de
+repassar a cada bloco. Cinco conferências foram feitas e o tally chegou a 3,5/7. Feita a sexta,
+subiu para 5,5 e depois para **6,5 no mínimo** — só a 0007 atravessou seis blocos sem ser
+falsificada. A razão: cada conferência perguntou *"o que este bloco contradiz?"*, nunca *"estas
+ADRs são verdadeiras?"*. Achou-se o que os blocos esbarraram. **As 0004 e 0005 estavam erradas
+desde 2026-08-29 e nunca foram esbarradas por bloco nenhum.**
+
+**As duas que ninguém tinha visto**, ambas verificadas por mim no código antes de aceitar:
+
+- **ADR 0004 — diagnóstico invertido**, a mesma classe que este projeto já pagou três vezes. Ela
+  dizia "variável ausente → o sistema sobe e o JWKS responde vazio: falha silenciosa".
+  `config/settings.py` lê `OIDC_RSA_PRIVATE_KEY` **sem default** e o docstring do módulo declara o
+  contrato oposto. Ausente é `ImproperlyConfigured` no import — crash-loop ruidoso. A falha
+  silenciosa é a da variável **presente e vazia**.
+- **ADR 0005 — "os tokens são stateless e assinados" é falso.** `ACCESS_TOKEN_GENERATOR` é `None`
+  no DOT 3.4.1 e o projeto não sobrescreve: o `access_token` é string opaca de 30 caracteres
+  gravada em tabela, e só o `id_token` é JWT. A ADR 0002, **gravada no mesmo lote e no mesmo dia**,
+  dizia o contrário em duas linhas. Consequência que a correção passou a registrar: a RP recebe um
+  token opaco, o `introspection_endpoint` anunciado responde 403, e sobra `/o/userinfo/` — uma
+  chamada ao IdP por request, o custo que a ADR 0004 diz que a assinatura existe para evitar.
+
+**Divergência arbitrada pelo usuário.** Sobre a Positiva da ADR 0006 houve três posições: o
+`architect` decidiu não mexer (uma Negativa que qualifica um ganho é a forma normal de registrar
+um limite), o `quality-assurance` chamou de contradição interna, o `senso-critico` quis remover a
+Negativa inserida. O usuário decidiu com o QA, e a razão vale registro: a primeira oração afirmava
+identidade entre o caminho do compose e o caminho endurecido, e essa oração é falsa
+independentemente de a Negativa existir — remover a Negativa não a consertaria.
+
+**Duas cópias divergentes, fechadas.** Emendar uma ADR de 0001–0007 criava duas versões no disco:
+a de `docs/adr/` e a da cerca em `13-adrs.md`, que é a que se lê por ordem de documento. As quatro
+emendadas (0002, 0004, 0005, 0006) foram sincronizadas e **os sete pares batem byte a byte**,
+verificado por SHA-256. Essa igualdade **não tem guarda automática**: a próxima emenda em qualquer
+delas reabre a divergência em silêncio.
+
+**O registro de que houve emenda é o commit**, deliberadamente. As datas de `## Status` continuam
+sendo as da decisão, e a 0006 (2026-08-29) cita a 0010 (2026-09-01) — anacronismo apontado pelo
+`senso-critico`. Rejeitado acrescentar rodapé de emenda a onze arquivos: o commit é durável,
+greppável e sobrevive à poda deste arquivo, que é justamente o que ele apontou como frágil.
+
+**Poda executada**: 526 linhas. Os textos integrais de 0008–0011 e os dois avisos NÃO PODAR
+cumpriram o propósito e saíram; `docs/adr/` é a fonte. Índice do topo preenchido com as onze.
+
+- **ADR:** as onze, de [0001](../../docs/adr/0001-adotar-django-5-2-lts-sobre-python-3-14.md) a
+  [0011](../../docs/adr/0011-dar-teto-de-tempo-ao-health-e-derivar-o-healthcheck-dele.md). Ver o
+  índice no topo.
+- **Tipo:** decisão.
+
+## [2026-09-02] TASK-010 · ADIADO — `BEHIND_TLS_PROXY` não entrega o IP do cliente, e a próxima fase é rate limiting
+
+O achado mais caro do bloco, e ele **não é do bloco**: é da próxima fase. Registrado aqui porque o
+sinal não existe até ser tarde.
+
+`config/settings.py` liga `SECURE_PROXY_SSL_HEADER` e nada mais sobre proxy — não há
+`USE_X_FORWARDED_HOST` nem resolução de `X-Forwarded-For`. Com TLS real na frente, **todo request
+externo chega com `REMOTE_ADDR` igual ao IP do proxy**. A próxima fase entra por biblioteca de rate
+limiting, e `django-axes` e `django-ratelimit` keiam por `REMOTE_ADDR` no default: o primeiro
+atacante que estourar o limite **tranca a tela de login para a internet inteira**.
+
+Passa em 100% dos testes deste sandbox, onde não há proxy. É a forma exata do bug que o bloco F
+encontrou no `SECURE_SSL_REDIRECT`, e pela mesma razão: **o nome da variável promete "atrás de um
+proxy" e configura só o esquema.** A emenda da ADR 0006 registrou uma condição não coberta
+(`ALLOWED_HOSTS`); corrigiu a instância, não a classe. Nenhuma das onze diz que `BEHIND_TLS_PROXY`
+cobre transporte e não identidade de cliente.
+
+**Horizonte:** a fase de rate limiting, com sinal só no primeiro ambiente com proxy real.
+
+- **Tech-debt / melhorias:** **adiado**, com disposição registrada. Quem abrir a fase de rate
+  limiting resolve isto **antes** de escolher a chave de contagem.
+- **Tipo:** observação.
 
 ---
 
@@ -537,226 +629,10 @@ Duas disposições do usuário no gate de pré-alteração, antes de qualquer es
   sete textos de fundação em `docs/roadmap/13-adrs.md`.
 - **Tipo:** decisão.
 
-> **NÃO PODAR ATÉ O BLOCO G.** Os dois textos abaixo são a **única cópia durável** das ADRs
-> 0008 e 0009: elas foram redigidas pelo `architect` na TASK-007 e adiadas por decisão do
-> usuário, então não existem em `docs/adr/` nem em `docs/roadmap/13-adrs.md`. A regra de poda
-> deste arquivo (linha 260) manda escrever o resto no ADR quando há ADR — aqui não há, e é
-> por isso que o texto integral mora neste arquivo apesar do tamanho. Podar estas ~200 linhas
-> antes de o bloco G gravar os dois arquivos destrói o texto e não há de onde recuperá-lo.
-> Apontado pelo `senso-critico` no gate adversarial da TASK-007.
-
-### Texto da ADR 0008, para gravação no bloco G
-
-Destino: `docs/adr/0008-servir-estaticos-com-whitenoise-sem-manifesto-de-hash.md`
-
-# 0008. Servir estáticos com WhiteNoise sem manifesto de hash
-
-## Status
-
-Aceito — 2026-09-01
-
-## Contexto
-
-O projeto roda com DEBUG=False em todo ambiente, inclusive na jornada de construção: é
-decisão declarada, para que não exista um caminho de desenvolvimento que nunca é
-exercitado. Com DEBUG=False o runserver não serve arquivos estáticos; quem serve é o
-WhiteNoise, a partir do STATIC_ROOT, o que torna `collectstatic` um passo obrigatório
-antes de subir a aplicação.
-
-O passo 09 do roadmap prescreveu o backend `CompressedManifestStaticFilesStorage`, que
-acrescenta a esse arranjo um manifesto: `collectstatic` grava um `staticfiles.json`
-mapeando cada caminho lógico para um nome com hash, e a tag `{% static %}` passa a
-resolver por consulta a esse mapa, servindo os arquivos com nome versionado e cache
-longo.
-
-Essa resolução acontece em tempo de renderização de template, e é aí que ela deixa de ser
-um detalhe de entrega. As telas do IdP — login, home e consentimento — compartilham um
-layout que referencia a folha de estilo por `{% static %}`, e a tela de consentimento é
-exercitada por sete casos de teste de integração que renderizam `/o/authorize/` e leem o
-HTML resultante. Com manifesto estrito e sem artefato coletado, a renderização levanta
-ValueError e esses testes falham por um motivo que nada tem a ver com o que verificam. O
-teste passa a depender de um passo de build.
-
-Há uma forma de afrouxar isso sem trocar o backend: o WhiteNoise expõe
-WHITENOISE_MANIFEST_STRICT, que faz um caminho ausente do manifesto ser devolvido intacto
-em vez de levantar. Ela merece consideração explícita porque parece resolver o problema
-sem abrir mão do cache-busting.
-
-O contexto de uso é um sandbox exploratório: host único, uma réplica, uma folha de estilo
-própria mais os estáticos do admin, sem CDN e sem tráfego.
-
-## Decisão
-
-Vamos configurar o backend de arquivos estáticos como
-`whitenoise.storage.CompressedStaticFilesStorage` — compressão sim, manifesto de hash
-não —, mantendo a chave `default` do dicionário STORAGES em FileSystemStorage.
-
-`collectstatic` continua obrigatório antes de subir a aplicação, e o entrypoint do
-container continua executando-o. O que deixa de ser obrigatório é executá-lo para que a
-suíte de testes passe: sem manifesto, `{% static %}` é concatenação de STATIC_URL com o
-caminho lógico e não consulta artefato algum.
-
-Esta decisão diverge do texto do passo 09 do roadmap, e a divergência é deliberada.
-
-## Consequências
-
-Positivas:
-
-- Nenhuma renderização de template depende de um artefato de build. A suíte de
-  integração fica verde sem preparação, sem override de settings e sem detecção de
-  ambiente dentro do arquivo de configuração.
-- A omissão de `collectstatic` aparece como um 404 no recurso, direto e localizável, em
-  vez de uma exceção de template que parece problema de template.
-- O ciclo de edição de CSS deixa de ter o modo de falha "editei e a tela não mudou" por
-  hash desatualizado: o arquivo é sobrescrito na coleta seguinte e o cabeçalho de cache
-  de arquivos sem hash é curto.
-- A compressão do WhiteNoise é preservada; o custo da mudança é uma palavra na
-  configuração.
-
-Negativas:
-
-- Perdemos cache-busting por nome e o cabeçalho de cache imutável de longa duração. Cada
-  visita revalida os estáticos, o que é irrelevante em host único e deixa de ser quando
-  houver volume.
-- A garantia de que ninguém receba a versão anterior de um estático depois de um deploy
-  passa a depender do cabeçalho de cache, não do nome do arquivo — uma garantia mais
-  fraca.
-- Se o projeto sair do sandbox, esta decisão terá de ser revista, e a revisão traz de
-  volta o acoplamento entre renderização de template e artefato de build que ela remove.
-  O custo terá de ser pago naquele momento, provavelmente com uma etapa de coleta no
-  pipeline de teste.
-- O texto do passo 09 do roadmap passa a divergir do código, e quem ler o roadmap sem ler
-  esta ADR encontrará uma prescrição que não foi seguida.
-
-## Alternativas consideradas
-
-- **`CompressedManifestStaticFilesStorage`, como o roadmap prescreveu** — entrega nome
-  versionado e cache longo, que é a razão pela qual foi prescrito. Descartada porque
-  transforma a resolução de `{% static %}` numa consulta a artefato de build e, com isso,
-  faz sete casos de teste de integração dependerem de um comando externo à suíte. O
-  benefício não se realiza em host único sem tráfego; o custo se realiza toda vez que
-  alguém roda os testes.
-- **Manter o manifesto e afrouxá-lo com `WHITENOISE_MANIFEST_STRICT = False`** —
-  preservaria a prescrição do roadmap trocando a exceção por um retorno tolerante.
-  Descartada porque mantém o custo e remove o alarme: a obrigação de recoletar a cada
-  edição continua de pé, e a consequência de esquecer passa a ser servir silenciosamente
-  o arquivo com hash antigo. Trocar uma falha ruidosa por uma silenciosa é o oposto da
-  postura adotada no resto deste projeto.
-- **Configuração de estáticos condicionada ao modo de teste** — resolveria o conflito sem
-  abrir mão de nada. Descartada porque criaria exatamente o que a decisão de settings
-  única existe para evitar: um caminho de configuração que roda em produção e nunca é
-  exercitado, e outro que é exercitado e nunca roda.
-- **Executar `collectstatic` antes da suíte** — a solução do lado do processo, não da
-  configuração. Descartada porque acopla a execução dos testes a um passo manual cuja
-  omissão produz falhas cujo diagnóstico não aponta para a causa.
-
-### Texto da ADR 0009, para gravação no bloco G
-
-Destino: `docs/adr/0009-isolar-a-view-de-health-da-sessao-e-do-usuario.md`
-
-# 0009. Isolar a view de /health da sessão e do usuário
-
-## Status
-
-Aceito — 2026-09-01
-
-## Contexto
-
-O IdP expõe /health como sinal de prontidão: ele verifica banco e cache de verdade e é
-consumido pelo HEALTHCHECK do próprio container, que decide se o serviço está apto a
-receber tráfego. O contrato de resposta é um JSON de três chaves — status, database e
-cache —, sempre as mesmas em sucesso e em falha, com HTTP 200 quando tudo passa e 503
-quando algum componente falha, nomeando qual.
-
-A sessão de login usa o backend cached_db sobre Redis, e o backend Redis nativo do Django
-propaga ConnectionError em vez de degradar. Com o Redis inalcançável, todo request que
-carrega a sessão falha — o que é o comportamento correto e desejado para um IdP, conforme
-a ADR 0005.
-
-Daí nasce o problema desta decisão. A situação em que o /health mais precisa ser útil é
-exatamente a situação em que o cache está fora. Se a própria request de health carregar a
-sessão, a exceção de conexão sobe antes de a view executar qualquer verificação, e o
-endpoint responde 500 com traceback em vez de 503 nomeando o cache. O orquestrador vê um
-serviço unhealthy — o que é correto — mas perde a informação que separa um health de um
-sino: em qual dos dois lugares procurar.
-
-O carregamento de sessão não acontece por si só. Nenhum middleware da lista faz I/O de
-sessão sem que alguém toque nela: o SessionMiddleware apenas instancia o store, que é
-preguiçoso, e só grava na resposta se a sessão tiver sido modificada. Quem dispara a
-carga é a view — lendo request.user, lendo ou escrevendo request.session, usando um
-decorator de autenticação, ou renderizando um template cujos context processors fazem
-qualquer uma dessas coisas.
-
-Existe uma saída tentadora e errada: capturar a exceção de cache e responder 200 assim
-mesmo, ou configurar o cliente de cache para ignorar exceções. Ela produz um health verde
-sobre um IdP que não atende request autenticado nenhum.
-
-## Decisão
-
-Vamos implementar /health como uma view pública que não toca em sessão, em request.user
-nem em template.
-
-Ela executa duas verificações independentes — uma query trivial no banco e um set seguido
-de get no cache, comparando o valor devolvido com o gravado —, cada uma dentro do seu
-próprio try/except, e monta a resposta com django.http.JsonResponse. Cada except escreve
-"error" na chave do seu componente, força "status": "error" e o HTTP 503, e registra a
-exceção no logger, que a ADR 0006 garante estar ligado ao stdout mesmo com DEBUG=False.
-
-A distinção que a decisão fixa é entre capturar para reportar e mascarar. Capturar para
-reportar é obrigatório: sem isso a resposta é um 500 opaco. Mascarar é proibido em
-qualquer forma — responder 200 com o cache fora, omitir a chave do componente que falhou,
-capturar sem refletir a falha no corpo, ou suprimir o erro na camada do cliente de cache.
-
-O formato de três chaves é contrato consumido pelo healthcheck do container e não muda de
-forma sem que o healthcheck mude junto.
-
-## Consequências
-
-Positivas:
-
-- Com o Redis fora, /health responde 503 nomeando o cache, que é a única resposta que
-  poupa alguém de investigar Postgres e Redis um a um.
-- A verificação diz respeito ao que a aplicação precisa para atender, não a se o processo
-  está de pé: um health verde passa a significar algo.
-- A causa exata da falha — recusa de conexão, timeout, autenticação — sobrevive no log,
-  ainda que o corpo de três chaves não a carregue.
-- O endpoint responde a quem chega sem sessão e sem token, que é a condição do healthcheck
-  executado de dentro do container.
-
-Negativas:
-
-- O isolamento é disciplina, não mecanismo. Um `@login_required` acrescentado por hábito,
-  uma leitura de request.user para "logar quem chamou", ou uma troca de JsonResponse por
-  render() reintroduzem o 500 opaco sem que nada avise — e o sinal só aparece no dia em
-  que o Redis cair, que é o pior dia para descobri-lo.
-- /health fica sem autenticação, e revela a terceiros que alcancem a porta o estado de
-  banco e cache. Aceito nesta fase: a exposição da porta é responsabilidade do proxy à
-  frente, e um healthcheck autenticado não serviria ao orquestrador.
-- O contrato de três chaves passa a ser público. Mudá-lo exige mudar o healthcheck do
-  compose no mesmo movimento.
-- A verificação de cache escreve uma chave a cada chamada; num healthcheck com intervalo
-  curto, isso é escrita constante, ainda que trivial.
-
-## Alternativas consideradas
-
-- **Renderizar a resposta por template** — daria uma página legível por humanos.
-  Descartada porque arrastaria os context processors de auth e de messages, que tocam a
-  sessão, e transformaria a falha de cache num 500 exatamente quando o diagnóstico
-  importa.
-- **Proteger /health com autenticação** — reduziria a exposição do estado interno.
-  Descartada porque tornaria o endpoint inutilizável pelo healthcheck do container e,
-  pior, faria o próprio ato de proteger carregar a sessão, quebrando o 503 pela mesma
-  razão da alternativa anterior.
-- **Um único try/except envolvendo as duas verificações** — menos código. Descartada
-  porque a falha do primeiro componente esconderia o estado do segundo, e o corpo passaria
-  a mentir por omissão justamente na chave que existe para localizar o problema.
-- **Ignorar exceções de cache (IGNORE_EXCEPTIONS ou equivalente)** — daria um health
-  estável. Descartada porque estabilidade aqui é falsidade: o IdP com Redis inalcançável
-  não atende request autenticado nenhum, e a mesma supressão produziria escrita de sessão
-  perdida em silêncio. Já rejeitada pela ADR 0005 e reafirmada aqui.
-- **Healthcheck raso, respondendo 200 se o processo responde** — trivial e sem
-  dependências. Descartada porque é pior que healthcheck nenhum: o orquestrador passa a
-  confiar num sinal que não observa nada.
+> **Podados em 2026-09-02 (TASK-010).** Os textos integrais das ADRs 0008 e 0009 viviam aqui
+> porque eram a única cópia durável. O bloco G gravou os arquivos em `docs/adr/`, que passam
+> a ser a fonte — e, no caso da 0009, com emendas posteriores a este texto. Ver o índice no
+> topo deste arquivo.
 
 ## [2026-09-01] TASK-007 · Bloco E implementado; disposição dos apontamentos das seis fases
 
@@ -969,313 +845,11 @@ Quatro disposições do usuário antes de qualquer escrita.
   TASK-006 encontrou mentindo no comentário do PKCE.
 - **Tipo:** decisão.
 
-> **NÃO PODAR ATÉ O BLOCO G.** Os dois textos abaixo são a **única cópia durável** das ADRs 0010 e
-> 0011: redigidas pelo `architect` na Fase 1 da TASK-009 e adiadas por decisão do usuário, não
-> existem em `docs/adr/` nem em `docs/roadmap/13-adrs.md`. Mesma regra que protege 0008 e 0009 acima.
+> **Podados em 2026-09-02 (TASK-010).** Os textos integrais das ADRs 0010 e 0011 viviam aqui
+> porque eram a única cópia durável. O bloco G gravou os arquivos em `docs/adr/`, que passam
+> a ser a fonte — e, no caso da 0011, com emendas posteriores a este texto. Ver o índice no
+> topo deste arquivo.
 
-### Texto da ADR 0010, para gravação no bloco G
-
-Destino: `docs/adr/0010-isentar-health-do-redirecionamento-para-https.md`
-
-# 0010. Isentar /health do redirecionamento para HTTPS
-
-## Status
-
-Aceito — 2026-09-01
-
-## Contexto
-
-O endurecimento de transporte do projeto é governado por BEHIND_TLS_PROXY, e não por
-DEBUG (ADR 0006). Uma das chaves que essa variável liga é SECURE_SSL_REDIRECT: com ela
-ativa, o SecurityMiddleware do Django responde 301 para o equivalente em https:// a toda
-requisição que não seja segura, e faz isso em process_request — antes de qualquer view
-executar.
-
-O container publica sua prontidão por um HEALTHCHECK que bate em /health a partir de
-dentro de si mesmo, em http, contra o Gunicorn, que fala texto claro. Essa requisição não
-atravessa o proxy TLS e portanto não carrega X-Forwarded-Proto, que é o cabeçalho de que
-SECURE_PROXY_SSL_HEADER depende para considerar a requisição segura. Do ponto de vista do
-middleware, é uma requisição insegura como outra qualquer.
-
-O resultado é um serviço eternamente unhealthy com a aplicação atendendo normalmente a
-quem chega pelo proxy: a probe recebe 301, segue o redirecionamento, tenta um handshake
-TLS contra um socket que fala HTTP em claro e falha ali. O orquestrador conclui que a
-aplicação está fora; ela não está. O passo 11 do roadmap cataloga duas causas para esse
-mesmo sintoma — healthcheck escrito com curl numa imagem slim, e ALLOWED_HOSTS sem
-localhost — e não tem esta terceira.
-
-A falha está latente e não hipotética: o .env.example sai com BEHIND_TLS_PROXY=False, que
-é o valor da jornada de sandbox, e o defeito aparece no primeiro ambiente que a ligar —
-isto é, no primeiro ambiente com TLS de verdade, que é onde ele custa mais caro. O sinal
-que existe antes disso engana: ligar a variável na jornada de construção deixa a suíte
-vermelha por 301, o que se lê como "o .env quebrou os testes".
-
-Há uma tensão real a resolver, e não uma correção óbvia. Redirecionar tudo para HTTPS é a
-postura correta para um IdP, em que toda requisição carrega credencial ou token; a probe
-interna é a única requisição do sistema para a qual essa postura não faz sentido, e
-qualquer saída consiste em abrir uma exceção para ela em algum lugar.
-
-## Decisão
-
-Vamos declarar SECURE_REDIRECT_EXEMPT = [r"^health$"] em config/settings.py,
-incondicionalmente, isentando a rota /health — e apenas ela — do redirecionamento para
-HTTPS.
-
-O padrão é ancorado nas duas pontas porque o Django o casa contra request.path.lstrip("/"),
-e a rota é registrada sem barra final (config/urls.py). A declaração é incondicional
-porque a lista é inerte enquanto SECURE_SSL_REDIRECT for False; condicioná-la a
-BEHIND_TLS_PROXY acrescentaria um ramo de configuração sem acrescentar comportamento.
-
-A isenção alcança apenas o redirecionamento. HSTS continua sendo emitido pelo
-SecurityMiddleware nas respostas a requisições seguras, e as flags Secure de cookie
-continuam governadas por BEHIND_TLS_PROXY como antes; /health não emite cookie.
-
-## Consequências
-
-Positivas:
-
-- O container passa a conseguir observar a própria prontidão com o endurecimento de
-  transporte ligado, que é a configuração de qualquer ambiente com TLS real — desde
-  que ALLOWED_HOSTS continue aceitando 127.0.0.1, que é a outra condição e não é
-  fechada por esta decisão (ver Negativas).
-- A mensagem de erro da probe volta a ser honesta. Sem a isenção, uma falha de banco ou de
-  cache aparece no log de saúde do container como erro de handshake TLS, apontando para o
-  lugar errado; com ela, aparece como HTTP 503.
-- A exceção fica declarada num único lugar, ao lado da chave que a torna necessária, e não
-  espalhada entre o Dockerfile e as settings.
-- O Dockerfile permanece ignorante da configuração de proxy da aplicação: a probe é uma
-  requisição HTTP comum, sem cabeçalho forjado.
-
-Negativas:
-
-- /health passa a responder em texto claro também a quem chega de fora, sem ser
-  redirecionado. A ADR 0009 já aceitou que o endpoint é público e revela o estado de banco
-  e cache; o que esta decisão acrescenta é que essa revelação deixa de exigir HTTPS. Quem
-  puder observar a rede entre o cliente e o proxy vê o estado dos componentes em claro.
-- A isenção é uma lista de expressões regulares, e uma expressão frouxa isenta mais do que
-  se pretende sem produzir sinal nenhum. r"^health$" é estreito hoje; nada impede que
-  alguém a alargue amanhã.
-- O acoplamento entre a string do padrão e o path registrado em config/urls.py não tem
-  mecanismo. Renomear a rota quebra a isenção em silêncio, e o sintoma que volta é o
-  unhealthy eterno — o mesmo que esta decisão remove.
-- Fica uma exceção declarada numa postura de segurança que se pretendia sem exceções, e
-  quem ler apenas SECURE_SSL_REDIRECT = BEHIND_TLS_PROXY não saberá que ela existe.
-- A isenção remove uma das condições para a probe funcionar com TLS ligado, não
-  todas. A probe alcança a aplicação por http://127.0.0.1:8000/health e envia
-  Host: 127.0.0.1:8000; com DEBUG=False, ALLOWED_HOSTS precisa listar 127.0.0.1
-  mesmo quando o IdP só é servido por um nome público. Quem estreitar a lista ao
-  nome do proxy — leitura natural de quem põe TLS na frente, e o mesmo movimento
-  que liga BEHIND_TLS_PROXY e troca a BASE_URL — recebe 400 DisallowedHost e o
-  unhealthy eterno volta, pela segunda das causas que o passo 11 já catalogava. As
-  duas causas do mesmo sintoma são disparadas pela mesma mudança de ambiente, e
-  esta decisão fecha apenas uma; a outra vive no README, que é o que o operador lê
-  no momento em que erra.
-
-## Alternativas consideradas
-
-- **Mandar X-Forwarded-Proto: https na probe do HEALTHCHECK** — funciona, não exige tocar
-  nas settings e é inerte quando BEHIND_TLS_PROXY é False, porque nesse caso
-  SECURE_PROXY_SSL_HEADER é None e o cabeçalho é ignorado. Descartada por duas razões: o
-  Dockerfile passaria a depender do nome e do valor do cabeçalho configurado nas settings,
-  e uma troca desse nome devolveria o unhealthy eterno pela mesma porta; e a probe passaria
-  a afirmar sobre o próprio transporte algo que é falso, num projeto cuja postura é
-  preferir a falha alta à conveniência silenciosa.
-- **Fazer a probe seguir o redirecionamento** — não é opção: urllib segue o 301, e o
-  destino é um handshake TLS contra um socket que fala HTTP em claro. É precisamente o
-  modo de falha que se quer remover.
-- **Aceitar 301 como resposta saudável no HEALTHCHECK** — a mudança mais barata de todas, e
-  a pior. O 301 é emitido pelo middleware antes da view: um healthcheck que o aceita não
-  observa banco nem cache e vira o healthcheck raso que o passo 10 do roadmap proíbe por
-  ser pior que healthcheck nenhum.
-- **Desligar SECURE_SSL_REDIRECT** — eliminaria o problema e a proteção junto, deixando ao
-  proxy a responsabilidade inteira pelo redirecionamento. Descartada porque troca uma
-  exceção estreita e declarada por uma renúncia ampla, e porque a proteção em profundidade
-  aqui custa uma linha.
-- **Expor a prontidão por outra porta, servida por um processo à parte** — é o que se faz
-  quando o endpoint de saúde não deve compartilhar a superfície pública. Descartada por
-  desproporção: acrescenta um processo e uma porta ao container para evitar uma linha de
-  configuração, num sistema que é deliberadamente um monólito de um processo (ADR 0006).
-
-### Texto da ADR 0011, para gravação no bloco G
-
-> Aritmética refeita pelo `architect` em 2026-09-02, depois de `quality-assurance` e
-> `senso-critico` falsificarem, por caminhos independentes, o "pior caso de ~4 segundos" da
-> primeira versão. O teto derivado é 6s; o `Dockerfile` passou de `timeout=4`/`--timeout=5s`
-> para `timeout=7`/`--timeout=8s`. Esta é a versão que vai para `docs/adr/` no bloco G.
-
-Destino: `docs/adr/0011-dar-teto-de-tempo-ao-health-e-derivar-o-healthcheck-dele.md`
-
-# 0011. Dar teto de tempo ao /health e derivar o HEALTHCHECK dele
-
-## Status
-
-Aceito — 2026-09-01
-
-## Contexto
-
-A view /health verifica banco e cache de verdade, um try por componente, e responde 200 ou
-503 nomeando quem falhou (ADR 0009). O container consome essa resposta como sinal de
-prontidão.
-
-Os dois componentes chegaram a esta fase com tetos de tempo assimétricos. O cache tem os
-seus, declarados nas OPTIONS de CACHES: socket_connect_timeout e socket_timeout, ambos em
-2 segundos, escolhidos deliberadamente para caber na janela do healthcheck do Redis. O
-banco não tem nenhum. A distinção que motivou aqueles dois valores vale igualmente aqui: a
-recusa de conexão devolve RST na hora, o except da view roda e o 503 sai; a falha que não
-tem teto é a do servidor que aceita a conexão e não responde — pause do container, pressão
-de memória, firewall que faz DROP.
-
-Sem teto do lado do banco, essa falha não produz um 503 lento: produz uma requisição que
-não termina. O Docker mata a probe pelo próprio timeout, o container vai a unhealthy — o
-que está correto — mas o corpo que nomeia o componente nunca é montado e o logger.exception
-da view nunca é alcançado. Some exatamente a informação que separa um health de um sino, e
-o log fica mudo sobre a causa. Junto, um worker síncrono do Gunicorn fica preso até o
-timeout dele, levando as outras requisições em voo naquele worker.
-
-Há uma consequência de projeto que decide a questão, para além do risco em si. O timeout
-do HEALTHCHECK precisa ser maior que o pior caso honesto da view, ou o 503 nunca é
-observado — a probe morre antes de a resposta existir. Enquanto uma das metades da
-verificação não tiver teto, não existe pior caso a partir do qual dimensionar esse número,
-e qualquer valor escrito no Dockerfile é arbitrário.
-
-Um pior caso honesto exige saber como os tetos se compõem, e a composição não é a soma
-ingênua dos valores declarados. Três regras a governam, todas verificadas no código
-instalado. Primeira: os dois tetos do cache são aditivos dentro de uma única operação —
-redis/connection.py aplica socket_connect_timeout ao socket antes do connect e
-socket_timeout depois dele, e o handshake que segue o connect já contém leitura
-bloqueante, de modo que uma operação de cache pode queimar 2 segundos em cada fase.
-Segunda: os dois tetos de connect são por endereço resolvido, não por URL — em redis-py o
-settimeout está dentro do laço sobre o retorno de getaddrinfo, e a libpq documenta o mesmo
-comportamento; hoje cada nome do compose resolve para um endereço, e é essa contingência,
-não o código, que impede a multiplicação. Terceira, e é a que mais barateia o orçamento: a
-metade do cache paga uma operação, não duas. A view executa cache.set e cache.get dentro do
-mesmo try, então quando o set levanta, o get não chega a rodar. A medição feita quando os
-tetos do cache foram introduzidos — 503 em 2,02 segundos com o Redis pausado — é a
-confirmação empírica disso.
-
-O regime de conexão do projeto delimita onde o teto do banco precisa estar. CONN_MAX_AGE
-não é declarado, portanto vale o default 0: cada requisição abre uma conexão nova e a fecha
-ao final. É na fase de conexão que o tempo mora. A query em si é SELECT 1, que não toca
-relação nenhuma e não toma lock nenhum.
-
-## Decisão
-
-Vamos declarar connect_timeout = 2 nas OPTIONS da conexão default, em config/settings.py,
-logo abaixo da leitura de DATABASE_URL, e dimensionar o HEALTHCHECK do container a partir
-do pior caso que esse teto fecha.
-
-O pior caso da view é de 6 segundos: 2 segundos na metade do banco, e 4 segundos na metade
-do cache — uma única operação, com os dois tetos de 2 segundos aditivos entre a fase de
-conexão e a primeira leitura bloqueante. Sobre esses 6 segundos a probe recebe timeout
-interno de 7, uma folga de 1 segundo para a cadeia de middleware, os dois logger.exception
-e a serialização da resposta. O HEALTHCHECK recebe timeout de 8 segundos, outra folga de 1
-segundo, para que a mensagem de erro da probe seja emitida antes de o Docker encerrar o
-processo — uma probe morta pelo orquestrador não deixa registro legível.
-
-O intervalo permanece em 10 segundos, que já acomoda o timeout de 8 sem que este o
-ultrapasse. As duas folgas cumprem funções distintas e nenhuma é ornamental: a de fora
-protege a mensagem contra o Docker, a de dentro protege a resposta contra a própria probe.
-
-Os tetos da aplicação não mudam para caber neste orçamento. O do banco não pode: 2 segundos
-é o mínimo que a libpq aceita. Os do cache poderiam, mas incidem sobre toda requisição —
-SESSION_ENGINE é cached_db e toca o cache a cada uma —, e encolhê-los para acomodar um
-número do Dockerfile faria o orçamento da probe governar a robustez da aplicação.
-
-O teto do banco é de conexão, não de statement. Não declaramos statement_timeout: com
-conexão nova a cada requisição, a espera vive na conexão, e SELECT 1 não toma lock nem lê
-relação — limitá-lo guardaria um cenário que não existe.
-
-A view não é alterada. O contrato de três chaves da ADR 0009 segue intacto.
-
-## Consequências
-
-Positivas:
-
-- Um banco que aceita conexão e não responde passa a produzir o 503 nomeando "database",
-  com a exceção no log, em vez de uma probe morta sem registro.
-- O timeout do HEALTHCHECK passa a ser um número derivado do comportamento da aplicação, e
-  não um palpite: existe um pior caso a que ele responde, ele está escrito, e cada parcela
-  dele aponta para a linha de configuração que a produz.
-- Os dois componentes de /health passam a ter a mesma disciplina, o que torna a view
-  legível como uma coisa só em vez de duas com regimes diferentes.
-- Um worker do Gunicorn deixa de poder ficar preso por dezenas de segundos numa requisição
-  de prontidão.
-
-Negativas:
-
-- Um Postgres que leve mais de 2 segundos para aceitar conexão passa a ser reportado como
-  falho onde antes seria reportado como lento. O start_period do HEALTHCHECK cobre a
-  janela de boot; fora dela, isso é sinal e não falso positivo — mas é uma escolha, e num
-  host sobrecarregado ela pode surpreender.
-- Seis números passam a estar acoplados em dois arquivos — três tetos nas settings, três no
-  HEALTHCHECK — numa cadeia que nenhum mecanismo verifica: a soma dos tetos tem de caber no
-  timeout da probe, que tem de caber no timeout do Docker, que tem de caber no intervalo.
-  Quebrar qualquer elo reintroduz o problema inteiro sem produzir sinal distinguível do
-  próprio problema.
-- O orçamento depende da forma do bloco try da view, não só dos valores. A metade do cache
-  custa uma operação porque o cache.get compartilha o try do cache.set e não executa quando
-  este levanta. Separá-los em dois try, ou inverter a ordem, dobra essa metade para 8
-  segundos e estoura o orçamento em silêncio — e essa é uma edição que parece uma melhoria
-  de legibilidade.
-- O orçamento cobre uma operação falha por componente, não uma sequência de operações
-  lentas mas bem-sucedidas. Um Redis que responda cada round-trip logo abaixo dos 2 segundos
-  faz o set concluir e o get falhar depois, e o total passa dos 7 segundos da probe. Fica
-  fora do orçamento por decisão: é um regime que não se produz com pause nem com DROP, e
-  cobri-lo custaria dobrar o tempo até o veredito de unhealthy em todo cenário real.
-- Dois trechos de espera não têm teto nenhum e nenhuma configuração os alcança. O
-  getaddrinfo que precede o connect do cache está fora de qualquer settimeout, e o SELECT 1
-  não tem limite depois que a conexão foi estabelecida — este último é uma janela de corrida
-  estreita, porque com CONN_MAX_AGE em 0 a degradação estacionária é capturada pela fase de
-  conexão, mas é uma janela. Uma resolução de nome travada ou um Postgres que congele entre
-  o connect e a query devolvem a probe morta sem corpo.
-- Os tetos de connect são por endereço resolvido, e não por DATABASE_URL ou REDIS_URL:
-  redis-py aplica o settimeout dentro do laço sobre getaddrinfo, e a libpq documenta o mesmo
-  para connect_timeout. O orçamento de 6 segundos pressupõe um endereço por nome, o que hoje
-  é verdade no DNS do compose e deixa de ser no dia em que um nome resolver A e AAAA — sem
-  aviso e sem sinal distinguível.
-- O teto vale para toda conexão de banco da aplicação, não só para a de /health. É o
-  comportamento que queremos, mas a decisão foi tomada olhando um endpoint e passa a
-  valer para todos.
-- Nenhum teste alcança este comportamento. Exercitá-lo exigiria um socket que aceita
-  conexão e nunca responde, e a suíte não tem essa infraestrutura; o mesmo custo já levou
-  ao adiamento do teste equivalente do lado do cache.
-- O veredito de unhealthy fica mais lento durante degradação, porque cada probe pode agora
-  ocupar até 8 segundos em vez de 5. Com três tentativas e intervalo de 10 segundos, são
-  cerca de 45 segundos até o container ser declarado fora, contra cerca de 42 antes. É o
-  preço de ler o 503 em vez de apenas contá-lo.
-
-## Alternativas consideradas
-
-- **Baixar os tetos do cache em config/settings.py para caber num orçamento menor** — o
-  outro lado do mesmo trade-off, e o único capaz de encolher o pior caso, já que o teto do
-  banco está no piso da libpq. Descartada porque esses tetos incidem sobre toda requisição
-  do IdP e não só sobre a probe: com SESSION_ENGINE cached_db, um valor abaixo de 2
-  segundos transforma um soluço do Redis em erro de sessão para quem está autenticando. O
-  orçamento da probe passaria a governar a robustez da aplicação, que é a inversão exata da
-  hierarquia certa. Subir os números do container custa apenas latência até um veredito que,
-  no cenário em questão, ninguém está esperando com pressa.
-- **statement_timeout no servidor, via a opção options da conexão** — limitaria a query em
-  vez da conexão, e é o instrumento certo quando as conexões são persistentes. Descartada
-  porque CONN_MAX_AGE é 0 e SELECT 1 não toma lock nem lê relação: o cenário que ela
-  guardaria não se materializa neste projeto, e seria tratamento de erro para caso
-  impossível.
-- **Escrever o parâmetro na query string da DATABASE_URL** — não exigiria tocar nas
-  settings, já que o django-environ transporta parâmetros de URL para OPTIONS. Descartada
-  porque existem três cópias dessa URL — .env, .env.example e a sobrescrita em environment:
-  do compose —, duas delas fora do alcance de quem alterar o valor, e a divergência entre
-  elas não produz sinal.
-- **Impor o teto dentro da view, por alarme ou thread** — daria um limite total em vez de
-  um limite por componente, e tornaria o orçamento independente da forma do bloco try.
-  Descartada por complexidade desproporcional e por mexer numa view cujo contrato a ADR
-  0009 fixa deliberadamente simples.
-- **Adiar o teto e dar folga generosa ao timeout do HEALTHCHECK** — o caminho de menor
-  esforço. Descartada porque sem pior caso não há folga a calcular: o número seria
-  arbitrário, e a probe continuaria morrendo antes do 503 nos casos em que o 503 é a única
-  informação útil.
-- **Não fazer nada, aceitando que o container vá a unhealthy de qualquer modo** — é
-  verdade que o veredito final é o mesmo. Descartada porque o veredito não é o produto do
-  endpoint: o produto é dizer em qual dos dois lugares procurar, e é exatamente isso que se
-  perde quando a resposta nunca é montada.
 
 ---
 
