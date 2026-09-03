@@ -9,8 +9,8 @@ Tarefa: $ARGUMENTS
 
 ## Quando esta rota se aplica
 
-A tarefa é mecânica: o resultado correto é evidente antes de começar, e não há escolha a
-fazer. Renomear, mover arquivo, aplicar formatação, subir versão de dependência.
+A tarefa é mecânica: o resultado correto é evidente antes de começar, e não há escolha a fazer.
+Renomear, mover arquivo, aplicar formatação, subir versão de dependência.
 
 ## Quando NÃO se aplica
 
@@ -19,8 +19,8 @@ escolher errado — na dúvida, suba para `/feature` ou `/refactor`.
 
 ## Abertura
 
-Se esta tarefa ainda não está em `.claude/memory/context.json` — rota invocada direto, sem passar
-por `/dev` —, abra a entrada antes da Fase 1, conforme *Ciclo de vida da tarefa* do
+Se esta tarefa ainda não está em `.claude/memory/context.json` — rota invocada direto, sem
+passar por `/dev` —, abra a entrada antes da Fase 1, conforme *Ciclo de vida da tarefa* do
 `PROTOCOLO-AGENTES.md`. Cada fase abaixo atualiza `fase_atual` e `fases_concluidas`; cada
 apontamento recebido entra em `apontamentos_sem_disposicao` no ato.
 
@@ -30,26 +30,23 @@ apontamento recebido entra em `apontamentos_sem_disposicao` no ato.
 
 Apresente ao usuário: o que muda, arquivos afetados. Espere autorização.
 
-Em chore, o pré-alteração é curto, mas não é dispensável — o `CLAUDE.md` exige perguntar
-antes de agir quando a tarefa envolve mais de dois arquivos, e chore costuma envolver
-muitos.
+Em chore, a pré-alteração é curta, mas não é dispensável — o `CLAUDE.md` exige perguntar antes
+de agir quando a tarefa envolve mais de dois arquivos, e chore costuma envolver muitos.
 
 ### Fase 2 — `writer`
 
-Passe: a tarefa, o escopo exato, e a autorização.
-Espere: `IMPLEMENTADO`, `NAO FEITO`.
+Passe: a tarefa, o escopo exato, e a autorização. Espere: `IMPLEMENTADO`, `NAO FEITO`.
 
-**Gate de escape:** se o writer descobrir que a tarefa não é mecânica — que há uma decisão
-a tomar, ou que o escopo se espalha —, ele para e reporta, como a definição dele já manda.
+**Gate de escape:** se o writer descobrir que a tarefa não é mecânica — que há uma decisão a
+tomar, ou que o escopo se espalha —, ele para e reporta, como a definição dele já manda.
 Reroteie em vez de deixar seguir.
 
 ### Fase 3 — `quality-assurance`, modo `conformidade`
 
-Passe: o relatório do writer.
-Espere: `REGRESSAO`. Só isso.
+Passe: o relatório do writer. Espere: `REGRESSAO`. Só isso.
 
-Não há `AC-NN` e não há demanda de teste: chore não introduz comportamento. Se o QA achar
-que precisa de teste novo, a tarefa não era chore.
+Não há `AC-NN` e não há demanda de teste: chore não introduz comportamento. Se o QA
+(quality-assurance) achar que precisa de teste novo, a tarefa não era chore.
 
 ## Encerramento
 

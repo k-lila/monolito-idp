@@ -9,7 +9,7 @@ class UserAdmin(BaseUserAdmin):
     """UserAdmin ajustado a um modelo sem `username`.
 
     Os cinco lugares em que a classe base nomeia `username` precisam ser sobrescritos;
-    faltando um, o proprio `manage.py check` acusa.
+    faltando um, o próprio `manage.py check` acusa.
     """
 
     fieldsets = (

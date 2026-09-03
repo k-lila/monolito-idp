@@ -1,14 +1,14 @@
 {
-  "_leia_primeiro": "Snapshot do que esta em execucao AGORA. Nao e log e nao e historico: tarefa concluida e REMOVIDA de tarefas_ativas. O que sobrevive a ela vai para .claude/memory/decisions.md. Quem escreve aqui e o orquestrador (thread principal); nenhum subagente toca neste arquivo. Procedimento completo em .claude/PROTOCOLO-AGENTES.md, secao 'Ciclo de vida da tarefa'.",
-  "_regra_de_saida": "A tarefa so sai de tarefas_ativas quando as duas listas de pendencias_de_fechamento estiverem vazias. Apontamento sai da lista quando ganha disposicao registrada em decisions.md; bloqueio sai quando o BLOCK-NNN e resolvido em blockers.md. Lista vazia aqui significa 'nada em execucao' — e so significa isso se a regra for respeitada.",
+  "_leia_primeiro": "Snapshot do que está em execução AGORA. Não é log e não é histórico: tarefa concluída é REMOVIDA de tarefas_ativas. O que sobrevive a ela vai para .claude/memory/decisions.md. Quem escreve aqui é o orquestrador (thread principal); nenhum subagente toca neste arquivo. Procedimento completo em .claude/PROTOCOLO-AGENTES.md, seção 'Ciclo de vida da tarefa'.",
+  "_regra_de_saida": "A tarefa só sai de tarefas_ativas quando as duas listas de pendencias_de_fechamento estiverem vazias. Apontamento sai da lista quando ganha disposição registrada em decisions.md; bloqueio sai quando o BLOCK-NNN é resolvido em blockers.md. Lista vazia aqui significa 'nada em execução' — e só significa isso se a regra for respeitada.",
   "_modelo_de_tarefa": {
     "task_id": "TASK-NNN — sequencial, cunhado na abertura",
-    "demanda": "o pedido do usuario, em uma linha",
+    "demanda": "o pedido do usuário, em uma linha",
     "rota": "/feature | /bugfix | /refactor | /chore | /scaffold | /review | /test-gap | /spike",
     "aberta_em": "AAAA-MM-DD",
     "fase_atual": {
-      "numero": "numero da fase no command, ou o nome do gate (ex.: 'gate-de-profundidade')",
-      "responsavel": "agente invocado, ou 'orquestrador' quando a fase e dele, ou 'usuario'",
+      "numero": "número da fase no command, ou o nome do gate (ex.: 'gate-de-profundidade')",
+      "responsavel": "agente invocado, ou 'orquestrador' quando a fase é dele, ou 'usuario'",
       "estado": "aguardando-agente | aguardando-usuario | em-disposicao"
     },
     "fases_concluidas": [
@@ -23,7 +23,7 @@
         "T-NN — <o que cobre> — <nivel>"
       ],
       "adrs_pendentes": [
-        "docs/adr/NNNN-slug.md — <titulo>; redigida pelo architect, ainda nao gravada"
+        "docs/adr/NNNN-slug.md — <titulo>; redigida pelo architect, ainda não gravada"
       ],
       "arquivos_tocados": [
         "<caminho> — criado | modificado"
@@ -37,8 +37,50 @@
         "BLOCK-NNN — ver .claude/memory/blockers.md"
       ]
     },
-    "proxima_acao": "a proxima invocacao ou a pergunta ao usuario, em uma linha"
+    "proxima_acao": "a próxima invocação ou a pergunta ao usuário, em uma linha"
   },
   "atualizado_em": "2026-09-02",
-  "tarefas_ativas": []
+  "tarefas_ativas": [
+    {
+      "task_id": "TASK-011",
+      "demanda": "Revisar a forma de toda a linguagem verbal do projeto, sem alterar o conteúdo do que é dito",
+      "rota": "/refactor",
+      "aberta_em": "2026-09-02",
+      "fase_atual": {
+        "numero": "4",
+        "responsavel": "orquestrador",
+        "estado": "aguardando-usuario"
+      },
+      "fases_concluidas": [
+        "1 orquestrador — inventário de defeitos de forma em docs/, .claude/ e código; guia de estilo e regras de invariância fixados no plano aprovado",
+        "2 usuario — pré-alteração aprovada, com quatro decisões de escopo: ADRs entram com espelhamento em 13-adrs.md; decisions.md fica de fora; prosa do código é acentuada; .claude/ entra sob regra de invariância",
+        "3 orquestrador — cinco lotes aplicados: acentuação do código, texto visível, README e docs de entrada, ADRs com espelhamento, e .claude/",
+        "4 orquestrador — conformidade verificada: suíte verde em 35 testes, espelho das ADRs idêntico por diff, frontmatter e rótulos de contrato intactos"
+      ],
+      "autorizacao_pre_alteracao": "concedida em 2026-09-02",
+      "artefatos": {
+        "ac": [
+          "AC-01 — a suíte Python continua verde, com o mesmo conjunto de testes",
+          "AC-02 — cada trecho tocado diz exatamente o que dizia antes: nenhum argumento, número, medida ou referência a arquivo:linha alterado",
+          "AC-03 — cada documento expande suas siglas na primeira aparição",
+          "AC-04 — a prosa do código está acentuada; contratos de saída e rótulos de severidade seguem literais",
+          "AC-05 — os blocos cercados de docs/roadmap/13-adrs.md e as ADRs 0001-0007 seguem idênticos por diff"
+        ],
+        "t": [],
+        "adrs_pendentes": [],
+        "arquivos_tocados": [
+          "71 arquivos — modificados; nenhum criado, nenhum removido"
+        ]
+      },
+      "pendencias_de_fechamento": {
+        "apontamentos_sem_disposicao": [
+          "[OBSERVACAO] accounts/tests/test_template_comment_leak.py:1-24 — a docstring descreve, no presente, seis comentários {# #} multi-linha que não existem mais nos templates; é defeito de conteúdo, fora do escopo desta tarefa — orquestrador",
+          "[OBSERVACAO] Treze arquivos de código citam TASK-002, TASK-006, TASK-008, AC-05, T-01 e 'nota do orquestrador no prompt de invocacao', irrecuperáveis do repositório — orquestrador",
+          "[OBSERVACAO] Duas grafias para a mesma referência: 'passo 07' em sete arquivos de código, 'docs/roadmap/07' em dois; a primeira nunca é decodificada no código — orquestrador"
+        ],
+        "bloqueios_abertos": []
+      },
+      "proxima_acao": "Usuário dá disposição aos três apontamentos de conteúdo antes do fechamento"
+    }
+  ]
 }

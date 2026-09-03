@@ -1,7 +1,7 @@
 """Views de borda do projeto: a home e o /health.
 
-Nao ha app para elas — nao afirmam nada sobre identidade e nao tocam o modelo de
-usuario. Login e logout continuam sendo as views prontas do django.contrib.auth.
+Não há app para elas — não afirmam nada sobre identidade e não tocam o modelo de
+usuário. Login e logout continuam sendo as views prontas do django.contrib.auth.
 """
 
 import logging
@@ -18,23 +18,23 @@ _CHAVE_SONDA = "health:probe"
 
 
 def home(request):
-    """Home publica: e o destino de LOGIN_REDIRECT_URL e de LOGOUT_REDIRECT_URL.
+    """Home pública: é o destino de LOGIN_REDIRECT_URL e de LOGOUT_REDIRECT_URL.
 
-    Sem login_required de proposito: com ele, o redirect do logout cairia em
-    /accounts/login/?next=/ em vez da propria home. Quem esta logado aparece pelo
+    Sem login_required de propósito: com ele, o redirect do logout cairia em
+    /accounts/login/?next=/ em vez da própria home. Quem está logado aparece pelo
     `user` do context processor.
     """
     return render(request, "home.html")
 
 
 def health(request):
-    """Prontidao real: uma query no banco e um round-trip no cache.
+    """Prontidão real: uma query no banco e um round-trip no cache.
 
-    Nao toca request.user nem request.session, nao renderiza template e nao usa
-    messages: qualquer um deles carregaria a sessao pelo Redis, e o health passaria a
+    Não toca request.user nem request.session, não renderiza template e não usa
+    messages: qualquer um deles carregaria a sessão pelo Redis, e o health passaria a
     falhar pelo mesmo motivo que deveria apenas reportar. Um try por componente, nunca
-    um so envolvendo os dois — com um so, a falha do banco esconde o estado do cache e
-    o corpo mente por omissao. O except loga: o corpo de tres chaves nao carrega a
+    um só envolvendo os dois — com um só, a falha do banco esconde o estado do cache e
+    o corpo mente por omissão. O except loga: o corpo de três chaves não carrega a
     causa, e o LOGGING do projeto manda tudo para stdout.
     """
     componentes = {"database": "ok", "cache": "ok"}
@@ -43,17 +43,17 @@ def health(request):
         with connection.cursor() as cursor:
             cursor.execute("SELECT 1")
     except Exception:
-        logger.exception("health: banco inalcancavel")
+        logger.exception("health: banco inalcançável")
         componentes["database"] = "error"
 
     try:
         cache.set(_CHAVE_SONDA, "ok", 10)
-        # Comparar o lido com o gravado: cache que aceita conexao e nao devolve o que
-        # gravou esta quebrado, e um `set` sozinho nao percebe isso.
+        # Comparar o lido com o gravado: cache que aceita conexão e não devolve o que
+        # gravou está quebrado, e um `set` sozinho não percebe isso.
         if cache.get(_CHAVE_SONDA) != "ok":
-            raise RuntimeError("cache nao devolveu o valor gravado")
+            raise RuntimeError("cache não devolveu o valor gravado")
     except Exception:
-        logger.exception("health: cache inalcancavel ou inconsistente")
+        logger.exception("health: cache inalcançável ou inconsistente")
         componentes["cache"] = "error"
 
     saudavel = all(estado == "ok" for estado in componentes.values())

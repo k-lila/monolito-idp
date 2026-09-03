@@ -1,8 +1,8 @@
 """T-05 — guardas de fluxo em /o/authorize/, mesma Application fixture.
 
-Demanda do quality-assurance (TASK-006). Nivel integracao: PKCE_REQUIRED e a
-allowlist de redirect_uri sao configuracao exercitada pela view do DOT; um
-unitario so afirmaria o valor da chave na settings, que nao esta em duvida.
+Demanda do quality-assurance (TASK-006). Nível integração: PKCE_REQUIRED e a
+allowlist de redirect_uri são configuração exercitada pela view do DOT; um
+unitário só afirmaria o valor da chave na settings, que não está em dúvida.
 """
 
 from django.contrib.auth import get_user_model
@@ -49,7 +49,7 @@ class AuthorizeGuardsTests(TestCase):
         code, _verifier, get_response = authorize_and_get_code(
             self.client, self.application, scope="openid"
         )
-        # A tela de consentimento (GET) responde 200; o code so sai no POST
+        # A tela de consentimento (GET) responde 200; o code só sai no POST
         # subsequente feito por authorize_and_get_code.
         self.assertIsNotNone(code)
 
@@ -62,13 +62,13 @@ class AuthorizeGuardsTests(TestCase):
         )
         self.assertIsNone(code)
         # Recusa antes de qualquer redirect: comportamento verificado do DOT
-        # para redirect_uri fora da allowlist e 400 direto no GET, sem Location.
+        # para redirect_uri fora da allowlist é 400 direto no GET, sem Location.
         self.assertEqual(response.status_code, 400)
 
     def test_iv_redirect_uri_com_barra_a_mais_nao_emite_code(self):
-        """Prova de igualdade exata, nao de comparacao por prefixo: registrada
-        e '.../noop', enviada e '.../noop/' - so uma barra a mais. Se a
-        comparacao afrouxar para prefixo, este teste passa a falhar."""
+        """Prova de igualdade exata, não de comparação por prefixo: registrada
+        é '.../noop', enviada é '.../noop/' - só uma barra a mais. Se a
+        comparação afrouxar para prefixo, este teste passa a falhar."""
         code, _verifier, response = authorize_and_get_code(
             self.client,
             self.application,
@@ -80,10 +80,10 @@ class AuthorizeGuardsTests(TestCase):
 
     def test_v_code_challenge_method_plain_e_recusado(self):
         """CRITICO aceito e corrigido no commit 5aa4427 (nota do orquestrador
-        no prompt de invocacao): com plain corrigido, a recusa acontece no
-        POST, nao no GET — o GET ainda devolve a tela de consentimento 200.
-        Assertar so no GET nao pegaria a regressao; por isso o teste segue o
-        POST e confere a ausencia de `code` no Location de erro."""
+        no prompt de invocação): com plain corrigido, a recusa acontece no
+        POST, não no GET — o GET ainda devolve a tela de consentimento 200.
+        Assertar só no GET não pegaria a regressão; por isso o teste segue o
+        POST e confere a ausência de `code` no Location de erro."""
         verifier = "verifier-usado-como-o-proprio-challenge-em-plain"
         params = {
             "response_type": "code",

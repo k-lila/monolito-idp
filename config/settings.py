@@ -1,8 +1,8 @@
-"""Configuracao unica do projeto, dirigida por ambiente.
+"""Configuração única do projeto, dirigida por ambiente.
 
-Nao ha default no codigo: o `.env` e a fonte, e variavel ausente falha na leitura
-nomeando-se. Nao ha split dev/prod — um arquivo de dev que nunca roda em producao
-e um caminho nao exercitado.
+Não há default no código: o `.env` é a fonte, e variável ausente falha na leitura
+nomeando-se. Não há split dev/prod — um arquivo de dev que nunca roda em produção
+é um caminho não exercitado.
 """
 
 from pathlib import Path
@@ -12,18 +12,18 @@ import environ
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 env = environ.Env()
-# Caminho explicito: read_env() sem argumento localiza o .env por backtracking de stack.
+# Caminho explícito: read_env() sem argumento localiza o .env por backtracking de stack.
 environ.Env.read_env(BASE_DIR / ".env")
 
 DEBUG = env.bool("DEBUG")
 SECRET_KEY = env.str("SECRET_KEY")
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS")
 
-# Consumidas pelo bloco OAUTH2_PROVIDER abaixo, que reusa estas duas variaveis em vez de
+# Consumidas pelo bloco OAUTH2_PROVIDER abaixo, que reusa estas duas variáveis em vez de
 # reler o ambiente: uma segunda leitura sem multiline=True produz um PEM com \n literais,
 # que falha ruidosamente — ValueError ao carregar a chave, 500 em /o/.well-known/jwks.json
-# e em /o/token/, logado por django.request. A falha silenciosa e a da chave ausente: JWKS
-# vazio com 200, e na discovery so o alg denuncia, caindo de RS256+HS256 para HS256.
+# e em /o/token/, logado por django.request. A falha silenciosa é a da chave ausente: JWKS
+# vazio com 200, e na discovery só o alg denuncia, caindo de RS256+HS256 para HS256.
 BASE_URL = env.str("BASE_URL")
 OIDC_RSA_PRIVATE_KEY = env.str("OIDC_RSA_PRIVATE_KEY", multiline=True)
 
@@ -38,7 +38,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    # No INSTALLED_APPS, nao so no middleware: e o app que registra o check da tag
+    # No INSTALLED_APPS, não só no middleware: é o app que registra o check da tag
     # `security`, o que torna uma allowlist malformada um erro de `manage.py check`.
     "corsheaders",
     "oauth2_provider",
@@ -47,19 +47,19 @@ INSTALLED_APPS = [
 
 AUTH_USER_MODEL = "accounts.User"
 
-# A PK do User e o `sub` de todo id_token: 64 bits, fixado antes da migracao inicial.
+# A PK do User é o `sub` de todo id_token: 64 bits, fixado antes da migração inicial.
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 MIDDLEWARE = [
     # CorsMiddleware SEMPRE no topo: acima do CommonMiddleware e de qualquer
     # middleware capaz de gerar resposta — resposta emitida antes dele sai sem
-    # os cabecalhos de CORS. Com a allowlist vazia o middleware e inerte, e por
-    # isso uma posicao errada e INDETECTAVEL nesta fase: o sinal so aparece na
+    # os cabeçalhos de CORS. Com a allowlist vazia o middleware é inerte, e por
+    # isso uma posição errada é INDETECTÁVEL nesta fase: o sinal só aparece na
     # fase do SPA, como erro de CORS sem pista que aponte para esta linha.
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
-    # Logo abaixo do SecurityMiddleware: o estatico e servido sem atravessar sessao,
-    # CSRF e autenticacao. Com DEBUG=False e quem serve /static/ — o runserver nao serve.
+    # Logo abaixo do SecurityMiddleware: o estático é servido sem atravessar sessão,
+    # CSRF e autenticação. Com DEBUG=False é quem serve /static/ — o runserver não serve.
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -91,29 +91,29 @@ WSGI_APPLICATION = "config.wsgi.application"
 
 DATABASES = {"default": env.db("DATABASE_URL")}
 
-# Teto da metade "banco" do /health, simetrico ao socket_connect_timeout do CACHES. Com
-# CONN_MAX_AGE default (0) toda request abre conexao nova, entao e na conexao que o tempo
-# mora — `SELECT 1` nao toma lock nem le relacao, e um statement_timeout guardaria um
-# cenario que nao existe. 2s e o minimo que a libpq aceita. E deste teto que o `timeout`
-# do HEALTHCHECK e derivado (ADR 0011).
+# Teto da metade "banco" do /health, simétrico ao socket_connect_timeout do CACHES. Com
+# CONN_MAX_AGE default (0) toda request abre conexão nova, então é na conexão que o tempo
+# mora — `SELECT 1` não toma lock nem lê relação, e um statement_timeout guardaria um
+# cenário que não existe. 2s é o mínimo que a libpq aceita. É deste teto que o `timeout`
+# do HEALTHCHECK é derivado (ADR 0011).
 DATABASES["default"].setdefault("OPTIONS", {})["connect_timeout"] = 2
 
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",  # nativo do Django; sem django-redis (ADR 0005)
         "LOCATION": env.str("REDIS_URL"),
-        # A falha que estes dois fecham nao e a recusa de conexao — essa devolve RST na
-        # hora, o except da view roda e o 503 sai —, e a do Redis que aceita a conexao e
-        # nao responde (`compose pause`, BGSAVE sob pressao de memoria, firewall que faz
+        # A falha que estes dois fecham não é a recusa de conexão — essa devolve RST na
+        # hora, o except da view roda e o 503 sai —, é a do Redis que aceita a conexão e
+        # não responde (`compose pause`, BGSAVE sob pressão de memória, firewall que faz
         # DROP): sem timeout `cache.set` pendura, nenhuma linha de log sai da view e quem
-        # encerra e o worker timeout do gunicorn, levando junto as outras requisicoes em
-        # voo naquele worker. Explicitos porque o default e implicito e versionado: None
-        # (bloqueio sem limite) em redis-py antigo, 5s no 8.1.0 de requirements.txt — ja
+        # encerra é o worker timeout do gunicorn, levando junto as outras requisições em
+        # voo naquele worker. Explícitos porque o default é implícito e versionado: None
+        # (bloqueio sem limite) em redis-py antigo, 5s no 8.1.0 de requirements.txt — já
         # acima do `timeout: 3s` do healthcheck do redis no compose. 2s cabe nessa janela
-        # e fica tres ordens de grandeza acima do round-trip local, para que um soluco do
-        # Redis nao vire erro de sessao: o SESSION_ENGINE abaixo toca o cache a cada
-        # request. Sem retry_on_timeout — o que dura menos de 2s nao estoura, e insistir
-        # contra um Redis travado so adia o 503.
+        # e fica três ordens de grandeza acima do round-trip local, para que um soluço do
+        # Redis não vire erro de sessão: o SESSION_ENGINE abaixo toca o cache a cada
+        # request. Sem retry_on_timeout — o que dura menos de 2s não estoura, e insistir
+        # contra um Redis travado só adia o 503.
         "OPTIONS": {
             "socket_connect_timeout": 2,
             "socket_timeout": 2,
@@ -121,12 +121,12 @@ CACHES = {
     }
 }
 
-# Postgres como armazenamento duravel, Redis como leitura quente. Sobrevive a flush e a
-# reinicio do Redis; nao tolera Redis indisponivel (ADR 0005).
+# Postgres como armazenamento durável, Redis como leitura quente. Sobrevive a flush e a
+# reinício do Redis; não tolera Redis indisponível (ADR 0005).
 SESSION_ENGINE = "django.contrib.sessions.backends.cached_db"
 
 # Argon2 em primeiro; os demais preservados abaixo para re-hash de credencial legada
-# no proximo login.
+# no próximo login.
 PASSWORD_HASHERS = [
     "django.contrib.auth.hashers.Argon2PasswordHasher",
     "django.contrib.auth.hashers.PBKDF2PasswordHasher",
@@ -137,61 +137,61 @@ PASSWORD_HASHERS = [
 
 OAUTH2_PROVIDER = {
     # Sem ela, OIDCOnlyMixin devolve 404 em discovery, JWKS e userinfo — o servidor sobe
-    # inteiro e so os endpoints de OIDC somem.
+    # inteiro e só os endpoints de OIDC somem.
     "OIDC_ENABLED": True,
-    # Redundante com o default da 3.4.1, declarada porque e proibicao escrita: client
-    # publico sem PKCE e code interceptavel, e um default nao e um compromisso.
+    # Redundante com o default da 3.4.1, declarada porque é proibição escrita: client
+    # público sem PKCE é code interceptável, e um default não é um compromisso.
     "PKCE_REQUIRED": True,
-    # E esta chave que faz valer a linha acima: PKCE_REQUIRED sozinho ainda aceita
-    # code_challenge_method=plain, em que o challenge e o proprio verifier em claro na
-    # requisicao de autorizacao — quem observa o pedido troca o code interceptado por um
+    # É esta chave que faz valer a linha acima: PKCE_REQUIRED sozinho ainda aceita
+    # code_challenge_method=plain, em que o challenge é o próprio verifier em claro na
+    # requisição de autorização — quem observa o pedido troca o code interceptado por um
     # token. Restringe a S256 (RFC 9700 §2.1.1); default do DOT programado para flipar na 4.0.
     "COMPLIANT_BCP_RFC9700_PKCE_METHOD": True,
-    # Default ja e False. A linha existe porque a propria biblioteca documenta que defaults
-    # dela estao programados para flipar na 4.0: sem a declaracao explicita, um `pip install -U`
+    # Default já é False. A linha existe porque a própria biblioteca documenta que defaults
+    # dela estão programados para flipar na 4.0: sem a declaração explícita, um `pip install -U`
     # publicaria end_session_endpoint na discovery sem uma linha de log.
     "OIDC_RP_INITIATED_LOGOUT_ENABLED": False,
-    # Descricoes em portugues: sao renderizadas cruas na tela de consentimento e lidas pela
-    # pessoa usuaria. LANGUAGE_CODE governa a i18n do Django, nao o conteudo destas strings.
+    # Descrições em português: são renderizadas cruas na tela de consentimento e lidas pela
+    # pessoa usuária. LANGUAGE_CODE governa a i18n do Django, não o conteúdo destas strings.
     "SCOPES": {
         "openid": "Confirmar sua identidade",
         "profile": "Ver seu nome e seus dados de perfil",
-        "email": "Ver seu endereco de e-mail",
+        "email": "Ver seu endereço de e-mail",
     },
     "OIDC_RSA_PRIVATE_KEY": OIDC_RSA_PRIVATE_KEY,
-    # Coerente com o prefixo `o/` do include: e a claim `iss` de todo id_token emitido e
+    # Coerente com o prefixo `o/` do include: é a claim `iss` de todo id_token emitido e
     # fica cacheada em cada relying party (ADR 0007). O rstrip evita que uma barra final no
-    # .env produza `//o`, que nao gera erro nenhum e so aparece como issuer mismatch na RP.
+    # .env produza `//o`, que não gera erro nenhum e só aparece como issuer mismatch na RP.
     "OIDC_ISS_ENDPOINT": f"{BASE_URL.rstrip('/')}/o",
-    # Contrato por string resolvido no boot: sem esta chave nao ha erro nenhum, o fluxo
-    # fecha e o id_token chega so com `sub`.
+    # Contrato por string resolvido no boot: sem esta chave não há erro nenhum, o fluxo
+    # fecha e o id_token chega só com `sub`.
     "OAUTH2_VALIDATOR_CLASS": "accounts.oauth_validators.IdPOAuth2Validator",
 }
 
 # Endurecimento de transporte governado por BEHIND_TLS_PROXY, nunca por DEBUG (ADR 0006):
-# DEBUG e sobre diagnostico, cookie seguro e sobre transporte. Acoplar os dois produz
+# DEBUG é sobre diagnóstico, cookie seguro é sobre transporte. Acoplar os dois produz
 # login que falha com 302 silencioso e nenhum erro em lugar nenhum.
 SESSION_COOKIE_SECURE = BEHIND_TLS_PROXY
 CSRF_COOKIE_SECURE = BEHIND_TLS_PROXY
 SECURE_SSL_REDIRECT = BEHIND_TLS_PROXY
 # SecurityMiddleware.process_request roda antes de qualquer view: com SECURE_SSL_REDIRECT
 # ligado, a probe do container — que chega de dentro, em texto claro, sem X-Forwarded-Proto —
-# recebe 301 para https:// e morre no handshake contra um gunicorn em texto claro. O padrao
-# casa contra request.path.lstrip("/"), por isso `health` sem barra e ancorado nas duas pontas.
+# recebe 301 para https:// e morre no handshake contra um gunicorn em texto claro. O padrão
+# casa contra request.path.lstrip("/"), por isso `health` sem barra é ancorado nas duas pontas.
 # Inerte enquanto SECURE_SSL_REDIRECT for False (ADR 0010).
 SECURE_REDIRECT_EXEMPT = [r"^health$"]
 SECURE_HSTS_SECONDS = 31536000 if BEHIND_TLS_PROXY else 0
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https") if BEHIND_TLS_PROXY else None
 
 # Sem require_debug_true e sem mail_admins (ADR 0006): o default do Django emudece
-# django.request quando DEBUG e falso, que e o modo em que o container roda.
+# django.request quando DEBUG é falso, que é o modo em que o container roda.
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
-            "stream": "ext://sys.stdout",  # o default do StreamHandler e stderr
+            "stream": "ext://sys.stdout",  # o default do StreamHandler é stderr
         },
     },
     "root": {
@@ -227,17 +227,17 @@ STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
 # Sem manifesto, divergindo do passo 09: o backend com manifesto faz `{% static %}`
-# consultar staticfiles.json em tempo de renderizacao, e um artefato de build ausente
-# vira ValueError na propria renderizacao — a suite roda sem collectstatic previo. A
-# chave `default` e obrigatoria: declarar STORAGES substitui o dicionario inteiro.
+# consultar staticfiles.json em tempo de renderização, e um artefato de build ausente
+# vira ValueError na própria renderização — a suíte roda sem collectstatic prévio. A
+# chave `default` é obrigatória: declarar STORAGES substitui o dicionário inteiro.
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
     "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},
 }
 
-# Nomes de rota, nao caminhos: as tres passam por resolve_url, que chama reverse em
-# runtime. Os defaults do Django apontam para /accounts/profile/, que nao existe aqui —
-# seria um 404 logo apos um login bem-sucedido.
+# Nomes de rota, não caminhos: as três passam por resolve_url, que chama reverse em
+# runtime. Os defaults do Django apontam para /accounts/profile/, que não existe aqui —
+# seria um 404 logo após um login bem-sucedido.
 LOGIN_URL = "login"
 LOGIN_REDIRECT_URL = "home"
 LOGOUT_REDIRECT_URL = "home"

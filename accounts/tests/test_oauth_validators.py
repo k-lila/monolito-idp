@@ -1,10 +1,10 @@
 """T-01 — IdPOAuth2Validator: mapeamento de User para claims, sem HTTP e sem banco.
 
 Demanda do quality-assurance, verbatim (TASK-006). User NAO salvo, request falso
-portando so `.user` e `.scopes` — a unica superficie que `get_oidc_claims` le
+portando só `.user` e `.scopes` — a única superfície que `get_oidc_claims` lê
 (oauth2_validators.py:1358-1367 na 3.4.1 instalada).
 
-Nivel unitario: e a unica logica com decisao propria neste bloco, isolavel sem
+Nível unitário: é a única lógica com decisão própria neste bloco, isolável sem
 HTTP, banco ou fluxo OAuth.
 """
 
@@ -17,7 +17,7 @@ User = get_user_model()
 
 
 class FakeRequest:
-    """Portador minimo exigido por `get_oidc_claims`: `.user` e `.scopes`."""
+    """Portador mínimo exigido por `get_oidc_claims`: `.user` e `.scopes`."""
 
     def __init__(self, user, scopes):
         self.user = user
@@ -32,13 +32,13 @@ def _claims_for(scopes, first_name="", last_name=""):
 
 
 class GetOidcClaimsTests(SimpleTestCase):
-    # SimpleTestCase: nada aqui toca banco, o User e construido e nunca salvo.
+    # SimpleTestCase: nada aqui toca banco, o User é construído e nunca salvo.
 
     def test_i_name_ausente_de_pessoa_e_erro_chave_tem_que_estar_presente_e_vazia(self):
         """AC-10: first_name/last_name em branco -> "name" PRESENTE com valor "".
 
         Ponto exato do AC-10: um dict.get("name") com default esconderia a
-        ausencia da chave. A asercao tem de provar presenca, nao so o valor.
+        ausência da chave. A asserção tem de provar presença, não só o valor.
         """
         claims = _claims_for(["openid", "profile", "email"], first_name="", last_name="")
 
@@ -74,13 +74,13 @@ class GetOidcClaimsTests(SimpleTestCase):
         self.assertNotIn("name", claims)
 
     def test_vi_email_verified_ausente_em_todos_os_cinco_casos(self):
-        """Nenhum fluxo de verificacao nesta fase (docs/roadmap/08).
+        """Nenhum fluxo de verificação nesta fase.
 
-        Guarda especifica: o scope "email" isolado herdaria email_verified do
+        Guarda específica: o scope "email" isolado herdaria email_verified do
         mapa `oidc_claim_scope` da classe base (oauth2_validators.py:210,
         "email_verified": "email") se `get_additional_claims` alguma vez
-        passasse a devolve-la. Por isso o caso (v) e o mais importante dos
-        cinco para esta asercao.
+        passasse a devolvê-la. Por isso o caso (v) é o mais importante dos
+        cinco para esta asserção.
         """
         casos = [
             ["openid", "profile", "email"],

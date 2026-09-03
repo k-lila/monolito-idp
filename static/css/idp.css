@@ -1,5 +1,5 @@
-/* Folha unica do IdP: login, home e consentimento. Sem framework e sem CDN — tela
-   onde se digita senha nao busca recurso de terceiro. */
+/* Folha única do IdP: login, home e consentimento. Sem framework e sem CDN — tela
+   onde se digita senha não busca recurso de terceiro. */
 
 :root {
     --fundo: #f4f5f7;

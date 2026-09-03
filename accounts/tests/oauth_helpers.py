@@ -1,9 +1,9 @@
-"""Infraestrutura compartilhada pelos testes de integracao do servidor OAuth2/OIDC.
+"""Infraestrutura compartilhada pelos testes de integração do servidor OAuth2/OIDC.
 
-Nao e teste em si: e o que os T-04 e T-05 reusam para nao duplicar fixture nem o
-ritual do fluxo Authorization Code + PKCE (redirect_uri fixa, Application publica
-RS256, geracao de code_verifier/code_challenge, repostagem dos campos ocultos da
-tela de consentimento). Ver nota do orquestrador no prompt de invocacao sobre a
+Não é teste em si: é o que os T-04 e T-05 reusam para não duplicar fixture nem o
+ritual do fluxo Authorization Code + PKCE (redirect_uri fixa, Application pública
+RS256, geração de code_verifier/code_challenge, repostagem dos campos ocultos da
+tela de consentimento). Ver nota do orquestrador no prompt de invocação sobre a
 forma do form de `/o/authorize/`.
 """
 
@@ -16,8 +16,8 @@ from urllib.parse import parse_qs, urlsplit
 
 from oauth2_provider.models import get_application_model
 
-# redirect_uri registrada na Application fixture: nao precisa existir de verdade
-# (docs/roadmap/07), so precisa bater por igualdade exata com a enviada em /o/authorize/.
+# redirect_uri registrada na Application fixture: não precisa existir de verdade,
+# só precisa bater por igualdade exata com a enviada em /o/authorize/.
 REDIRECT_URI = "http://localhost:8000/noop"
 
 _HIDDEN_INPUT_RE = re.compile(
@@ -26,7 +26,7 @@ _HIDDEN_INPUT_RE = re.compile(
 
 
 def make_pkce_pair():
-    """Gera (code_verifier, code_challenge) valido para o metodo S256 (RFC 7636)."""
+    """Gera (code_verifier, code_challenge) válido para o método S256 (RFC 7636)."""
     verifier = base64.urlsafe_b64encode(os.urandom(40)).rstrip(b"=").decode()
     digest = hashlib.sha256(verifier.encode()).digest()
     challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
@@ -34,7 +34,7 @@ def make_pkce_pair():
 
 
 def create_public_rs256_application(user):
-    """Application fixture do enunciado: client publico, RS256, redirect_uri fixa.
+    """Application fixture do enunciado: client público, RS256, redirect_uri fixa.
 
     Nunca a linha do banco de dev (TASK-006) — sempre criada pelo teste, no banco
     de teste do runner.
@@ -54,7 +54,7 @@ def extract_hidden_inputs(html):
     """Le os `<input type="hidden">` do form de consentimento do DOT.
 
     Comportamento verificado contra o test client (nota do orquestrador): GET em
-    /o/authorize/ com parametros validos devolve 200 com este form, cujos campos
+    /o/authorize/ com parâmetros válidos devolve 200 com este form, cujos campos
     ocultos precisam ser repostados integralmente no POST de consentimento.
     """
     return dict(_HIDDEN_INPUT_RE.findall(html))
@@ -65,7 +65,7 @@ def authorize_and_get_code(client, application, redirect_uri=REDIRECT_URI, **ext
 
     `code` vem None quando o servidor recusa antes de emitir code — guarda que T-05
     precisa distinguir de um code de verdade. `state` fixo simplifica a leitura do
-    Location; nao faz parte do que os T's pedem verificar.
+    Location; não faz parte do que os T's pedem verificar.
     """
     verifier, challenge = make_pkce_pair()
     params = {
@@ -101,7 +101,7 @@ def authorize_and_get_code(client, application, redirect_uri=REDIRECT_URI, **ext
 
 
 def exchange_code_for_tokens(client, application, code, verifier, redirect_uri=REDIRECT_URI):
-    """POST em /o/token/ com o code_verifier. Client publico: sem client_secret."""
+    """POST em /o/token/ com o code_verifier. Client público: sem client_secret."""
     response = client.post(
         "/o/token/",
         {
@@ -123,9 +123,9 @@ def _b64url_decode(segment):
 def decode_jwt(token):
     """Decodifica header e payload de um JWT compacto, sem verificar assinatura.
 
-    Suficiente para os T's: nenhuma demanda pede verificacao criptografica da
-    assinatura, so leitura de header (alg, kid) e payload (claims). Nao acrescenta
-    dependencia nova — so base64/json da stdlib.
+    Suficiente para os T's: nenhuma demanda pede verificação criptográfica da
+    assinatura, só leitura de header (alg, kid) e payload (claims). Não acrescenta
+    dependência nova — só base64/json da stdlib.
     """
     header_segment, payload_segment, _signature = token.split(".")
     header = json.loads(_b64url_decode(header_segment))

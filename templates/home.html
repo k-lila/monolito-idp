@@ -1,15 +1,15 @@
 {% extends "base.html" %}
 
-{% block title %}IdP — inicio{% endblock %}
+{% block title %}IdP — início{% endblock %}
 
 {% block content %}
     <div class="cartao">
-        <h1>Provedor de identidade</h1>
+        <h1>Provedor de identidade (IdP)</h1>
         {% if user.is_authenticated %}
-            <p>Sessao ativa como <span class="identidade">{{ user.email }}</span>.</p>
-            <p>Use o botao Sair, no topo, para encerrar a sessao.</p>
+            <p>Sessão ativa como <span class="identidade">{{ user.email }}</span>.</p>
+            <p>Use o botão Sair, no topo, para encerrar a sessão.</p>
         {% else %}
-            <p>Nenhuma sessao ativa.</p>
+            <p>Nenhuma sessão ativa.</p>
             <p><a href="{% url 'login' %}">Entrar</a></p>
         {% endif %}
     </div>

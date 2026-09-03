@@ -6,18 +6,18 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      # Bind em 127.0.0.1: publicacao sem endereco vira DNAT a frente do firewall do host.
+      # Bind em 127.0.0.1: publicação sem endereço vira DNAT à frente do firewall do host.
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
       # pg_isready da verde quando o servidor responde - inclusive respondendo falha de
-      # autenticacao. -U/-d mudam o log do servidor, nao o veredito.
+      # autenticação. -U/-d mudam o log do servidor, não o veredito.
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 3s
       retries: 10
-      # A imagem sobe e derruba um servidor temporario ao inicializar o volume; sem
+      # A imagem sobe e derruba um servidor temporário ao inicializar o volume; sem
       # start_period um pg_isready verde precoce seria consumido pelo depends_on do passo 11.
       start_period: 10s
 
@@ -37,25 +37,25 @@ services:
   app:
     build: .
     depends_on:
-      # A espera por Postgres e Redis e daqui, nao de laco de polling no entrypoint.
+      # A espera por Postgres e Redis é daqui, não de laço de polling no entrypoint.
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     env_file: .env
     environment:
-      # As portas aqui sao as INTERNAS - 5432 e 6379 -, nunca POSTGRES_PORT/REDIS_PORT,
-      # que so valem para quem chega pelo host. Sem esta sobrescrita o container herda os
-      # enderecos da jornada de construcao, em que localhost e o proprio container, e o
+      # As portas aqui são as INTERNAS - 5432 e 6379 -, nunca POSTGRES_PORT/REDIS_PORT,
+      # que só valem para quem chega pelo host. Sem esta sobrescrita o container herda os
+      # endereços da jornada de construção, em que localhost é o próprio container, e o
       # migrate do entrypoint falha com erro que parece de credencial ou de rede.
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
     ports:
-      # Divergencia deliberada com o passo 11, que prescreve "8000:8000": publicacao sem
-      # endereco instala DNAT a frente do firewall do host, e o que fica exposto e um
-      # formulario de senha em HTTP claro. Mesmo precedente de postgres e redis acima.
+      # Divergência deliberada com o passo 11, que prescreve "8000:8000": publicação sem
+      # endereço instala DNAT à frente do firewall do host, e o que fica exposto é um
+      # formulário de senha em HTTP claro. Mesmo precedente de postgres e redis acima.
       - "127.0.0.1:8000:8000"
-    # Uma replica so, e isso e premissa da migracao no entrypoint: duas instancias migram
+    # Uma réplica só, e isso é premissa da migração no entrypoint: duas instâncias migram
     # concorrentemente no boot.
 
 volumes:

@@ -8,9 +8,9 @@
 </head>
 <body>
     {% comment %}
-    Fora do bloco de conteudo: o form de logout e o form da tela em uso sao irmaos,
-    nunca aninhados. HTML nao tem form aninhado, e o navegador desfaz o aninhamento
-    de um jeito que o POST do consentimento nao sobrevive.
+    Fora do bloco de conteúdo: o form de logout e o form da tela em uso são irmãos,
+    nunca aninhados. HTML não tem form aninhado, e o navegador desfaz o aninhamento
+    de um jeito que o POST do consentimento não sobrevive.
     {% endcomment %}
     <header class="cabecalho">
         <a class="marca" href="{% url 'home' %}">IdP</a>
@@ -19,7 +19,7 @@
                 <span class="identidade">{{ user.email }}</span>
                 {% comment %}
                 Sem campo `next`: LogoutView.get_success_url prefere o next do POST, e um
-                next vindo da tela de consentimento devolveria o usuario ja deslogado a
+                next vindo da tela de consentimento devolveria o usuário já deslogado a
                 /o/authorize/, que o manda de volta ao login. Sem ele, cai em
                 LOGOUT_REDIRECT_URL.
                 {% endcomment %}

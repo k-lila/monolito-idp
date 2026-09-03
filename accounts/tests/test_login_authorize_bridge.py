@@ -1,9 +1,9 @@
-"""TASK-007/T-06 — anonimo interrompido em /o/authorize/, resgatado pelo login, chega ao
-consentimento sem reconstruir a query de autorizacao a mao.
+"""TASK-007/T-06 — anônimo interrompido em /o/authorize/, resgatado pelo login, chega ao
+consentimento sem reconstruir a query de autorização a mao.
 
-Demanda do quality-assurance (bloco E). Nivel integracao: e a costura entre
-LOGIN_URL por nome de rota, o `next` da LoginView e a view de autorizacao do
-DOT — nenhuma peca isolada garante o fechamento do ciclo.
+Demanda do quality-assurance (bloco E). Nível integração: é a costura entre
+LOGIN_URL por nome de rota, o `next` da LoginView e a view de autorização do
+DOT — nenhuma peça isolada garante o fechamento do ciclo.
 """
 
 from django.contrib.auth import get_user_model
@@ -38,7 +38,7 @@ class LoginAuthorizeBridgeTests(TestCase):
             "nonce": "ponte-nonce",
         }
 
-        # (1) anonimo em /o/authorize/: interrompido, mandado para o login nomeado.
+        # (1) anônimo em /o/authorize/: interrompido, mandado para o login nomeado.
         first = self.client.get("/o/authorize/", params)
         self.assertEqual(first.status_code, 302)
         location = first.get("Location")
@@ -50,7 +50,7 @@ class LoginAuthorizeBridgeTests(TestCase):
         self.assertEqual(login_page.status_code, 200)
 
         # (3) posta as credenciais no MESMO location (com o next na querystring):
-        # LoginView.get_redirect_url le o next do POST ou do GET, entao postar
+        # LoginView.get_redirect_url lê o next do POST ou do GET, então postar
         # aqui escapa da armadilha do next HTML-escapado no hidden do template.
         login_post = self.client.post(
             location,

@@ -1,8 +1,8 @@
-"""TASK-007/T-01, TASK-007/T-02, TASK-007/T-03 — GET/POST /accounts/login/, sem sessao previa.
+"""TASK-007/T-01, TASK-007/T-02, TASK-007/T-03 — GET/POST /accounts/login/, sem sessão prévia.
 
-Demanda do quality-assurance (bloco E). Nivel integracao nos tres: o que pode
-quebrar e a costura entre template, rota nomeada, staticfiles e o
-AuthenticationForm, nunca uma peca isolada.
+Demanda do quality-assurance (bloco E). Nível integração nos três: o que pode
+quebrar é a costura entre template, rota nomeada, staticfiles e o
+AuthenticationForm, nunca uma peça isolada.
 """
 
 from django.contrib.auth import get_user_model
@@ -23,12 +23,12 @@ class LoginPageRendersTests(TestCase):
         html = response.content.decode()
 
         # Campo chama-se `username` mesmo com USERNAME_FIELD = "email" (armadilha
-        # do enunciado): postar "email" no form devolveria 200 com form invalido,
-        # nunca a autenticacao pretendida.
+        # do enunciado): postar "email" no form devolveria 200 com form inválido,
+        # nunca a autenticação pretendida.
         self.assertIn('name="username"', html)
         self.assertIn('name="password"', html)
 
-        # A URL que {% static %} resolveu de verdade em runtime, nao um literal
+        # A URL que {% static %} resolveu de verdade em runtime, não um literal
         # duplicado no teste — se STATIC_URL ou STORAGES mudar, o teste acompanha.
         self.assertIn(static("css/idp.css"), html)
 
@@ -38,7 +38,7 @@ class LoginPageRendersTests(TestCase):
 
 
 class LoginSuccessTests(TestCase):
-    """TASK-007/T-02 — credenciais corretas estabelecem sessao e redirecionam para home."""
+    """TASK-007/T-02 — credenciais corretas estabelecem sessão e redirecionam para home."""
 
     def setUp(self):
         self.user = User.objects.create_user(
@@ -55,7 +55,7 @@ class LoginSuccessTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 302)
-        # Explicito, sem follow=True: e a linha que pegaria a regressao para o
+        # Explícito, sem follow=True: é a linha que pegaria a regressão para o
         # default /accounts/profile/ (que nem existe neste projeto).
         self.assertEqual(response.get("Location"), "/")
         self.assertIn("_auth_user_id", self.client.session)
@@ -66,7 +66,7 @@ class LoginSuccessTests(TestCase):
 
 
 class LoginFailureTests(TestCase):
-    """TASK-007/T-03 — senha incorreta nao autentica e nao estabelece sessao."""
+    """TASK-007/T-03 — senha incorreta não autentica e não estabelece sessão."""
 
     def setUp(self):
         self.user = User.objects.create_user(
@@ -84,9 +84,9 @@ class LoginFailureTests(TestCase):
         self.assertNotIn("_auth_user_id", self.client.session)
 
         # Marcador estrutural (classe CSS do form / lista de erros do form no
-        # contexto), nunca o texto da mensagem: ela esta em ingles hoje
-        # (LANGUAGE_CODE = "en-us") e mudaria com uma correcao legitima de i18n.
-        # "errorlist nonfield": e o non_field_errors do AuthenticationForm — a
-        # credencial invalida reprova o form inteiro, nao um campo especifico.
+        # contexto), nunca o texto da mensagem: ela está em inglês hoje
+        # (LANGUAGE_CODE = "en-us") e mudaria com uma correção legítima de i18n.
+        # "errorlist nonfield": é o non_field_errors do AuthenticationForm — a
+        # credencial inválida reprova o form inteiro, não um campo específico.
         self.assertIn("errorlist", response.content.decode())
         self.assertTrue(response.context["form"].errors)

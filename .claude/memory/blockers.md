@@ -23,7 +23,7 @@
 ---
 
 **Regra ao usar este arquivo:** bloqueador resolvido sai daqui. O valor de um arquivo de
-impedimentos é que a lista vazia signifique alguma coisa.
+impedimentos é que a lista vazia significa alguma coisa.
 
 **Regra de verificação:** o critério de "fechado" verifica-se contra o código, nunca contra
 outro documento. O escopo de um problema verifica-se varrendo a superfície no código, nunca

@@ -1,4 +1,4 @@
-# NNNN. [Decisão em uma linha, no imperativo — ex.: "Usar PostgreSQL para persistência"]
+# NNNN. [Decisão em uma linha, no infinitivo — ex.: "Usar PostgreSQL para persistência"]
 
 ## Status
 
@@ -6,16 +6,14 @@
 
 ## Contexto
 
-[Qual é o problema ou a força que torna uma decisão necessária? Descreva as
-restrições técnicas e de negócio, os requisitos e os trade-offs em jogo.
-Escreva de forma neutra: descreva a situação, não a decisão. Esta seção deve
-deixar a decisão que vem a seguir bem motivada.]
+[Qual é o problema ou a força que torna uma decisão necessária? Descreva as restrições técnicas
+e de negócio, os requisitos e os trade-offs em jogo. Escreva de forma neutra: descreva a
+situação, não a decisão. Esta seção deve deixar a decisão que vem a seguir bem motivada.]
 
 ## Decisão
 
-[Diga o que foi decidido, em voz ativa: "Vamos ...". Mantenha a escolha
-central em uma ou duas frases, seguidas de qualquer especificidade que
-importe.]
+[Diga o que foi decidido, em voz ativa: "Vamos ...". Mantenha a escolha central em uma ou duas
+frases, seguidas de qualquer especificidade que importe.]
 
 ## Consequências
 
@@ -25,8 +23,8 @@ Positivas:
 
 Negativas:
 
-- [O que fica mais difícil, mais arriscado ou está sendo abandonado. Toda
-  decisão real tem isso — uma ADR sem pontos negativos está incompleta.]
+- [O que fica mais difícil, mais arriscado ou está sendo abandonado. Toda decisão real tem isso
+  — uma ADR (Architecture Decision Record) sem pontos negativos está incompleta.]
 
 ## Alternativas consideradas
 

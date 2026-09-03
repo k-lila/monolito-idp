@@ -1,7 +1,7 @@
-"""TASK-007/T-04 — /accounts/logout/, dois metodos sobre o mesmo usuario logado.
+"""TASK-007/T-04 — /accounts/logout/, dois métodos sobre o mesmo usuário logado.
 
-Demanda do quality-assurance (bloco E). Nivel integracao: a guarda que importa
-e (b) — falha se um dia alguem publicar um logout que aceite GET, cenario do
+Demanda do quality-assurance (bloco E). Nível integração: a guarda que importa
+e (b) — falha se um dia alguém publicar um logout que aceite GET, cenário do
 AC-05 (CSRF por logout via link/imagem).
 """
 
@@ -29,7 +29,7 @@ class LogoutViewTests(TestCase):
         self.assertNotIn(self.user.email, home_response.content.decode())
 
     def test_b_get_logout_e_405_e_preserva_a_sessao(self):
-        """A guarda central de TASK-007/T-04: GET nao pode encerrar sessao. Um logout que
+        """A guarda central de TASK-007/T-04: GET não pode encerrar sessão. Um logout que
         aceitasse GET tornaria a home (ou qualquer <img src="/accounts/logout/">)
         um vetor de logout forjado."""
         response = self.client.get("/accounts/logout/")

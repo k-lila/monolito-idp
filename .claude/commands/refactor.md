@@ -23,13 +23,13 @@ A estrutura precisa mudar e o comportamento observável deve permanecer **idênt
 provar que o comportamento não mudou.
 
 Verifique a cobertura do caminho alvo antes da Fase 1. Se não houver, passe por `/test-gap`
-primeiro e só então volte. Esse desvio não é burocracia: é a única coisa que distingue
-refactor de reescrita torcendo para dar certo.
+primeiro e só então volte. Esse desvio não é burocracia: é a única coisa que distingue refactor
+de reescrita torcendo para dar certo.
 
 ## Abertura
 
-Se esta tarefa ainda não está em `.claude/memory/context.json` — rota invocada direto, sem passar
-por `/dev` —, abra a entrada antes da Fase 1, conforme *Ciclo de vida da tarefa* do
+Se esta tarefa ainda não está em `.claude/memory/context.json` — rota invocada direto, sem
+passar por `/dev` —, abra a entrada antes da Fase 1, conforme *Ciclo de vida da tarefa* do
 `PROTOCOLO-AGENTES.md`. Cada fase abaixo atualiza `fase_atual` e `fases_concluidas`; cada
 apontamento recebido entra em `apontamentos_sem_disposicao` no ato.
 
@@ -37,11 +37,11 @@ apontamento recebido entra em `apontamentos_sem_disposicao` no ato.
 
 ### Fase 1 — `architect`
 
-Passe: o alvo, a estrutura atual e a razão do refactor.
-Espere: `ESTRUTURA ALVO`, `CONTRATOS`, `ORDEM SUGERIDA DE IMPLEMENTACAO`, `PROIBICOES`.
+Passe: o alvo, a estrutura atual e a razão do refactor. Espere: `ESTRUTURA ALVO`, `CONTRATOS`,
+`ORDEM SUGERIDA DE IMPLEMENTACAO`, `PROIBICOES`.
 
-Sem `product-manager` nesta rota: não há comportamento novo a especificar. O critério de
-aceite é a suíte que já existe.
+Sem `product-manager` nesta rota: não há comportamento novo a especificar. O critério de aceite
+é a suíte que já existe.
 
 ### Fase 2 — Pré-alteração
 
@@ -50,27 +50,27 @@ autorização.
 
 ### Fase 3 — `writer`
 
-Passe: `ESTRUTURA ALVO`, `ORDEM SUGERIDA`, `PROIBICOES` e a autorização.
-Espere: `IMPLEMENTADO`, `DECISOES`, `NAO FEITO`.
+Passe: `ESTRUTURA ALVO`, `ORDEM SUGERIDA`, `PROIBICOES` e a autorização. Espere:
+`IMPLEMENTADO`, `DECISOES`, `NAO FEITO`.
 
 A `ORDEM SUGERIDA` importa mais aqui do que em qualquer outra rota: refactor em passos que
 mantêm a suíte verde é reversível; refactor em um salto, não.
 
 ### Fase 4 — `quality-assurance`, modo `conformidade`
 
-Passe: a estrutura alvo do architect e o relatório do writer.
-Espere: `REGRESSAO` como campo principal — o estado da suíte antes e depois.
+Passe: a estrutura alvo do architect e o relatório do writer. Espere: `REGRESSAO` como campo
+principal — o estado da suíte antes e depois.
 
-O foco não é conformidade a `AC-NN` (não há), é **ausência de diferença**. Suíte verde
-antes e depois, com o mesmo conjunto de testes, é a prova.
+O foco não é conformidade a `AC-NN` (não há), é **ausência de diferença**. Suíte verde antes e
+depois, com o mesmo conjunto de testes, é a prova.
 
-**Gate:** teste alterado durante um refactor é sinal de alerta. Se a suíte só passa porque
-um teste mudou, o comportamento mudou — aponte como `[CRITICO]`.
+**Gate:** teste alterado durante um refactor é sinal de alerta. Se a suíte só passa porque um
+teste mudou, o comportamento mudou — aponte como `[CRITICO]`.
 
 ### Gate adversarial
 
-`senso-critico` entra se o refactor move fronteiras entre componentes. Passe o desenho e o
-que foi implementado.
+`senso-critico` entra se o refactor move fronteiras entre componentes. Passe o desenho e o que
+foi implementado.
 
 ## Encerramento
 

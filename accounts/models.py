@@ -3,12 +3,12 @@ from django.db import models
 
 
 class UserManager(BaseUserManager):
-    """Criacao de usuario por e-mail: com `username = None`, o manager padrao nao serve."""
+    """Criação de usuário por e-mail: com `username = None`, o manager padrão não serve."""
 
     def create_user(self, email, password=None, **extra_fields):
         # createsuperuser --noinput sem DJANGO_SUPERUSER_EMAIL chega aqui (passo 11).
         if not email:
-            raise ValueError("O e-mail e obrigatorio.")
+            raise ValueError("O e-mail é obrigatório.")
         user = self.model(email=self.normalize_email(email), **extra_fields)
         user.set_password(password)
         user.save(using=self._db)
@@ -21,11 +21,11 @@ class UserManager(BaseUserManager):
 
 
 class User(AbstractUser):
-    """Registro canonico sobre o qual todo token emitido faz afirmacoes.
+    """Registro canônico sobre o qual todo token emitido faz afirmações.
 
-    Herda de AbstractUser para preservar permissoes, admin e o framework de
-    autenticacao — inclusive first_name/last_name, de onde sai a claim `name`.
-    Nenhum campo especulativo: email_verified so entra com o fluxo que o alimenta.
+    Herda de AbstractUser para preservar permissões, admin e o framework de
+    autenticação — inclusive first_name/last_name, de onde sai a claim `name`.
+    Nenhum campo especulativo: email_verified só entra com o fluxo que o alimenta.
     """
 
     username = None

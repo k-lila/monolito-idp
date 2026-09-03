@@ -1,5 +1,5 @@
-# Django 5.2.8 e o piso de compatibilidade com Python 3.14: a compatibilidade entrou por
-# patch da serie 5.2, nao na 5.2.0. Nao baixar deste piso.
+# Django 5.2.8 é o piso de compatibilidade com Python 3.14: a compatibilidade entrou por
+# patch da série 5.2, não na 5.2.0. Não baixar deste piso.
 Django==5.2.17
 django-oauth-toolkit==3.4.1
 psycopg[binary]==3.3.4

@@ -1,10 +1,10 @@
-"""TASK-007/T-05 — /accounts/password_reset/ e /accounts/password_reset/done/ nao existem.
+"""TASK-007/T-05 — /accounts/password_reset/ e /accounts/password_reset/done/ não existem.
 
-Demanda do quality-assurance (bloco E). Nivel integracao: a proibicao escrita no
-passo 09 e nao incluir `django.contrib.auth.urls` — quatro rotas de recuperacao
+Demanda do quality-assurance (bloco E). Nível integração: a proibição escrita no
+passo 09 é não incluir `django.contrib.auth.urls` — quatro rotas de recuperação
 de senha sem template, cada uma um 500 esperando um clique. Dois casos bastam
-para pegar o include inteiro voltando; as outras seis rotas do mesmo include nao
-acrescentam informacao nova.
+para pegar o include inteiro voltando; as outras seis rotas do mesmo include não
+acrescentam informação nova.
 """
 
 from django.test import TestCase

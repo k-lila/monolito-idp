@@ -23,8 +23,8 @@ ainda.
 | Cobertura de teste, produção intocada | `/test-gap` |
 | Não se sabe se é viável | `/spike` |
 
-**Desempate:** se duas rotas servem, escolha a **mais profunda** e diga por quê. Barato
-demais é o erro caro: um `/chore` que era `/feature` produz código sem critério de aceite.
+**Desempate:** se duas rotas servem, escolha a **mais profunda** e diga por quê. Barato demais
+é o erro caro: um `/chore` que era `/feature` produz código sem critério de aceite.
 
 **Se nenhuma serve:** pergunte ao usuário. Não force a demanda dentro da rota mais próxima.
 
@@ -45,8 +45,8 @@ Pare aqui e espere. O usuário pode vetar a rota, e essa é a razão de o anúnc
 
 Confirmada a rota pelo usuário, e **antes** de invocar o primeiro agente: cunhe o `TASK-NNN` e
 acrescente a entrada em `.claude/memory/context.json`, conforme *Ciclo de vida da tarefa* do
-`PROTOCOLO-AGENTES.md`. `rota` recebe a rota confirmada; `fase_atual` recebe a Fase 1 do command
-correspondente.
+`PROTOCOLO-AGENTES.md`. `rota` recebe a rota confirmada; `fase_atual` recebe a Fase 1 do
+command correspondente.
 
 Rota vetada pelo usuário não abre tarefa. Se ele trocar a rota, atualize `rota` em vez de abrir
 uma segunda entrada — é a mesma demanda.

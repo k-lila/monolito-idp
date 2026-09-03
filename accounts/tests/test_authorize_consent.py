@@ -1,7 +1,7 @@
-"""TASK-007/T-07 — tela de consentimento e o ramo de recusa, usuario ja logado.
+"""TASK-007/T-07 — tela de consentimento e o ramo de recusa, usuário já logado.
 
-Demanda do quality-assurance (bloco E). Nivel integracao: o ramo de recusa nao
-tinha guarda nenhuma na suite (a D so cobre o `allow`), e ele depende do botao
+Demanda do quality-assurance (bloco E). Nível integração: o ramo de recusa não
+tinha guarda nenhuma na suíte (a D só cobre o `allow`), e ele depende do botão
 "Recusar" continuar sem atributo `name` no template.
 """
 
@@ -44,16 +44,16 @@ class AuthorizeConsentTests(TestCase):
         self.assertEqual(response.status_code, 200)
         html = response.content.decode()
 
-        # Comparado contra a propria settings, nao contra literal duplicado: se
-        # a descricao de um scope mudar em OAUTH2_PROVIDER["SCOPES"], o teste
+        # Comparado contra a própria settings, não contra literal duplicado: se
+        # a descrição de um scope mudar em OAUTH2_PROVIDER["SCOPES"], o teste
         # acompanha em vez de travar numa string congelada.
         scopes = settings.OAUTH2_PROVIDER["SCOPES"]
         for scope_name in ("openid", "profile", "email"):
             self.assertIn(scopes[scope_name], html)
 
         self.assertIn('name="allow"', html)
-        # O botao "Recusar" e um <input type="submit"> sem atributo name — e essa
-        # ausencia que faz o POST de recusa nao carregar "allow" no corpo.
+        # O botão "Recusar" é um <input type="submit"> sem atributo name — e essa
+        # ausência que faz o POST de recusa não carregar "allow" no corpo.
         self.assertIn('value="Recusar"', html)
 
     def test_post_sem_allow_recusa_e_redireciona_com_access_denied(self):
@@ -61,9 +61,9 @@ class AuthorizeConsentTests(TestCase):
         self.assertEqual(get_response.status_code, 200)
 
         hidden = extract_hidden_inputs(get_response.content.decode())
-        # extract_hidden_inputs so pega <input type="hidden">: os dois submits
-        # (allow/Recusar) nao entram aqui, entao post_data ja nasce sem "allow" —
-        # e exatamente o corpo que o clique em "Recusar" enviaria.
+        # extract_hidden_inputs só pega <input type="hidden">: os dois submits
+        # (allow/Recusar) não entram aqui, então post_data já nasce sem "allow" —
+        # é exatamente o corpo que o clique em "Recusar" enviaria.
         post_data = dict(hidden)
         self.assertNotIn("allow", post_data)
 

@@ -7,24 +7,24 @@
         <h1>Entrar</h1>
 
         {% comment %}
-        Mensagem de credencial invalida: o AuthenticationForm reporta a falha de
-        autenticacao como erro de formulario, nao de campo.
+        Mensagem de credencial inválida: o AuthenticationForm reporta a falha de
+        autenticação como erro de formulário, não de campo.
         {% endcomment %}
         {{ form.non_field_errors }}
 
         <form method="post">
             {% csrf_token %}
             {% comment %}
-            E o `next` que devolve ao /o/authorize/ interrompido; a LoginView o poe
+            É o `next` que devolve ao /o/authorize/ interrompido; a LoginView o põe
             no contexto vindo da query string.
             {% endcomment %}
             <input type="hidden" name="next" value="{{ next }}">
 
             <div class="campo">
                 {% comment %}
-                Rotulo escrito aqui porque o label do campo vem do form em ingles, e o
+                Rótulo escrito aqui porque o label do campo vem do form em inglês, e o
                 campo do AuthenticationForm chama-se `username` mesmo autenticando por
-                e-mail. Os widgets saem do form: input escrito a mao nao autentica.
+                e-mail. Os widgets saem do form: input escrito à mão não autentica.
                 {% endcomment %}
                 <label for="{{ form.username.id_for_label }}">E-mail</label>
                 {{ form.username }}
