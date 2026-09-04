@@ -77,7 +77,7 @@ Todo alvo da tabela de classificação do `/dev` e dos blocos "Quando NÃO se ap
   vazias.** Essa é tarefa que já cumpriu a regra de saída e deveria ter sido removida. Tarefa
   que fica é o que faz a lista vazia parar de significar alguma coisa.
 
-### 6. Memória coerente entre os três arquivos
+### 6. Memória coerente entre os quatro arquivos
 
 - Todo `BLOCK-NNN` em `bloqueios_abertos` existe em `blockers.md` com status diferente de
   `resolvido`.
@@ -85,8 +85,11 @@ Todo alvo da tabela de classificação do `/dev` e dos blocos "Quando NÃO se ap
   aberto sem tarefa é bloqueio esquecido.
 - Toda ADR (Architecture Decision Record) listada no índice de `decisions.md` existe em
   `docs/adr/`.
-- Todo `TASK-NNN` é único entre `context.json` e `decisions.md` — número reaproveitado
-  embaralha o histórico.
+- Todo `TASK-NNN` é único entre `context.json`, `decisions.md` e `decisions-arquivo.md` —
+  número reaproveitado embaralha o histórico.
+- Nenhuma entrada aparece nos dois arquivos de decisão ao mesmo tempo, e a numeração das
+  tarefas arquivadas não alcança a da última entrada que ficou no arquivo corrente. A poda
+  move; não copia.
 
 ### 7. Fronteira de escrita intacta
 
@@ -150,7 +153,7 @@ Calibragem, para a auditoria não virar ruído:
 | Severidade | Aqui significa |
 | --- | --- |
 | `BLOQUEADOR` | impede o sistema de funcionar: definição que não carrega, referência quebrada em caminho de execução, fronteira de escrita furada |
-| `CRITICO` | incoerência de memória — os três arquivos discordando entre si ou do disco; e defeito nesta própria skill, como checagem que dispara em arquivo correto |
+| `CRITICO` | incoerência de memória — os quatro arquivos discordando entre si ou do disco; e defeito nesta própria skill, como checagem que dispara em arquivo correto |
 | `OBSERVACAO` | órfão, estilo, duplicação de texto entre commands |
 
 Campo sem achado recebe `nenhum`. Auditoria limpa termina em `VEREDITO: LIBERADO` — não procure
