@@ -2,12 +2,17 @@
 
 Demanda do quality-assurance: `{# ... #}` é comentário de uma linha só no Django. Com o
 `#}` em outra linha, o tokenizer não reconhece o token e o texto sai renderizado como
-conteúdo. Dos seis comentários `{# ... #}` multi-linha do projeto, cinco vazam assim. O
-sexto — o do topo de `authorize.html`, fora de qualquer `{% block %}` num template que faz
-`{% extends %}` — nunca vaza: o `ExtendsNode` descarta todo texto literal fora de bloco
-nesse tipo de template, então esse comentário nunca chega a ser emitido. E defeito
-latente, não ativo: passaria a vazar no dia em que alguém o movesse para dentro de um
-`{% block %}`. Ver docstring de `AuthorizeConsentTemplateCommentLeakTests` abaixo.
+conteúdo. Quando a TASK-008 abriu, o projeto tinha seis comentários `{# ... #}`
+multi-linha e cinco vazavam assim; o sexto — o do topo de `authorize.html`, fora de
+qualquer `{% block %}` num template que faz `{% extends %}` — não vazava, porque o
+`ExtendsNode` descarta todo texto literal fora de bloco nesse tipo de template e aquele
+comentário nunca chegava a ser emitido. Era defeito latente, não ativo: passaria a vazar
+no dia em que alguém o movesse para dentro de um `{% block %}`.
+
+Hoje os templates não têm comentário `{# #}` nenhum, nem de uma linha nem multi-linha. O
+que este módulo guarda é a volta do defeito: um comentário multi-linha acrescentado a
+qualquer das três telas volta a vazar pelo mesmo caminho. Ver docstring de
+`AuthorizeConsentTemplateCommentLeakTests` abaixo.
 
 Nível integração: o que pode quebrar é a costura entre a sintaxe do template e o que o
 motor de renderização emite — nenhuma peça isolável revela isso, só a resposta HTTP.
@@ -46,9 +51,9 @@ def assert_no_template_comment_delimiters(testcase, html):
 
 
 class LoginPageTemplateCommentLeakTests(TestCase):
-    """/accounts/login/, anônimo — pega o comentário herdado de base.html no topo do
-    <body>, fora de qualquer bloco, mais os três que vivem dentro do
-    `{% block content %}` de login.html."""
+    """/accounts/login/, anônimo — cobre duas posições de uma vez: o corpo de base.html,
+    fora de qualquer bloco, e o `{% block content %}` de login.html. Quatro dos cinco
+    vazamentos que a TASK-008 encontrou estavam aí."""
 
     def test_login_anonimo_nao_vaza_comentario_de_template(self):
         response = self.client.get("/accounts/login/")
@@ -58,9 +63,10 @@ class LoginPageTemplateCommentLeakTests(TestCase):
 
 
 class HomeAuthenticatedTemplateCommentLeakTests(TestCase):
-    """/, com sessão ativa — única superfície que exercita o comentário de base.html que
-    vive dentro do ramo `{% if user.is_authenticated %}` do cabeçalho; sem sessão ativa
-    esse ramo nem entra no template e nada haveria para vazar."""
+    """/, com sessão ativa — única superfície que renderiza o ramo
+    `{% if user.is_authenticated %}` do cabeçalho de base.html, onde estava o quinto
+    vazamento da TASK-008. Sem sessão ativa esse ramo não entra na renderização, e nada
+    que ele contenha pode vazar."""
 
     def setUp(self):
         self.user = User.objects.create_user(
@@ -78,16 +84,17 @@ class HomeAuthenticatedTemplateCommentLeakTests(TestCase):
 class AuthorizeConsentTemplateCommentLeakTests(TestCase):
     """/o/authorize/, usuário logado e requisição válida.
 
-    Não pega o comentário que abre authorize.html: ele fica fora de qualquer
-    `{% block %}` num template que faz `{% extends %}`, e o `ExtendsNode` descarta
-    todo texto literal nessa posição — nunca chega a ser emitido. O que este caso
-    de fato pega é o comentário herdado de base.html no topo do <body>, que toda
-    tela que estende base.html carrega, consentimento inclusive.
+    O topo de authorize.html, fora de qualquer `{% block %}` num template que faz
+    `{% extends %}`, é posição cega: o `ExtendsNode` descarta todo texto literal que
+    esteja ali, e o que ocupa essa posição nunca chega a ser emitido. Era onde vivia o
+    sexto comentário da TASK-008, o único que não vazava. O que este caso alcança é o
+    corpo herdado de base.html, que toda tela que o estende carrega, consentimento
+    inclusive.
 
-    O valor do caso não é redundância com o de login: é a guarda contra o defeito
-    latente de authorize.html — se um dia alguém mover aquele comentário para dentro
-    de um `{% block %}` (ex.: para documentar algo específico do formulário), ele
-    passa a vazar, e só um teste que renderiza esta tela de verdade pega isso."""
+    O valor do caso não é redundância com o de login: um comentário multi-linha
+    acrescentado ao `{% block %}` desta tela — para documentar algo do formulário,
+    digamos — vaza sem que nenhuma outra tela acuse, e só um teste que a renderize de
+    verdade pega isso."""
 
     def setUp(self):
         self.user = User.objects.create_user(

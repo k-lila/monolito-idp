@@ -39,48 +39,39 @@
     },
     "proxima_acao": "a próxima invocação ou a pergunta ao usuário, em uma linha"
   },
-  "atualizado_em": "2026-09-02",
+  "atualizado_em": "2026-09-04",
   "tarefas_ativas": [
     {
-      "task_id": "TASK-011",
-      "demanda": "Revisar a forma de toda a linguagem verbal do projeto, sem alterar o conteúdo do que é dito",
+      "task_id": "TASK-012",
+      "demanda": "Três mudanças estruturais: os documentos de docs/ no histórico, decisions.md particionado e a suíte num pacote tests/ na raiz",
       "rota": "/refactor",
-      "aberta_em": "2026-09-02",
+      "aberta_em": "2026-09-04",
       "fase_atual": {
-        "numero": "4",
+        "numero": "1",
         "responsavel": "orquestrador",
-        "estado": "aguardando-usuario"
+        "estado": "em-execucao"
       },
       "fases_concluidas": [
-        "1 orquestrador — inventário de defeitos de forma em docs/, .claude/ e código; guia de estilo e regras de invariância fixados no plano aprovado",
-        "2 usuario — pré-alteração aprovada, com quatro decisões de escopo: ADRs entram com espelhamento em 13-adrs.md; decisions.md fica de fora; prosa do código é acentuada; .claude/ entra sob regra de invariância",
-        "3 orquestrador — cinco lotes aplicados: acentuação do código, texto visível, README e docs de entrada, ADRs com espelhamento, e .claude/",
-        "4 orquestrador — conformidade verificada: suíte verde em 35 testes, espelho das ADRs idêntico por diff, frontmatter e rótulos de contrato intactos"
+        "0 orquestrador — análise da árvore do projeto; quatro decisões estruturais tomadas pelo usuário, e a TASK-011 fechada antes da abertura desta"
       ],
-      "autorizacao_pre_alteracao": "concedida em 2026-09-02",
+      "autorizacao_pre_alteracao": "concedida em 2026-09-04, sobre o relatório com a lista dos ~20 arquivos",
       "artefatos": {
         "ac": [
-          "AC-01 — a suíte Python continua verde, com o mesmo conjunto de testes",
-          "AC-02 — cada trecho tocado diz exatamente o que dizia antes: nenhum argumento, número, medida ou referência a arquivo:linha alterado",
-          "AC-03 — cada documento expande suas siglas na primeira aparição",
-          "AC-04 — a prosa do código está acentuada; contratos de saída e rótulos de severidade seguem literais",
-          "AC-05 — os blocos cercados de docs/roadmap/13-adrs.md e as ADRs 0001-0007 seguem idênticos por diff"
+          "AC-01 — os sete documentos de docs/ entram no histórico, sem as modificações pendentes de CLAUDE.md e README.md",
+          "AC-02 — decisions.md volta a caber numa leitura, com o histórico em decisions-arquivo.md e a regra de poda escrita no protocolo",
+          "AC-03 — a suíte roda de tests/ na raiz, verde nos mesmos 35 testes, sem renumerar rótulo de rastreabilidade nenhum",
+          "AC-04 — nenhuma citação a accounts/tests/ ou config/tests/ sobrevive fora do log histórico de .claude/memory/"
         ],
         "t": [],
         "adrs_pendentes": [],
-        "arquivos_tocados": [
-          "71 arquivos — modificados; nenhum criado, nenhum removido"
-        ]
+        "arquivos_tocados": []
       },
       "pendencias_de_fechamento": {
-        "apontamentos_sem_disposicao": [
-          "[OBSERVACAO] accounts/tests/test_template_comment_leak.py:1-24 — a docstring descreve, no presente, seis comentários {# #} multi-linha que não existem mais nos templates; é defeito de conteúdo, fora do escopo desta tarefa — orquestrador",
-          "[OBSERVACAO] Treze arquivos de código citam TASK-002, TASK-006, TASK-008, AC-05, T-01 e 'nota do orquestrador no prompt de invocacao', irrecuperáveis do repositório — orquestrador",
-          "[OBSERVACAO] Duas grafias para a mesma referência: 'passo 07' em sete arquivos de código, 'docs/roadmap/07' em dois; a primeira nunca é decodificada no código — orquestrador"
-        ],
+        "apontamentos_sem_disposicao": [],
         "bloqueios_abertos": []
       },
-      "proxima_acao": "Usuário dá disposição aos três apontamentos de conteúdo antes do fechamento"
+      "proxima_acao": "Modificação 1: commitar os sete documentos de docs/",
+      "_nota_de_rota": "Sem subagente: o harness desta sessão proíbe invocá-los, e o usuário foi avisado no relatório de pré-alteração. O trabalho é do orquestrador."
     }
   ]
 }

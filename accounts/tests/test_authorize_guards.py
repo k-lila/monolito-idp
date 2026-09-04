@@ -79,9 +79,9 @@ class AuthorizeGuardsTests(TestCase):
         self.assertEqual(response.status_code, 400)
 
     def test_v_code_challenge_method_plain_e_recusado(self):
-        """CRITICO aceito e corrigido no commit 5aa4427 (nota do orquestrador
-        no prompt de invocação): com plain corrigido, a recusa acontece no
-        POST, não no GET — o GET ainda devolve a tela de consentimento 200.
+        """CRITICO aceito e corrigido no commit 5aa4427: com plain corrigido, a
+        recusa acontece no POST, não no GET — o GET ainda devolve a tela de
+        consentimento 200.
         Assertar só no GET não pegaria a regressão; por isso o teste segue o
         POST e confere a ausência de `code` no Location de erro."""
         verifier = "verifier-usado-como-o-proprio-challenge-em-plain"

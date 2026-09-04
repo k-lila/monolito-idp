@@ -902,3 +902,36 @@ autorizado neste bloco.
 roda o quê.
 
 - **Tipo:** decisão.
+
+---
+
+## [2026-09-04] TASK-011 · Fechamento: disposição dos três apontamentos de conteúdo
+
+- **Decisão:** os três apontamentos que seguravam o fechamento receberam disposição do usuário
+  em 2026-09-04, com a instrução de tratá-los antes de qualquer trabalho novo.
+  - **[OBSERVACAO] docstring de `test_template_comment_leak.py` — ACEITO e corrigido.** A
+    docstring descrevia no presente seis comentários `{# ... #}` multi-linha; `grep -rn '{#'
+    templates/` não acha nenhum hoje, nem multi-linha nem de uma linha. O defeito era maior do
+    que o registro dizia: as **três docstrings de classe** repetiam o mesmo pressuposto, cada
+    uma nomeando o comentário específico que aquele caso pegaria. As quatro foram reescritas —
+    o inventário da TASK-008 passou ao pretérito, o estado de hoje entrou explícito, e a
+    justificativa de cada caso passou a ser a posição de renderização que ele cobre, não o
+    comentário que morava lá. Suíte verde em 35 testes antes e depois.
+  - **[OBSERVACAO] treze arquivos citando rótulos irrecuperáveis — ACEITO EM PARTE.**
+    `TASK-NNN`, `T-NN` e `AC-NN` **não** são irrecuperáveis: `docs/testes.md`, seção "A
+    convenção de rastreabilidade", decodifica as duas formas em uso e declara que são rótulos
+    de contrato, que não se renumeram nem se reescrevem. Nada a fazer nos treze arquivos por
+    esse motivo. Irrecuperáveis eram só as **três remissões a "prompt de invocação"** —
+    `oauth_helpers.py`, `test_authorize_guards.py` e `test_authorization_code_flow.py` —, que
+    mandavam o leitor consultar uma conversa que não existe. Em todas as três a afirmação já
+    estava completa na própria frase; caiu só a atribuição.
+  - **[OBSERVACAO] duas grafias para "passo NN" — ACEITO, resolvido por decodificação.** O
+    referente sumiu: `docs/roadmap/` foi removido no commit `b7774d5`. Reescrever as sete
+    ocorrências em código seria mexer em conteúdo para apagar um rótulo que as ADRs 0008 e
+    0010 — imutáveis — continuam usando. Em vez disso, `docs/arquitetura.md` ganhou um
+    parágrafo que decodifica o rótulo, nomeia os arquivos que o usam e mostra como ler o
+    original no histórico (`git show b7774d5^:docs/roadmap/09-telas-e-estaticos.md`).
+- **Arquivos tocados no fechamento:** `accounts/tests/test_template_comment_leak.py`,
+  `accounts/tests/oauth_helpers.py`, `accounts/tests/test_authorize_guards.py`,
+  `accounts/tests/test_authorization_code_flow.py`, `docs/arquitetura.md`.
+- **Tipo:** decisão.

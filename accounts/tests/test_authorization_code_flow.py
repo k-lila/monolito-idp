@@ -79,7 +79,7 @@ class AuthorizationCodePkceFlowTests(TestCase):
         # automáticas do oauthlib) têm de bater exatamente com claims_supported
         # da discovery. Guarda contra get_additional_claims(self, request) —
         # troca de aridade que faz o id_token continuar certo e a discovery
-        # subdeclarar em silêncio (nota do QA no prompt de invocação).
+        # subdeclarar em silêncio.
         identity_claims = set(payload.keys()) - AUTO_CLAIMS
         discovery_response = self.client.get("/o/.well-known/openid-configuration")
         claims_supported = set(discovery_response.json()["claims_supported"])
