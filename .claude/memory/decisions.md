@@ -159,3 +159,44 @@ memória — é sedimento.
   `accounts/tests/oauth_helpers.py`, `accounts/tests/test_authorize_guards.py`,
   `accounts/tests/test_authorization_code_flow.py`, `docs/arquitetura.md`.
 - **Tipo:** decisão.
+---
+
+## [2026-09-04] TASK-012 · Três mudanças estruturais na árvore, e duas afirmações minhas corrigidas
+
+- **Decisão:** análise da árvore do projeto, a pedido do usuário. A estrutura do código foi
+  julgada adequada e não mexida: o layout Django convencional serve para 476 linhas de
+  produção, e a fronteira que `docs/arquitetura.md` declara é a que o código tem. O
+  desequilíbrio estava na prosa — cerca de 6.850 linhas de texto contra 1.800 de código e
+  teste. Quatro decisões do usuário, três com execução:
+  - **Os sete documentos de `docs/` entram no histórico** (commit `7b311a1`), sem as
+    modificações pendentes de `CLAUDE.md` e `README.md`, que seguem no diretório de trabalho
+    por escolha dele.
+  - **`decisions.md` particionado** (commit `a6b7dd8`): 904 linhas viraram 161, e as 33
+    entradas da TASK-001 à TASK-009 foram para `decisions-arquivo.md`, sem uma linha
+    reescrita. A regra de poda — acima de 300 linhas, arquivam-se as tarefas encerradas menos
+    a última — está no `PROTOCOLO-AGENTES.md`, seção *A poda de `decisions.md`*.
+  - **A suíte passou para `tests/`, na raiz** (commit `e971308`): treze arquivos movidos,
+    `accounts/tests/` e `config/tests/` extintos, 35 testes verdes antes e depois. O ganho
+    real é que a forma parcial deixou de ser silenciosa: `manage.py test accounts` responde
+    `Found 0 test(s)`, onde antes rodava dez dos doze arquivos sem dizer nada.
+  - **`docs/gaps/` mantida** com um arquivo só, por decisão do usuário: separa fisicamente o
+    que o sistema faz do que ainda não faz.
+- **Duas afirmações minhas, corrigidas na própria tarefa.** Registradas porque a análise que as
+  continha foi apresentada ao usuário antes da verificação: (1) eu disse que o `README.md` do
+  repositório prometia seis documentos inexistentes — o `README.md` do `HEAD` não cita `docs/`
+  em lugar nenhum, e a promessa está só na versão não commitada; (2) eu disse que
+  `decisions.md` era lido inteiro a cada retomada — a skill `retomar` lê `context.json` e
+  `blockers.md`, e nunca leu `decisions.md`. Quem o lê é o orquestrador, ao abrir e ao fechar
+  tarefa. A partição continua justificada pelo tamanho, não pela frequência.
+- **Tech-debt / melhorias, sem disposição de correção nesta tarefa:**
+  - Dezenove arquivos `.pyc` compilados por **CPython 3.12** convivem com os de 3.14 na árvore,
+    e a ADR 0001 fixa 3.14. Algum interpretador fora do `.venv` rodou aqui. Não quebra nada —
+    o Python ignora bytecode de outra versão —, mas é sinal de ambiente divergente.
+  - `CLAUDE.md` e `README.md` seguem modificados e não versionados. Os dois já têm, no disco, a
+    correção dos caminhos de teste; o `CLAUDE.md` do `HEAD` não cita caminho de teste nenhum,
+    então nada obsoleto entrou no histórico.
+  - O trabalho está no ramo `estrutura/task-012`, não na `main`.
+- **Fora do protocolo, registrado:** nenhum subagente foi invocado. O harness da sessão o
+  proibia, o usuário foi avisado no relatório de pré-alteração, e o orquestrador executou as
+  fases que caberiam ao `writer` e ao `tester`.
+- **Tipo:** decisão.

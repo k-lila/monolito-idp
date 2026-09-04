@@ -40,38 +40,5 @@
     "proxima_acao": "a próxima invocação ou a pergunta ao usuário, em uma linha"
   },
   "atualizado_em": "2026-09-04",
-  "tarefas_ativas": [
-    {
-      "task_id": "TASK-012",
-      "demanda": "Três mudanças estruturais: os documentos de docs/ no histórico, decisions.md particionado e a suíte num pacote tests/ na raiz",
-      "rota": "/refactor",
-      "aberta_em": "2026-09-04",
-      "fase_atual": {
-        "numero": "1",
-        "responsavel": "orquestrador",
-        "estado": "em-execucao"
-      },
-      "fases_concluidas": [
-        "0 orquestrador — análise da árvore do projeto; quatro decisões estruturais tomadas pelo usuário, e a TASK-011 fechada antes da abertura desta"
-      ],
-      "autorizacao_pre_alteracao": "concedida em 2026-09-04, sobre o relatório com a lista dos ~20 arquivos",
-      "artefatos": {
-        "ac": [
-          "AC-01 — os sete documentos de docs/ entram no histórico, sem as modificações pendentes de CLAUDE.md e README.md",
-          "AC-02 — decisions.md volta a caber numa leitura, com o histórico em decisions-arquivo.md e a regra de poda escrita no protocolo",
-          "AC-03 — a suíte roda de tests/ na raiz, verde nos mesmos 35 testes, sem renumerar rótulo de rastreabilidade nenhum",
-          "AC-04 — nenhuma citação a accounts/tests/ ou config/tests/ sobrevive fora do log histórico de .claude/memory/"
-        ],
-        "t": [],
-        "adrs_pendentes": [],
-        "arquivos_tocados": []
-      },
-      "pendencias_de_fechamento": {
-        "apontamentos_sem_disposicao": [],
-        "bloqueios_abertos": []
-      },
-      "proxima_acao": "Modificação 1: commitar os sete documentos de docs/",
-      "_nota_de_rota": "Sem subagente: o harness desta sessão proíbe invocá-los, e o usuário foi avisado no relatório de pré-alteração. O trabalho é do orquestrador."
-    }
-  ]
+  "tarefas_ativas": []
 }
