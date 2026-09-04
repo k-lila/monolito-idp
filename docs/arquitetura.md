@@ -101,14 +101,13 @@ config/
   urls.py              a superfície HTTP: o que existe, sob que prefixo, com que nome de rota
   views.py             home e health — a borda que não afirma nada sobre identidade
   wsgi.py              ponto de entrada do gunicorn
-  tests/               a suíte do /health
 accounts/
   models.py            o que é uma pessoa aqui: e-mail único, sem username
   oauth_validators.py  o que um token afirma sobre a pessoa
   admin.py             a tela de administração de contas
   apps.py              registro do app
   migrations/          o esquema de accounts, a chave primária de 64 bits que vira o `sub`
-  tests/               a suíte do fluxo OIDC, das telas e do validador
+tests/                 a suíte inteira: fluxo OIDC, telas, validador e prontidão do /health
 templates/
   base.html            o esqueleto das telas e o form de logout
   home.html            a home pública
@@ -181,7 +180,7 @@ ADR aceita é imutável: decisão que mudou vira ADR nova. O formato está em
 
 As ADRs 0008 e 0010 citam "o passo NN do roadmap", e o mesmo rótulo aparece encurtado para
 "passo NN" em comentários do `Dockerfile`, do `docker-compose.yml`, de `config/settings.py`, de
-`accounts/models.py` e de `accounts/tests/test_password_reset_urls.py`. São os treze arquivos de
+`accounts/models.py` e de `tests/test_password_reset_urls.py`. São os treze arquivos de
 `docs/roadmap/`, a ordem de implementação que guiou a construção do núcleo, de
 `01-dependencias-e-contrato-de-ambiente.md` a `13-adrs.md`. Foram removidos no commit `b7774d5`
 depois de cumpridos, e cada um segue legível no histórico — por exemplo, `git show
@@ -190,6 +189,6 @@ passo prescrevia, quem decide é o código, e a divergência está registrada na
 comentário que cita o passo.
 
 O comportamento verificado está nos doze arquivos `test_*.py`, mais o
-`accounts/tests/oauth_helpers.py`, que carrega a infraestrutura do fluxo. O que cada arquivo
+`tests/oauth_helpers.py`, que carrega a infraestrutura do fluxo. O que cada arquivo
 garante, em que nível e contra que regressão está em `docs/testes.md`, na seção "O que cada
 arquivo garante"; é lá que também estão como rodar a suíte e o que ela não cobre.

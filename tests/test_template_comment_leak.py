@@ -21,7 +21,7 @@ Módulo novo, não espalhado pelos três módulos existentes (test_login_view.py
 test_authorize_consent.py, test_login_authorize_bridge.py): as três telas compartilham o
 mesmo critério de aceite (ausência dos delimitadores `{#`/`#}` no corpo), e um módulo só
 deixa essa repetição de asserção explícita em vez de diluída em classes que já existem por
-outro motivo. Reusa as fixtures de accounts/tests/oauth_helpers.py em vez de duplica-las.
+outro motivo. Reusa as fixtures de tests/oauth_helpers.py em vez de duplica-las.
 
 Critério: assere pelos delimitadores `{#` e `#}`, nunca pelo texto de um comentário
 específico — o texto é documentação viva e muda; os delimitadores nunca podem aparecer
@@ -31,7 +31,7 @@ numa resposta renderizada.
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
-from accounts.tests.oauth_helpers import (
+from tests.oauth_helpers import (
     REDIRECT_URI,
     create_public_rs256_application,
     make_pkce_pair,

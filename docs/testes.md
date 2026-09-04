@@ -7,9 +7,14 @@ receita de subir o stack, no `docs/receita.md`.
 
 ## O que a suíte é
 
-Doze arquivos `test_*.py` em dois pacotes (onze em `accounts/tests/`, um em `config/tests/`),
-mais `accounts/tests/oauth_helpers.py`, que não é teste e sim a infraestrutura que os testes de
-fluxo reusam. Dentro deles, dezenove classes e trinta e cinco métodos de teste.
+Doze arquivos `test_*.py` num pacote só, `tests/`, na raiz do repositório, mais
+`tests/oauth_helpers.py`, que não é teste e sim a infraestrutura que os testes de fluxo
+reusam. Dentro deles, dezenove classes e trinta e cinco métodos de teste.
+
+O pacote é da raiz, e não de dentro de `accounts/`, porque a suíte quase toda exercita
+superfícies que `accounts` não possui: rotas declaradas em `config/urls.py`, views do toolkit
+e views prontas do `django.contrib.auth`. Um único módulo — `tests/test_oauth_validators.py` —
+testa código do app.
 
 O executor é o nativo do Django, sobre `unittest` da biblioteca padrão. Isso é o que há:
 
@@ -26,9 +31,11 @@ O executor é o nativo do Django, sobre `unittest` da biblioteca padrão. Isso �
 docker compose exec app python manage.py test  # jornada de clonar-e-rodar
 ```
 
-Sem argumento, `manage.py test` descobre os dois pacotes. `manage.py test accounts` deixa
-`config/tests/` de fora, e com ele toda a prontidão de `/health`; é por isso que a forma sem
-argumento é a correta.
+Sem argumento, `manage.py test` descobre o pacote inteiro; `manage.py test tests` é a forma
+explícita e roda os mesmos trinta e cinco. Rótulo de app não serve mais como atalho:
+`manage.py test accounts` responde `Found 0 test(s)` — nenhum teste mora lá. Enquanto a suíte
+esteve dividida entre `accounts/` e `config/`, esse mesmo comando rodava dez dos doze arquivos
+e calava sobre os outros dois.
 
 O pré-requisito é ter Postgres e Redis de pé. O executor cria e destrói o banco de teste
 sozinho, mas precisa de um servidor a que se conectar; e o Redis é tocado por toda requisição
@@ -36,7 +43,7 @@ com sessão, porque `SESSION_ENGINE` é `cached_db`, além de ser consultado dir
 de `/health`. Nas duas jornadas isso significa `docker compose up` tendo subido, no mínimo, os
 serviços `postgres` e `redis`.
 
-A suíte **não** exige `collectstatic` prévio. `accounts/tests/test_login_view.py` confere o CSS
+A suíte **não** exige `collectstatic` prévio. `tests/test_login_view.py` confere o CSS
 (Cascading Style Sheets) por `finders.find("css/idp.css")`, que procura no diretório-fonte, e
 por `static("css/idp.css")`, que resolve a URL (Uniform Resource Locator) em tempo de execução
 — nenhum dos dois depende do diretório coletado. Preservar isso foi parte do que se decidiu em
@@ -47,14 +54,14 @@ por `static("css/idp.css")`, que resolve a URL (Uniform Resource Locator) em tem
 **Sem banco (`SimpleTestCase`).** A função sob teste é chamada diretamente, com um portador
 falso no lugar do que ela leria do mundo. Dois lugares:
 
-- `accounts/tests/test_oauth_validators.py`, inteiro — `get_oidc_claims` lê só `.user` e
+- `tests/test_oauth_validators.py`, inteiro — `get_oidc_claims` lê só `.user` e
   `.scopes`, então um objeto de duas linhas basta, e o `User` é construído sem nunca ser salvo;
-- a classe `HealthViewDatabaseDownUnitTests`, em `config/tests/test_health.py` — `RequestFactory`
+- a classe `HealthViewDatabaseDownUnitTests`, em `tests/test_health.py` — `RequestFactory`
   mais chamada direta a `health`, com `connection` substituída por um duplo que levanta.
 
 **Com banco e cliente de teste (`TestCase`).** A requisição atravessa o URLConf, o middleware, a
 view, o template e o banco de teste. É onde estão os outros dez arquivos e as outras três
-classes de `config/tests/test_health.py`.
+classes de `tests/test_health.py`.
 
 O critério de escolha é o mesmo em todos os casos: **o nível sem banco vale quando a decisão
 cabe inteira numa função isolável; nos demais, o que pode quebrar é a costura, e só a resposta
@@ -73,18 +80,18 @@ nível fim-a-fim neste projeto.
 
 | Assunto | Arquivo | Nível |
 | --- | --- | --- |
-| Claims emitidas pelo validador, por combinação de scope | `accounts/tests/test_oauth_validators.py` | sem banco |
-| Documento de descoberta: `issuer`, endpoints, o que não deve aparecer | `accounts/tests/test_discovery.py` | com banco |
-| JWKS (JSON Web Key Set) publicado: uma chave RSA (Rivest–Shamir–Adleman) com `kid` | `accounts/tests/test_jwks.py` | com banco |
-| Authorization Code + PKCE fechado de ponta a ponta | `accounts/tests/test_authorization_code_flow.py` | com banco |
-| Guardas de `/o/authorize/`: PKCE obrigatório, `redirect_uri`, método `plain` | `accounts/tests/test_authorize_guards.py` | com banco |
-| Tela de consentimento e o ramo de recusa | `accounts/tests/test_authorize_consent.py` | com banco |
-| Anônimo interrompido em `/o/authorize/` e resgatado pelo login | `accounts/tests/test_login_authorize_bridge.py` | com banco |
-| Tela de login: renderização, sucesso e falha de credencial | `accounts/tests/test_login_view.py` | com banco |
-| Logout por POST, e a recusa do GET | `accounts/tests/test_logout_view.py` | com banco |
-| Ausência das rotas de recuperação de senha | `accounts/tests/test_password_reset_urls.py` | com banco |
-| Comentário de template vazando para o corpo da página | `accounts/tests/test_template_comment_leak.py` | com banco |
-| Prontidão de banco e de cache, e a isenção de HTTPS | `config/tests/test_health.py` | misto |
+| Claims emitidas pelo validador, por combinação de scope | `tests/test_oauth_validators.py` | sem banco |
+| Documento de descoberta: `issuer`, endpoints, o que não deve aparecer | `tests/test_discovery.py` | com banco |
+| JWKS (JSON Web Key Set) publicado: uma chave RSA (Rivest–Shamir–Adleman) com `kid` | `tests/test_jwks.py` | com banco |
+| Authorization Code + PKCE fechado de ponta a ponta | `tests/test_authorization_code_flow.py` | com banco |
+| Guardas de `/o/authorize/`: PKCE obrigatório, `redirect_uri`, método `plain` | `tests/test_authorize_guards.py` | com banco |
+| Tela de consentimento e o ramo de recusa | `tests/test_authorize_consent.py` | com banco |
+| Anônimo interrompido em `/o/authorize/` e resgatado pelo login | `tests/test_login_authorize_bridge.py` | com banco |
+| Tela de login: renderização, sucesso e falha de credencial | `tests/test_login_view.py` | com banco |
+| Logout por POST, e a recusa do GET | `tests/test_logout_view.py` | com banco |
+| Ausência das rotas de recuperação de senha | `tests/test_password_reset_urls.py` | com banco |
+| Comentário de template vazando para o corpo da página | `tests/test_template_comment_leak.py` | com banco |
+| Prontidão de banco e de cache, e a isenção de HTTPS | `tests/test_health.py` | misto |
 
 As linhas que o nome do arquivo não explica sozinho:
 
@@ -117,7 +124,7 @@ esteve ligado".
 
 ### Três guardas cuja razão de ser não está no nome
 
-**A `redirect_uri` com uma barra a mais.** Em `accounts/tests/test_authorize_guards.py`, a
+**A `redirect_uri` com uma barra a mais.** Em `tests/test_authorize_guards.py`, a
 registrada é `.../noop` e a enviada, `.../noop/`. O teste é prova de igualdade exata: se a
 comparação um dia afrouxar para prefixo, este caso passa a falhar, e essa falha é o objetivo.
 Um teste com `redirect_uri` grosseiramente diferente passaria nos dois mundos sem dizer nada.
@@ -125,16 +132,16 @@ Um teste com `redirect_uri` grosseiramente diferente passaria nos dois mundos se
 **`GET /accounts/logout/` responde 405 e preserva a sessão.** Um logout que aceitasse GET
 tornaria qualquer `<img src="/accounts/logout/">` numa página de terceiro um vetor de logout
 forjado. A asserção não é de conveniência: é o fechamento desse vetor, e está em
-`accounts/tests/test_logout_view.py`.
+`tests/test_logout_view.py`.
 
 **O comentário de template que vaza.** `{# ... #}` é comentário de uma linha só no Django; com
 o `#}` em outra linha, o texto sai renderizado no corpo da página.
-`accounts/tests/test_template_comment_leak.py` cobre as três telas e assere pelos
+`tests/test_template_comment_leak.py` cobre as três telas e assere pelos
 delimitadores, nunca pelo texto de um comentário — o texto muda, os delimitadores nunca podem
 aparecer numa resposta. É uma classe de defeito que nenhuma leitura de código pega: só aparece
 na tela renderizada.
 
-## `accounts/tests/oauth_helpers.py`
+## `tests/oauth_helpers.py`
 
 O inventário do que já existe pronto para quem for escrever teste novo de fluxo. Reusar daqui
 é a regra; duplicar o ritual do fluxo em cada arquivo é o que este módulo existe para evitar.
@@ -175,7 +182,7 @@ Todo teste nomeia, no docstring do módulo, a demanda que o originou. Duas forma
   seguinte do mesmo docstring (`Demanda do quality-assurance (TASK-006)`).
 
 Critérios de aceite entram pela mesma porta, no docstring do caso que os prova: `AC-10` em
-`accounts/tests/test_oauth_validators.py`, `AC-05` em `accounts/tests/test_logout_view.py`.
+`tests/test_oauth_validators.py`, `AC-05` em `tests/test_logout_view.py`.
 
 O formato dos rótulos está fixado em "Convenções compartilhadas", em
 `.claude/PROTOCOLO-AGENTES.md`: `AC-NN` e `T-NN`, dois dígitos, `TASK-NNN` com três. São
@@ -193,7 +200,7 @@ O repositório separa três papéis, e a separação é rígida:
 
 - o **`quality-assurance`** decide o que testar e em que nível, e emite as demandas `T-NN`;
 - o **`tester`** implementa essas demandas, e só elas — é o único agente que escreve em
-  `accounts/tests/` e `config/tests/`;
+  `tests/`;
 - o **`writer`** escreve o código de produção e a documentação, e **não toca em arquivo de
   teste** em hipótese nenhuma, nem ao corrigir o defeito que um teste apontou.
 
@@ -218,7 +225,7 @@ relatório de ferramenta — vale como inventário, não como percentual.
   se prova é que o `kid` do cabeçalho é o publicado no JWKS, não que a assinatura confere.
 - **`docker/entrypoint.sh`.** A sequência de boot — `migrate`, `collectstatic`, criação
   condicional de superusuário, `exec gunicorn` — não tem teste nenhum.
-- **O `HEALTHCHECK` como o Docker o executa.** `config/tests/test_health.py` exercita a view e a
+- **O `HEALTHCHECK` como o Docker o executa.** `tests/test_health.py` exercita a view e a
   isenção de redirecionamento, ambas em processo. A probe de verdade, com os tempos de
   `docs/adr/0011-dar-teto-de-tempo-ao-health-e-derivar-o-healthcheck-dele.md`, nunca roda aqui.
 - **O build da imagem.** Nada verifica que o `Dockerfile` constrói, nem que a imagem sobe.

@@ -270,7 +270,7 @@ mesmo, `http://localhost:8000`, porque `BASE_URL` é o mesmo.
 docker compose exec app python manage.py test   # clonar-e-rodar
 ```
 
-Sem argumento, e isso importa: `manage.py test accounts` deixa `config/tests/` de fora. A
+Sem argumento: a suíte inteira está em `tests/`, e um rótulo de app encontra zero teste. A
 suíte não exige `collectstatic` prévio. Níveis de teste, rastreabilidade e o que não é
 coberto estão em `docs/testes.md`.
 

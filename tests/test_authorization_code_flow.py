@@ -8,7 +8,7 @@ do DOT se encontram — nenhuma peça sozinha revela o resultado.
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
-from accounts.tests.oauth_helpers import (
+from tests.oauth_helpers import (
     authorize_and_get_code,
     create_public_rs256_application,
     decode_jwt,

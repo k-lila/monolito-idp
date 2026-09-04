@@ -139,7 +139,7 @@ verificável em vez de apenas afirmada.
    dois lugares, a verificação não é lembrar de sincronizar; é o `diff` sair vazio no fim.
 5. **A suíte é o critério.** Texto de tela e comentário de template podem quebrá-la: um
    `{# ... #}` multi-linha vaza para o corpo da página, e
-   `accounts/tests/test_template_comment_leak.py` guarda contra isso.
+   `tests/test_template_comment_leak.py` guarda contra isso.
 6. **Verifique o achado antes de agir sobre ele.** Defeito reportado por outro agente pode ser
    falso positivo; agir sobre ele introduz erro onde não havia.
 

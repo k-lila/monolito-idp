@@ -28,12 +28,12 @@ vencida.
 | A senha não sai do IdP | a relying party (RP) recebe token, nunca credencial |
 | Senha armazenada com Argon2 | `PASSWORD_HASHERS` em `config/settings.py`, Argon2 em primeiro |
 | PKCE (Proof Key for Code Exchange) obrigatório, restrito a S256 | `PKCE_REQUIRED` e `COMPLIANT_BCP_RFC9700_PKCE_METHOD` |
-| `redirect_uri` por igualdade exata | `accounts/tests/test_authorize_guards.py` |
-| Logout apenas por POST | `accounts/tests/test_logout_view.py` |
+| `redirect_uri` por igualdade exata | `tests/test_authorize_guards.py` |
+| Logout apenas por POST | `tests/test_logout_view.py` |
 | Assinatura assimétrica | `docs/adr/0004-assinar-tokens-com-rs256-e-custodiar-a-chave-privada-no-ambiente.md` |
 | Cookie sem estado de identidade | `SESSION_ENGINE = cached_db` em `config/settings.py` |
 | Nenhuma origem cruzada autorizada | `CORS_ALLOWED_ORIGINS` vazia em `.env.example` |
-| Sem fluxo de recuperação de senha | `config/urls.py`, `accounts/tests/test_password_reset_urls.py` |
+| Sem fluxo de recuperação de senha | `config/urls.py`, `tests/test_password_reset_urls.py` |
 
 O que cada linha compra:
 

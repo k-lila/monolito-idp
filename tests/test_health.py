@@ -1,8 +1,8 @@
 """TASK-007/T-08, TASK-007/T-09, TASK-007/T-10 — /health e a view `health`, prontidão de banco e cache.
 
-Demanda do quality-assurance (bloco E). Pacote novo: /health não afirma nada
-sobre identidade e não pertence ao app `accounts` — reusa oauth_helpers de lugar
-nenhum, então não há infraestrutura de accounts/tests/ para puxar aqui.
+Demanda do quality-assurance (bloco E). /health não afirma nada sobre identidade,
+e é o único módulo da suíte que não puxa nada de `oauth_helpers`: não há Application,
+nem fluxo, nem sessão a montar antes de sondar banco e cache.
 """
 
 import json

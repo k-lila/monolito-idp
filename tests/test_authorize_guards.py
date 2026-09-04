@@ -8,7 +8,7 @@ unitário só afirmaria o valor da chave na settings, que não está em dúvida.
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
-from accounts.tests.oauth_helpers import (
+from tests.oauth_helpers import (
     REDIRECT_URI,
     authorize_and_get_code,
     create_public_rs256_application,
@@ -98,7 +98,7 @@ class AuthorizeGuardsTests(TestCase):
         get_response = self.client.get("/o/authorize/", params)
         self.assertEqual(get_response.status_code, 200, "GET ainda deve mostrar consentimento")
 
-        from accounts.tests.oauth_helpers import extract_hidden_inputs
+        from tests.oauth_helpers import extract_hidden_inputs
 
         hidden = extract_hidden_inputs(get_response.content.decode())
         post_data = dict(hidden)

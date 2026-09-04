@@ -58,7 +58,7 @@ Quatro campos decidem se a integração funciona:
 
 **A comparação de `redirect_uri` é por igualdade exata, nunca por prefixo.** Uma barra final a
 mais na URL enviada em `/o/authorize/` já basta para o servidor recusar antes de emitir
-código, e esse comportamento está fixado em `accounts/tests/test_authorize_guards.py`. Cada URL
+código, e esse comportamento está fixado em `tests/test_authorize_guards.py`. Cada URL
 de retorno da RP tem de estar registrada literalmente, com esquema, host, porta e path. O
 esquema `http` é aceito além de `https`, o que permite registrar uma RP de desenvolvimento em
 `localhost`.
@@ -91,7 +91,7 @@ Do registro sai o `client_id`, que é o que a RP guarda. Não há `client_secret
 **`code_challenge_method=S256` é obrigatório e literal.** A descoberta anuncia
 `code_challenge_methods_supported` igual a `["S256"]`, e o servidor recusa `plain`. Requisição
 sem `code_challenge` também é recusada; as duas guardas estão verificadas em
-`accounts/tests/test_authorize_guards.py`.
+`tests/test_authorize_guards.py`.
 
 O `state` volta inalterado na redireção de retorno. Compará-lo com o que foi gerado é obrigação
 da RP: o IdP apenas o transporta.
@@ -128,7 +128,7 @@ Três claims de identidade, e nenhuma além delas:
 
 O mapa é estrito: com `openid` sozinho chega apenas `sub`; `profile` acrescenta `name` sem
 acrescentar `email`, e `email` acrescenta `email` sem acrescentar `name`. Os cinco casos estão
-fixados em `accounts/tests/test_oauth_validators.py`.
+fixados em `tests/test_oauth_validators.py`.
 
 Junto delas vêm as claims de protocolo que a verificação exige — `iss`, `aud`, `exp`, `iat` — e
 as que o `oauthlib` acrescenta conforme o pedido, entre elas `nonce`, `auth_time`, `at_hash` e
@@ -158,7 +158,7 @@ recebe e, portanto, precisa obter de outro lugar ou dispensar por escrito.
 - **Nada além de `name` e `email`.** Não há grupos, papéis, telefone, foto nem atributo
   organizacional. O `claims_supported` da descoberta é exatamente `sub`, `name`, `email`, e o
   acoplamento entre ele e o que o servidor emite está verificado em
-  `accounts/tests/test_authorization_code_flow.py`.
+  `tests/test_authorization_code_flow.py`.
 - **O `access_token` não é inspecionável pela RP.** Ele é uma string opaca, não um JWT (JSON
   Web Token), e a introspecção não está utilizável: `/o/introspect/` exige um scope que este
   IdP não declara e responde 403, conforme
@@ -172,8 +172,8 @@ recebe e, portanto, precisa obter de outro lugar ou dispensar por escrito.
 A chave pública está no JWKS (JSON Web Key Set), em `/o/.well-known/jwks.json`, anunciado como
 `jwks_uri` na descoberta. Hoje o conjunto tem **uma** chave RSA (Rivest–Shamir–Adleman) com
 `kid`, e o `kid` do cabeçalho do `id_token` casa com o da chave publicada — comportamento
-fixado em `accounts/tests/test_jwks.py` e em
-`accounts/tests/test_authorization_code_flow.py`.
+fixado em `tests/test_jwks.py` e em
+`tests/test_authorization_code_flow.py`.
 
 O que a RP verifica em todo `id_token`, sem exceção:
 
