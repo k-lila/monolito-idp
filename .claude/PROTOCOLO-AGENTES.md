@@ -111,9 +111,10 @@ Agentes não negociam entre si. Divergência entre dois relatórios sobe para o 
   `architect` e quem grava é o `writer`; a skill `new-adr` é para invocação direta pelo
   usuário, fora de rota.
 - **Memória:** `.claude/memory/` é escrita **só pelo orquestrador**. Agente algum escreve lá —
-  quem precisa registrar algo aponta no relatório. Três arquivos, três funções distintas:
+  quem precisa registrar algo aponta no relatório. Quatro arquivos, quatro funções distintas:
   `context.json` é o que está em execução agora, `blockers.md` o que está parado,
-  `decisions.md` o que sobrevive à tarefa. Procedimento em *Ciclo de vida da tarefa*.
+  `decisions.md` o que sobrevive à tarefa, e `decisions-arquivo.md` o que já sobreviveu e saiu
+  do caminho. Procedimento em *Ciclo de vida da tarefa*.
 - **Tarefas:** `TASK-NNN`, três dígitos, sequencial. `BLOCK-NNN` para impedimentos.
 
 ## Ciclo de vida da tarefa
@@ -164,6 +165,16 @@ Nesta ordem, e só assim a tarefa fecha:
 
 Tarefa concluída não fica em `context.json`. O valor do arquivo é a lista vazia significar que
 nada está em execução.
+
+### A poda de `decisions.md`
+
+Fechada a tarefa, se `decisions.md` passar de 300 linhas, mova para `decisions-arquivo.md` as
+entradas de todas as tarefas encerradas menos as da última — no fim do arquivo, preservando a
+ordem, sem reescrever uma linha do que se move. O índice das ADRs fica sempre no arquivo
+principal.
+
+O critério é o tamanho, não a idade. Um arquivo que já não cabe numa leitura deixa de ser
+aberto, e memória que ninguém abre não é memória.
 
 ## Relatório
 
