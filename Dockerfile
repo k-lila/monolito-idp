@@ -64,6 +64,11 @@ HEALTHCHECK --interval=10s --timeout=8s --start-period=30s --retries=3 \
 # Sem USER dedicado, deliberadamente: sandbox de host único, uma replica, porta publicada
 # em loopback. Dar ownership de /app/staticfiles ao usuário que roda o collectstatic
 # acrescentaria superficie sem consumidor. Revisar na primeira exposicao fora de localhost.
+#
+# A revisão ganhou um segundo diretório: a trilha de auditoria é escrita em
+# /var/log/nova_api, montado de volume nomeado e hoje possuído por root (ADR 0013). Dar
+# USER ao processo sem dar posse desse diretório faz a configuração do logging falhar no
+# boot — ruidosa, mas confusa, porque a mensagem fala de permissão de arquivo e não de USER.
 
 # Caminho absoluto: o ENTRYPOINT não depende do WORKDIR vigente nem do PATH.
 ENTRYPOINT ["/app/docker/entrypoint.sh"]

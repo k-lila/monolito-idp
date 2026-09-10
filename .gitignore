@@ -12,3 +12,9 @@ staticfiles/
 # Acréscimo ao contrato do passo 01, registrado em decisions.md.
 .venv/
 venv/
+
+# Trilha de auditoria da jornada de construção. O diretório é versionado pelo .gitkeep:
+# existindo por construção em todo clone, o modo de falha "diretório inexistente derruba a
+# configuração do logging no boot" deixa de existir.
+logs/*
+!logs/.gitkeep

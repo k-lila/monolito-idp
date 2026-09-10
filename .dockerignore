@@ -7,3 +7,10 @@ venv/
 __pycache__/
 staticfiles/
 docs/
+# Trilha de auditoria da jornada de construção: o .gitignore barra o conteúdo e preserva o
+# logs/.gitkeep; esta linha barra do build o que já foi gravado no host — sub, endereço de
+# origem real e resumo do identificador tentado. Sem ela a trilha entra na camada COPY . . e
+# viaja em toda imagem, inerte porque o compose aponta AUDIT_LOG_PATH para o volume nomeado, e
+# fora de todo lugar que a documentação dá como endereço dela. Segundo efeito do mesmo
+# mecanismo: cada login passa a invalidar essa camada, e o build seguinte recopia a árvore.
+logs/

@@ -50,6 +50,13 @@ services:
       # migrate do entrypoint falha com erro que parece de credencial ou de rede.
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
+      # Mesmo mecanismo, mesma precedência sobre o env_file: o .env carrega o caminho da
+      # jornada de construção, relativo ao repositório, que dentro do container gravaria na
+      # camada de escrita e sumiria no primeiro `down`. Aqui a trilha aponta para o volume
+      # nomeado e sobrevive a `docker compose down` (ADR 0013).
+      AUDIT_LOG_PATH: /var/log/nova_api/audit.log
+    volumes:
+      - auditlog:/var/log/nova_api
     ports:
       # Divergência deliberada com o passo 11, que prescreve "8000:8000": publicação sem
       # endereço instala DNAT à frente do firewall do host, e o que fica exposto é um
@@ -61,3 +68,4 @@ services:
 volumes:
   pgdata:
   redisdata:
+  auditlog:

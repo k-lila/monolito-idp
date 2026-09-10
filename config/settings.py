@@ -31,6 +31,14 @@ BEHIND_TLS_PROXY = env.bool("BEHIND_TLS_PROXY")
 LOG_LEVEL = env.str("LOG_LEVEL")
 CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS")
 
+# Sem default, deliberadamente: um default faria a trilha de auditoria gravar dentro da
+# camada de escrita do container e desaparecer no primeiro `docker compose down` —
+# pareceria funcionar, seria confiada, e sumiria. Ausente, esta linha derruba o processo na
+# leitura das settings nomeando a si mesma, como manda o precedente da ADR 0004. O caminho
+# é relativo ao diretório de trabalho do processo; no container o compose o sobrescreve
+# por um absoluto, dentro do volume nomeado `auditlog`.
+AUDIT_LOG_PATH = env.str("AUDIT_LOG_PATH")
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -57,6 +65,18 @@ MIDDLEWARE = [
     # isso uma posição errada é INDETECTÁVEL nesta fase: o sinal só aparece na
     # fase do SPA, como erro de CORS sem pista que aponte para esta linha.
     "corsheaders.middleware.CorsMiddleware",
+    # Índice 1, e as duas metades da razão importam.
+    #
+    # Por que tão alto: tudo que estiver acima dele emite resposta sem request_id e sem
+    # linha de acesso. Abaixo dele ficam o 301 do SecurityMiddleware (o mesmo da ADR 0010),
+    # os estáticos do WhiteNoise, o redirecionamento de APPEND_SLASH e o 403 do CSRF —
+    # exatamente as respostas que hoje não deixam rastro nenhum.
+    #
+    # Por que não acima do CorsMiddleware: a regra escrita ali é absoluta, e o que se
+    # ganharia é registrar as preflight OPTIONS, que são zero enquanto a allowlist estiver
+    # vazia. A perda é real: no dia em que houver uma SPA, a preflight não aparecerá no log
+    # de acesso, e nada avisará.
+    "config.observabilidade.ObservabilidadeMiddleware",
     "django.middleware.security.SecurityMiddleware",
     # Logo abaixo do SecurityMiddleware: o estático é servido sem atravessar sessão,
     # CSRF e autenticação. Com DEBUG=False é quem serve /static/ — o runserver não serve.
@@ -180,18 +200,50 @@ SECURE_SSL_REDIRECT = BEHIND_TLS_PROXY
 # casa contra request.path.lstrip("/"), por isso `health` sem barra é ancorado nas duas pontas.
 # Inerte enquanto SECURE_SSL_REDIRECT for False (ADR 0010).
 SECURE_REDIRECT_EXEMPT = [r"^health$"]
+# Exclusão por NOME de rota, nunca por caminho. Adjacente à lista acima de propósito: as
+# duas se acoplam à mesma string, `health`, e nenhum mecanismo verifica nenhuma das duas —
+# a vizinhança é o que dá a quem renomear a rota alguma chance de ver as duas. Sem esta
+# entrada, a sonda de dez em dez segundos afogaria o log, que é o problema que a omissão do
+# --access-logfile no docker/entrypoint.sh fechou.
+ACCESS_LOG_EXCLUDED_ROUTES = ["health"]
 SECURE_HSTS_SECONDS = 31536000 if BEHIND_TLS_PROXY else 0
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https") if BEHIND_TLS_PROXY else None
 
 # Sem require_debug_true e sem mail_admins (ADR 0006): o default do Django emudece
 # django.request quando DEBUG é falso, que é o modo em que o container roda.
+#
+# Todo registro sai como um objeto JSON por linha, com o identificador da requisição
+# (ADR 0012). O filtro vai nos HANDLERS, não em cada logger: uma declaração por handler
+# alcança as entradas todas, e um logger novo não esquece o filtro em silêncio.
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
+    "filters": {"request_id": {"()": "config.observabilidade.FiltroRequestId"}},
+    "formatters": {"json": {"()": "config.observabilidade.FormatadorJSON"}},
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
             "stream": "ext://sys.stdout",  # o default do StreamHandler é stderr
+            "formatter": "json",
+            "filters": ["request_id"],
+        },
+        "audit": {
+            # WatchedFileHandler, nunca RotatingFileHandler: três workers rotacionando o
+            # mesmo arquivo perdem linhas sem emitir nada. A rotação, se um dia existir,
+            # é externa ao processo — este handler apenas reabre o arquivo quando ele é
+            # substituído.
+            "class": "logging.handlers.WatchedFileHandler",
+            "filename": AUDIT_LOG_PATH,
+            "encoding": "utf-8",
+            # É o default do FileHandler, e está escrito assim mesmo porque um "w"
+            # truncaria a trilha a cada boot: perda total, silenciosa e irrecuperável.
+            "mode": "a",
+            # Sem delay=True: o arquivo é aberto na configuração do logging, dentro de
+            # django.setup(), de modo que caminho inválido ou diretório sem permissão
+            # derruba o processo no boot, ruidosamente. Com delay, a mesma falha só
+            # apareceria no primeiro login — o pior momento possível.
+            "formatter": "json",
+            "filters": ["request_id"],
         },
     },
     "root": {
@@ -214,8 +266,30 @@ LOGGING = {
             "level": LOG_LEVEL,
             "propagate": False,
         },
+        "access": {
+            "handlers": ["console"],
+            # Segue LOG_LEVEL porque a linha de acesso é log operacional, e LOG_LEVEL é o
+            # botão do log operacional. A consequência não tem sintoma: LOG_LEVEL=WARNING
+            # apaga a linha de acesso inteira, sem aviso nenhum.
+            "level": LOG_LEVEL,
+            "propagate": False,
+        },
+        "audit": {
+            "handlers": ["audit"],
+            # INFO fixo, nunca LOG_LEVEL: uma trilha que um botão de verbosidade desliga
+            # não é trilha.
+            "level": "INFO",
+            # Não propaga para o console: duas cópias da mesma evidência, com tempos de
+            # vida diferentes, divergem.
+            "propagate": False,
+        },
     },
 }
+
+# A suíte não pode escrever na trilha do ambiente: linha de teste misturada com evidência
+# de operação contamina as duas. O executor redireciona o handler `audit` para um diretório
+# temporário, pelo mesmo precedente com que já redireciona o nome do banco para `test_*`.
+TEST_RUNNER = "tests.runner.RunnerComTrilhaIsolada"
 
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "UTC"
