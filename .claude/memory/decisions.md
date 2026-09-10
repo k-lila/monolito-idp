@@ -34,94 +34,13 @@
 | 2026-09-01 | Isolar a view de `/health` da sessão e do usuário | [0009](../../docs/adr/0009-isolar-a-view-de-health-da-sessao-e-do-usuario.md) |
 | 2026-09-01 | Isentar `/health` do redirecionamento para HTTPS | [0010](../../docs/adr/0010-isentar-health-do-redirecionamento-para-https.md) |
 | 2026-09-01 | Dar teto de tempo ao `/health` e derivar o `HEALTHCHECK` dele | [0011](../../docs/adr/0011-dar-teto-de-tempo-ao-health-e-derivar-o-healthcheck-dele.md) |
+| 2026-09-08 | Emitir o log operacional em JSON, com identificador de requisição — **emendada pela 0014** | [0012](../../docs/adr/0012-emitir-o-log-operacional-em-json-com-identificador-de-requisicao.md) |
+| 2026-09-08 | Registrar a trilha de auditoria dos quatro sinais em arquivo durável | [0013](../../docs/adr/0013-registrar-a-trilha-de-auditoria-dos-quatro-sinais-em-arquivo-duravel.md) |
+| 2026-09-08 | Manter o identificador de requisição até a requisição seguinte; emenda à 0012 | [0014](../../docs/adr/0014-manter-o-identificador-de-requisicao-ate-a-requisicao-seguinte.md) |
 
 ---
 
 ## Entradas sem ADR
-
-## [2026-09-02] TASK-010 · Bloco G: as onze ADRs gravadas, e a conferência que nunca foi gate
-
-O bloco entrou como "transcrição literal em lote" e saiu com **treze alterações em sete das onze
-ADRs**. O que mudou não foi o critério — foi o que se descobriu ao aplicá-lo.
-
-**Onze, não sete.** `docs/implementacao.md` descrevia o gate como "os sete arquivos". As 0008 e
-0009 (bloco E) e as 0010 e 0011 (bloco F) tinham sido adiadas para cá, e viviam só neste arquivo.
-Os dois gates foram corrigidos, e agora registram a origem de cada faixa e as sete ADRs emendadas.
-
-**A conferência foi feita, e o método dela era o defeito.** Desde a TASK-003 estava registrado que
-conferir os achados de cada bloco contra as ADRs "não é gate de bloco nenhum", com instrução de
-repassar a cada bloco. Cinco conferências foram feitas e o tally chegou a 3,5/7. Feita a sexta,
-subiu para 5,5 e depois para **6,5 no mínimo** — só a 0007 atravessou seis blocos sem ser
-falsificada. A razão: cada conferência perguntou *"o que este bloco contradiz?"*, nunca *"estas
-ADRs são verdadeiras?"*. Achou-se o que os blocos esbarraram. **As 0004 e 0005 estavam erradas
-desde 2026-08-29 e nunca foram esbarradas por bloco nenhum.**
-
-**As duas que ninguém tinha visto**, ambas verificadas por mim no código antes de aceitar:
-
-- **ADR 0004 — diagnóstico invertido**, a mesma classe que este projeto já pagou três vezes. Ela
-  dizia "variável ausente → o sistema sobe e o JWKS responde vazio: falha silenciosa".
-  `config/settings.py` lê `OIDC_RSA_PRIVATE_KEY` **sem default** e o docstring do módulo declara o
-  contrato oposto. Ausente é `ImproperlyConfigured` no import — crash-loop ruidoso. A falha
-  silenciosa é a da variável **presente e vazia**.
-- **ADR 0005 — "os tokens são stateless e assinados" é falso.** `ACCESS_TOKEN_GENERATOR` é `None`
-  no DOT 3.4.1 e o projeto não sobrescreve: o `access_token` é string opaca de 30 caracteres
-  gravada em tabela, e só o `id_token` é JWT. A ADR 0002, **gravada no mesmo lote e no mesmo dia**,
-  dizia o contrário em duas linhas. Consequência que a correção passou a registrar: a RP recebe um
-  token opaco, o `introspection_endpoint` anunciado responde 403, e sobra `/o/userinfo/` — uma
-  chamada ao IdP por request, o custo que a ADR 0004 diz que a assinatura existe para evitar.
-
-**Divergência arbitrada pelo usuário.** Sobre a Positiva da ADR 0006 houve três posições: o
-`architect` decidiu não mexer (uma Negativa que qualifica um ganho é a forma normal de registrar
-um limite), o `quality-assurance` chamou de contradição interna, o `senso-critico` quis remover a
-Negativa inserida. O usuário decidiu com o QA, e a razão vale registro: a primeira oração afirmava
-identidade entre o caminho do compose e o caminho endurecido, e essa oração é falsa
-independentemente de a Negativa existir — remover a Negativa não a consertaria.
-
-**Duas cópias divergentes, fechadas.** Emendar uma ADR de 0001–0007 criava duas versões no disco:
-a de `docs/adr/` e a da cerca em `13-adrs.md`, que é a que se lê por ordem de documento. As quatro
-emendadas (0002, 0004, 0005, 0006) foram sincronizadas e **os sete pares batem byte a byte**,
-verificado por SHA-256. Essa igualdade **não tem guarda automática**: a próxima emenda em qualquer
-delas reabre a divergência em silêncio.
-
-**O registro de que houve emenda é o commit**, deliberadamente. As datas de `## Status` continuam
-sendo as da decisão, e a 0006 (2026-08-29) cita a 0010 (2026-09-01) — anacronismo apontado pelo
-`senso-critico`. Rejeitado acrescentar rodapé de emenda a onze arquivos: o commit é durável,
-greppável e sobrevive à poda deste arquivo, que é justamente o que ele apontou como frágil.
-
-**Poda executada**: 526 linhas. Os textos integrais de 0008–0011 e os dois avisos NÃO PODAR
-cumpriram o propósito e saíram; `docs/adr/` é a fonte. Índice do topo preenchido com as onze.
-
-- **ADR:** as onze, de [0001](../../docs/adr/0001-adotar-django-5-2-lts-sobre-python-3-14.md) a
-  [0011](../../docs/adr/0011-dar-teto-de-tempo-ao-health-e-derivar-o-healthcheck-dele.md). Ver o
-  índice no topo.
-- **Tipo:** decisão.
-
----
-
-## [2026-09-02] TASK-010 · ADIADO — `BEHIND_TLS_PROXY` não entrega o IP do cliente, e a próxima fase é rate limiting
-
-O achado mais caro do bloco, e ele **não é do bloco**: é da próxima fase. Registrado aqui porque o
-sinal não existe até ser tarde.
-
-`config/settings.py` liga `SECURE_PROXY_SSL_HEADER` e nada mais sobre proxy — não há
-`USE_X_FORWARDED_HOST` nem resolução de `X-Forwarded-For`. Com TLS real na frente, **todo request
-externo chega com `REMOTE_ADDR` igual ao IP do proxy**. A próxima fase entra por biblioteca de rate
-limiting, e `django-axes` e `django-ratelimit` keiam por `REMOTE_ADDR` no default: o primeiro
-atacante que estourar o limite **tranca a tela de login para a internet inteira**.
-
-Passa em 100% dos testes deste sandbox, onde não há proxy. É a forma exata do bug que o bloco F
-encontrou no `SECURE_SSL_REDIRECT`, e pela mesma razão: **o nome da variável promete "atrás de um
-proxy" e configura só o esquema.** A emenda da ADR 0006 registrou uma condição não coberta
-(`ALLOWED_HOSTS`); corrigiu a instância, não a classe. Nenhuma das onze diz que `BEHIND_TLS_PROXY`
-cobre transporte e não identidade de cliente.
-
-**Horizonte:** a fase de rate limiting, com sinal só no primeiro ambiente com proxy real.
-
-- **Tech-debt / melhorias:** **adiado**, com disposição registrada. Quem abrir a fase de rate
-  limiting resolve isto **antes** de escolher a chave de contagem.
-- **Tipo:** observação.
-
----
 
 **Regra ao acrescentar:** se a decisão tem ADR, escreva **uma linha** no índice e o resto
 no ADR. Se não tem, escreva a entrada completa aqui. Um log que cresce sem poda não é
@@ -129,74 +48,145 @@ memória — é sedimento.
 
 ---
 
-## [2026-09-04] TASK-011 · Fechamento: disposição dos três apontamentos de conteúdo
+## [2026-09-09] TASK-013 · Bloco A: o instrumento de pé, e o que a mutação achou que a leitura não achava
 
-- **Decisão:** os três apontamentos que seguravam o fechamento receberam disposição do usuário
-  em 2026-09-04, com a instrução de tratá-los antes de qualquer trabalho novo.
-  - **[OBSERVACAO] docstring de `test_template_comment_leak.py` — ACEITO e corrigido.** A
-    docstring descrevia no presente seis comentários `{# ... #}` multi-linha; `grep -rn '{#'
-    templates/` não acha nenhum hoje, nem multi-linha nem de uma linha. O defeito era maior do
-    que o registro dizia: as **três docstrings de classe** repetiam o mesmo pressuposto, cada
-    uma nomeando o comentário específico que aquele caso pegaria. As quatro foram reescritas —
-    o inventário da TASK-008 passou ao pretérito, o estado de hoje entrou explícito, e a
-    justificativa de cada caso passou a ser a posição de renderização que ele cobre, não o
-    comentário que morava lá. Suíte verde em 35 testes antes e depois.
-  - **[OBSERVACAO] treze arquivos citando rótulos irrecuperáveis — ACEITO EM PARTE.**
-    `TASK-NNN`, `T-NN` e `AC-NN` **não** são irrecuperáveis: `docs/testes.md`, seção "A
-    convenção de rastreabilidade", decodifica as duas formas em uso e declara que são rótulos
-    de contrato, que não se renumeram nem se reescrevem. Nada a fazer nos treze arquivos por
-    esse motivo. Irrecuperáveis eram só as **três remissões a "prompt de invocação"** —
-    `oauth_helpers.py`, `test_authorize_guards.py` e `test_authorization_code_flow.py` —, que
-    mandavam o leitor consultar uma conversa que não existe. Em todas as três a afirmação já
-    estava completa na própria frase; caiu só a atribuição.
-  - **[OBSERVACAO] duas grafias para "passo NN" — ACEITO, resolvido por decodificação.** O
-    referente sumiu: `docs/roadmap/` foi removido no commit `b7774d5`. Reescrever as sete
-    ocorrências em código seria mexer em conteúdo para apagar um rótulo que as ADRs 0008 e
-    0010 — imutáveis — continuam usando. Em vez disso, `docs/arquitetura.md` ganhou um
-    parágrafo que decodifica o rótulo, nomeia os arquivos que o usam e mostra como ler o
-    original no histórico (`git show b7774d5^:docs/roadmap/09-telas-e-estaticos.md`).
-- **Arquivos tocados no fechamento:** `accounts/tests/test_template_comment_leak.py`,
-  `accounts/tests/oauth_helpers.py`, `accounts/tests/test_authorize_guards.py`,
-  `accounts/tests/test_authorization_code_flow.py`, `docs/arquitetura.md`.
-- **Tipo:** decisão.
----
+O log operacional em JSON com identificador de requisição e a trilha de auditoria dos quatro
+sinais entraram juntos, como o guia previa. O que o guia não previa está aqui.
 
-## [2026-09-04] TASK-012 · Três mudanças estruturais na árvore, e duas afirmações minhas corrigidas
+**Três ADRs, não duas.** `docs/gaps/observabilidade.md` §9 previa duas. A terceira nasceu de um
+critério de aceite que o desenho não atendia: o `reset` do `ContextVar` na saída do middleware
+rodava antes de `log_response`, e a linha de erro de todo 404, 503 e 400 saía sem o pedido a que
+pertencia. O `architect` recusou emendar o critério e redigiu a ADR 0014 como emenda à 0012 —
+sobrescrever sem repor. O preço está na seção 14 do runbook: linha emitida fora de requisição,
+num processo que já atendeu alguma, carrega o identificador da última.
 
-- **Decisão:** análise da árvore do projeto, a pedido do usuário. A estrutura do código foi
-  julgada adequada e não mexida: o layout Django convencional serve para 476 linhas de
-  produção, e a fronteira que `docs/arquitetura.md` declara é a que o código tem. O
-  desequilíbrio estava na prosa — cerca de 6.850 linhas de texto contra 1.800 de código e
-  teste. Quatro decisões do usuário, três com execução:
-  - **Os sete documentos de `docs/` entram no histórico** (commit `7b311a1`), sem as
-    modificações pendentes de `CLAUDE.md` e `README.md`, que seguem no diretório de trabalho
-    por escolha dele.
-  - **`decisions.md` particionado** (commit `a6b7dd8`): 904 linhas viraram 161, e as 33
-    entradas da TASK-001 à TASK-009 foram para `decisions-arquivo.md`, sem uma linha
-    reescrita. A regra de poda — acima de 300 linhas, arquivam-se as tarefas encerradas menos
-    a última — está no `PROTOCOLO-AGENTES.md`, seção *A poda de `decisions.md`*.
-  - **A suíte passou para `tests/`, na raiz** (commit `e971308`): treze arquivos movidos,
-    `accounts/tests/` e `config/tests/` extintos, 35 testes verdes antes e depois. O ganho
-    real é que a forma parcial deixou de ser silenciosa: `manage.py test accounts` responde
-    `Found 0 test(s)`, onde antes rodava dez dos doze arquivos sem dizer nada.
-  - **`docs/gaps/` mantida** com um arquivo só, por decisão do usuário: separa fisicamente o
-    que o sistema faz do que ainda não faz.
-- **Duas afirmações minhas, corrigidas na própria tarefa.** Registradas porque a análise que as
-  continha foi apresentada ao usuário antes da verificação: (1) eu disse que o `README.md` do
-  repositório prometia seis documentos inexistentes — o `README.md` do `HEAD` não cita `docs/`
-  em lugar nenhum, e a promessa está só na versão não commitada; (2) eu disse que
-  `decisions.md` era lido inteiro a cada retomada — a skill `retomar` lê `context.json` e
-  `blockers.md`, e nunca leu `decisions.md`. Quem o lê é o orquestrador, ao abrir e ao fechar
-  tarefa. A partição continua justificada pelo tamanho, não pela frequência.
-- **Tech-debt / melhorias, sem disposição de correção nesta tarefa:**
-  - Dezenove arquivos `.pyc` compilados por **CPython 3.12** convivem com os de 3.14 na árvore,
-    e a ADR 0001 fixa 3.14. Algum interpretador fora do `.venv` rodou aqui. Não quebra nada —
-    o Python ignora bytecode de outra versão —, mas é sinal de ambiente divergente.
-  - `CLAUDE.md` e `README.md` seguem modificados e não versionados. Os dois já têm, no disco, a
-    correção dos caminhos de teste; o `CLAUDE.md` do `HEAD` não cita caminho de teste nenhum,
-    então nada obsoleto entrou no histórico.
-  - O trabalho está no ramo `estrutura/task-012`, não na `main`.
-- **Fora do protocolo, registrado:** nenhum subagente foi invocado. O harness da sessão o
-  proibia, o usuário foi avisado no relatório de pré-alteração, e o orquestrador executou as
-  fases que caberiam ao `writer` e ao `tester`.
+**A suíte foi de 35 para 57 casos, e o que a fez crescer duas vezes foi a mutação.** A segunda
+passagem do `quality-assurance` não conferiu os testes lendo-os: inverteu o código num clone
+descartável e olhou qual caso ficava vermelho. Onze mutações ficaram vermelhas, o que prova as
+guardas. Três sobreviveram, e cada uma virou demanda:
+
+- segredo registrado em logger não declarado em `LOGGING` sai pelo handler da raiz, e o coletor
+  do caso que varre segredos estava anexado só aos quatro loggers nomeados (T-11);
+- `"identifier": credentials.get("username")` acrescentado à linha de falha de autenticação grava
+  o e-mail em claro, e nenhum caso exercitava o caminho de falha (T-12);
+- o `extra=` da linha de acesso reduzido a `{"route": request.path}` perde `method`, `status` e
+  `duration_ms` e troca o nome da rota pelo caminho, contra o que o runbook promete a quem opera
+  (T-13).
+
+As três estão fechadas, e a mutação de cada uma hoje derruba exatamente o caso que a persegue.
+O método fica: **guarda de teste prova-se invertendo o código, não lendo o teste.**
+
+**A trilha ia para dentro da imagem.** O gate adversarial achou o que duas passagens de
+conformidade não acharam: o `.dockerignore` barra `.env`, `*.pem` e `docs/`, e não barrava
+`logs/`; o `Dockerfile` faz `COPY . .`. Verificado na imagem de então —
+`docker run --rm --entrypoint ls nova_api-app -la /app/logs/` devolvia `audit.log`. Numa máquina
+onde alguém autenticou pela jornada de construção, aquele arquivo leva `sub`, endereço de origem
+real e `identifier_sha256` para toda imagem construída dali em diante: inerte, porque o compose
+aponta `AUDIT_LOG_PATH` para o volume, e ao mesmo tempo presente, sem retenção e fora de todo
+lugar que a documentação dá como endereço da trilha. Corrigido com uma linha, e verificado: na
+imagem nova `/app/logs` não existe, o container sobe `Healthy`, a suíte passa dentro dele, e a
+trilha do volume atravessou o build intacta — 1284 bytes, as mesmas quatro linhas. **O que a
+correção introduz**, e está no relatório do `writer`: `docker run` nu da imagem, sem compose,
+herda `AUDIT_LOG_PATH=logs/audit.log` do `.env` e agora morre no boot com o
+`ValueError: Unable to configure handler 'audit'` da seção 15. Não é jornada documentada — toda
+invocação escrita passa por `docker compose exec` ou `run`, que carregam a sobrescrita.
+
+**A contagem saiu dos documentos, por decisão.** `docs/testes.md` afirmava quatro números — "um
+único módulo testa código do app", "dois lugares" sem banco, "os outros dez arquivos" — e os
+quatro ficaram falsos dentro desta mesma tarefa. Nenhum volta. O documento passou a dizer o
+critério e o comando que o responde: `grep -l '^from accounts' tests/*.py`. A contagem da suíte
+também não entrou em documento nenhum.
+
+**O que este fechamento deve à perda de contexto.** A sessão que rodou as fases 1 a 8 morreu, e
+com ela os relatórios que a fase 8 do `/feature` manda repassar verbatim. A segunda passagem foi
+**reexecutada** contra o disco, e achou o que a original não tinha achado: cinco apontamentos
+críticos em vez de dois, e o AC-10 parcial onde a original dava os catorze critérios por
+atendidos. Os dois críticos de documentação da passagem original nunca foram gravados em
+`context.json` e continuam desconhecidos. A lição entrou no arquivo: os enunciados íntegros de
+T-11, T-12 e T-13 foram gravados em `context.json` antes de o `tester` ser invocado, justamente
+porque o relatório que os continha ia morrer.
+- **Tech-debt e melhorias, com a disposição de cada um.** Quarenta e nove apontamentos entraram
+  na lista ao longo da tarefa. Os que foram corrigidos dentro dela não têm linha aqui: estão no
+  código. Ficam registrados os que sobrevivem.
+
+  **Adiado para um bloco nomeado de `docs/implementacao-robustez.md`:**
+  - **Bloco B.** O campo `ip` da trilha e a chave de contagem do limitador são a mesma decisão
+    vista duas vezes; decidir uma sem a outra é adiar a metade que não emite sinal.
+  - **Bloco C.** O usuário dedicado no container exigirá revisar a posse do volume da trilha. E,
+    mais grave, é o bloco que cria duas populações de `ip` no mesmo arquivo append-only: hoje o
+    campo é `REMOTE_ADDR`, que no container é sempre `172.18.0.1`; no dia em que alguém ler
+    `X-Forwarded-For` para que o campo volte a dizer algo, o passado fica ambíguo e nada na linha
+    distingue as duas leituras, porque o instante da troca não está gravado. A ADR 0012 declara
+    que mudar o esquema "não depende de ninguém" — o que era verdade enquanto o único destino era
+    efêmero. **A decisão de versionar a linha tem de ser tomada antes da troca**, pela primeira
+    regra do próprio guia: decisão que encarece depois vem antes.
+  - **Bloco F.** O bloco passa a ter um terceiro objeto a copiar, o volume `auditlog`; o guia
+    ainda o descreve como "o par banco mais segredo".
+  - **Ficha 2.9, tuning do gunicorn.** Nenhuma linha identifica o processo que a escreveu:
+    `process`, `processName` e `thread` estão na lista de atributos excluídos do objeto JSON.
+    Um worker que degrada produz `duration_ms` bimodal e nada que o separe de dependência
+    intermitente. A seção 4 do guia afirma que com o bloco A haveria como saber; não há.
+
+  **Adiado sem bloco, por não ter dono ainda:**
+  - Retenção e poda da trilha seguem indecididas, e o volume cresce sem limite. Disco cheio para
+    a escrita em silêncio. O levantamento pedia que a terceira ADR decidisse também isto; a ADR
+    0013 recusa por escrito, e o que faltava era justamente o registro de por que a recusa era
+    aceitável: o bloco A entrega o instrumento, e retenção é política de dado pessoal, que numa
+    sandbox de host único sem TLS próprio não tem ainda quem a defina.
+  - A lacuna de `docs/seguranca.md` §4 não fecha inteira: criação de `Application` e revogação de
+    token não têm sinal.
+  - Nenhum teste alcança a concorrência entre os três workers sobre o mesmo arquivo, nem o
+    alçapão A4. A escolha do `WatchedFileHandler` é leitura de código, não propriedade
+    verificada. Com `LOG_LEVEL=DEBUG`, `oauthlib` registra material de token em DEBUG e sairia
+    pelo `console`, e nenhum caso cobre essa configuração. Os dois são candidatos a `/test-gap`,
+    não a correção.
+  - A lista nominal das classes sem banco, em `docs/testes.md`, envelhece a cada teste novo, e
+    nada acusa quando envelhece. Foi o formato pedido pelo `quality-assurance` e é o mais útil
+    hoje.
+
+  **Aceito e já documentado, sem correção de código:**
+  - A posição do middleware de observabilidade ante o `CorsMiddleware` é indetectável quando
+    violada, e a preflight `OPTIONS` não deixa rastro; `app_authorized` dispara também no grant
+    de refresh, de modo que contar linhas conta errado; `LOG_LEVEL=WARNING` apaga a linha de
+    acesso inteira. Os três estão na seção 14 do runbook, que é o catálogo das falhas sem
+    sintoma.
+  - `AUDIT_LOG_PATH=logs/audit.log` é relativo ao diretório de trabalho, e `manage.py` rodado de
+    fora da raiz cria `logs/` no lugar errado. Está em `.env.example`, em `docs/receita.md` e na
+    tabela da seção da trilha, no runbook.
+  - A saída de `manage.py test` passa a carregar uma linha JSON de acesso por requisição, entre
+    os pontos do executor. Silenciar exigiria decidir algo sobre o handler `console` sob teste.
+  - O sentinela `-` no `request_id` cobria três populações quando foi apontado; a terceira
+    desapareceu com a ADR 0014, e as duas que restam — boot e comandos de `manage.py` — estão na
+    seção 2 do runbook.
+
+  **Registrado sem correção possível nesta tarefa:**
+  - A ADR 0013 afirma que não normalizar a caixa do resumo SHA-256 preserva a distinção entre
+    contas. É falso: `UserManager.create_user` chama `normalize_email`, que abaixa a caixa do
+    domínio, então `a@X.com` e `a@x.com` não são contas distintas. Não há consequência prática —
+    `get_by_natural_key` é sensível a caixa sob Postgres, e variar caixa não compra evasão a
+    quem ataca —, e ADR aceita é imutável: a correção, se vier, é ADR nova.
+  - A trilha não declara desde quando cobre o que afirma, e não tem proteção de integridade
+    contra quem tem acesso ao host. O runbook passou a dizer o que a ausência de linha não
+    prova; o mecanismo segue recusado pela ADR 0013.
+
+  **Três lições de processo, que não são do código:**
+  - **Evidência de container exige reconstruir a imagem antes de medir.** A evidência da jornada
+    de clonar-e-rodar reportada na fase 7 era inválida: a imagem era de 2026-09-02 e não continha
+    o código da tarefa. A segunda passagem refez quatro critérios de aceite por isso, e passou a
+    conferir `md5sum` dentro e fora do container.
+  - **A mutação que prova uma guarda roda em clone descartável, nunca na árvore.** Na fase 7 o
+    `tester` editou `config/observabilidade.py` para provar a regressão do T-05 e reverteu byte a
+    byte, declarando o desvio. É travessia de fronteira de escrita, que o protocolo define como
+    compromisso e não barreira. Na fase 8b o mesmo agente, avisado, fez as onze mutações num
+    clone fora do repositório.
+  - **Não paralelizar o `writer` sobre `docs/` com o `tester` sobre `tests/` quando o documento
+    descreve a suíte.** Foi decisão minha, e produziu duas quase-falsidades em `docs/testes.md`,
+    pegas só porque o `writer` releu o código antes de escrever: dois itens de "O que a suíte não
+    cobre" já eram falsos quando ele chegou, porque o `tester` acabara de fechar os buracos.
+    Sequenciar as duas fases custaria uma espera e removeria a classe inteira de erro.
+
+- **ADR:** [0012](../../docs/adr/0012-emitir-o-log-operacional-em-json-com-identificador-de-requisicao.md),
+  [0013](../../docs/adr/0013-registrar-a-trilha-de-auditoria-dos-quatro-sinais-em-arquivo-duravel.md) e
+  [0014](../../docs/adr/0014-manter-o-identificador-de-requisicao-ate-a-requisicao-seguinte.md),
+  esta última emenda à 0012. Ver o índice no topo.
 - **Tipo:** decisão.
