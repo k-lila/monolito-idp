@@ -34,6 +34,7 @@ vencida.
 | Cookie sem estado de identidade | `SESSION_ENGINE = cached_db` em `config/settings.py` |
 | Nenhuma origem cruzada autorizada | `CORS_ALLOWED_ORIGINS` vazia em `.env.example` |
 | Sem fluxo de recuperação de senha | `config/urls.py`, `tests/test_password_reset_urls.py` |
+| Trilha de auditoria de autenticação e de concessão de token | `accounts/auditoria.py`, ADR 0013 |
 
 O que cada linha compra:
 
@@ -53,6 +54,13 @@ O que cada linha compra:
   assinado não teria.
 - **A ausência de recuperação de senha** é controle, não lacuna acidental: `config/urls.py`
   monta uma rota de autenticação por vez, e não existe fluxo de e-mail a sequestrar.
+- **A trilha de auditoria** responde quem autenticou, quando, de que origem e qual relying party
+  recebeu token, num arquivo durável que sobrevive à recriação do container
+  (`docs/adr/0013-registrar-a-trilha-de-auditoria-dos-quatro-sinais-em-arquivo-duravel.md`).
+  Ela registra os quatro sinais que existem — autenticação, falha de autenticação, logout e
+  concessão de token — e **não fecha a lacuna inteira**: o que continua sem registro está
+  nomeado na seção 4. Nenhum e-mail e nenhum valor de token entram nela: a pessoa aparece pelo
+  `sub`, e o identificador de uma tentativa falha, por resumo SHA-256.
 
 ## 3. Superfície exposta
 
@@ -114,9 +122,14 @@ Cada item é uma ausência conhecida, com o risco que ela deixa aberto.
 - **Chave RSA única, sem conjunto de rotação.** Não há como rotacionar
   sem invalidar a verificação de todo token vivo, o que significa que a resposta a uma suspeita
   de vazamento da chave é disruptiva por construção (ADR 0004).
-- **Log só em `stdout`, sem coleta externa.** Recriar o container apaga o histórico. Não existe
-  trilha de auditoria de quem autenticou, de qual RP recebeu token nem de quando uma Application
-  foi criada.
+- **A trilha de auditoria não cobre dois eventos, e não tem retenção decidida.** Criação de
+  Application e revogação de token continuam sem registro, e por ausência de sinal: a primeira
+  exigiria um `post_save` no modelo devolvido por `get_application_model()`, e a segunda nem
+  isso — o `cleartokens` apaga linhas sem emitir nada. Some-se que retenção e poda do arquivo não
+  estão decididas: ele guarda dado pessoal, cresce indefinidamente e nada o monitora (ADR 0013).
+- **Log operacional só em `stdout`, sem coleta externa.** Recriar o container apaga o histórico do
+  log operacional. A trilha de auditoria não está nesse caso — vive em volume nomeado —, mas
+  também não tem coleta externa nenhuma.
 - **Dois pontos de resolução de dependências.** O `Dockerfile` roda
   `pip wheel -r requirements.txt`, que resolve as transitivas sem pin na data do build, enquanto
   a suíte roda contra o venv do host. `jwcrypto` — a biblioteca que assina o `id_token` — é uma
@@ -158,10 +171,10 @@ Sem ordem declarada entre si:
 - TLS de verdade à frente, com `BEHIND_TLS_PROXY=True` e `ALLOWED_HOSTS` mantendo `127.0.0.1`
   para a sonda do container — a armadilha e o procedimento estão em `docs/runbook.md`;
 - `requirepass` no Redis;
-- `USER` dedicado no `Dockerfile`;
+- `USER` dedicado no `Dockerfile` — e com ele a posse de `/var/log/nova_api`;
 - criação de superusuário fora do `.env`;
 - conjunto de rotação de chave RSA;
-- coleta externa de log e trilha de auditoria;
+- coleta externa de log;
 - pin das dependências transitivas, unificando os dois pontos de resolução;
 - agendamento de `cleartokens` e `clearsessions`, hoje inexistente;
 - restrição de quem pode registrar Application;
@@ -200,6 +213,7 @@ tomada a lista acima é inventário, não plano.
 | Endurecimento de transporte por `BEHIND_TLS_PROXY` | `config/settings.py` | ADR 0006 |
 | Isenção de `/health` no redirecionamento para HTTPS | `config/settings.py`, `SECURE_REDIRECT_EXEMPT` | ADR 0010 |
 | `/health` sem sessão e sem usuário | `config/views.py` | ADR 0009 |
+| Trilha de auditoria dos quatro sinais, sem e-mail e sem token | `accounts/auditoria.py`, `config/settings.py`, `LOGGING` | ADR 0013 |
 | Portas em `127.0.0.1`, uma réplica, sem TLS próprio | `docker-compose.yml`, `Dockerfile` | ADR 0006 |
 
 Os nomes de arquivo das ADRs estão em `docs/arquitetura.md`, na tabela de decisões.

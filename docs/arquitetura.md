@@ -28,7 +28,9 @@ Três módulos, com fronteira nítida. Cada um decide uma coisa.
 usuário. Contém a configuração (`config/settings.py`, arquivo único dirigido por ambiente, sem
 default no código e sem separação entre desenvolvimento e produção), o URLConf raiz
 (`config/urls.py`) e duas views em `config/views.py`: `home`, destino de `LOGIN_REDIRECT_URL` e
-de `LOGOUT_REDIRECT_URL`, e `health`, a sonda de prontidão.
+de `LOGOUT_REDIRECT_URL`, e `health`, a sonda de prontidão. Também `config/observabilidade.py`,
+que decide o formato de uma linha de log, o identificador que correlaciona as linhas de um mesmo
+pedido e a linha de acesso — e que, como o resto de `config`, não afirma nada sobre identidade.
 
 `LOGIN_URL`, `LOGIN_REDIRECT_URL` e `LOGOUT_REDIRECT_URL` guardam nomes de rota (`"login"`,
 `"home"`), não caminhos: quem os resolve é `resolve_url`, em tempo de execução, e não
@@ -42,6 +44,9 @@ falha ruidosa.
 - `accounts/oauth_validators.py` — `IdPOAuth2Validator`, o único ponto em que o comportamento
   do servidor de autorização é customizado. Decide claims (`sub`, `name`, `email`); não toca
   em fluxo;
+- `accounts/auditoria.py` — os quatro receptores de sinal e o que a trilha de auditoria afirma
+  sobre quem autenticou: `sub`, origem e desfecho, nunca e-mail nem valor de token. Ligados em
+  `AccountsConfig.ready()`;
 - `accounts/admin.py` — `UserAdmin` ajustado a um modelo sem `username`.
 
 **`oauth2_provider` — o protocolo.** É dependência de terceiro, montada sob o prefixo `o/` pelo
@@ -86,6 +91,7 @@ usa. O registro dinâmico de client responde 404 enquanto `DCR_ENABLED` mantiver
 | Redis | cópia quente da sessão e a chave da sonda do `/health`; volume `redisdata` |
 | Ambiente do processo | a chave privada RSA e a `SECRET_KEY`, fora do banco e da imagem |
 | Cookie do navegador | apenas o identificador da sessão |
+| Arquivo, no container | a trilha de auditoria; volume `auditlog`, montado em `/var/log/nova_api` |
 
 O Redis é descartável — a sessão sobrevive a `flush` e a reinício dele —, mas o IdP não tolera
 sua ausência: `SESSION_ENGINE = cached_db` toca o cache a cada requisição. O detalhe está na
@@ -100,14 +106,17 @@ config/
   settings.py          toda a configuração; leitura do ambiente e o bloco OAUTH2_PROVIDER
   urls.py              a superfície HTTP: o que existe, sob que prefixo, com que nome de rota
   views.py             home e health — a borda que não afirma nada sobre identidade
+  observabilidade.py   como uma linha de log é escrita e como duas linhas se ligam
   wsgi.py              ponto de entrada do gunicorn
 accounts/
   models.py            o que é uma pessoa aqui: e-mail único, sem username
   oauth_validators.py  o que um token afirma sobre a pessoa
+  auditoria.py         o que a trilha afirma sobre quem autenticou
   admin.py             a tela de administração de contas
   apps.py              registro do app
   migrations/          o esquema de accounts, a chave primária de 64 bits que vira o `sub`
-tests/                 a suíte inteira: fluxo OIDC, telas, validador e prontidão do /health
+tests/                 a suíte inteira: fluxo OIDC, telas, validador, /health, log e auditoria
+logs/                  a trilha de auditoria da jornada de construção; versionado por .gitkeep
 templates/
   base.html            o esqueleto das telas e o form de logout
   home.html            a home pública
@@ -120,7 +129,7 @@ Dockerfile             a imagem e o HEALTHCHECK
 docker-compose.yml     os três serviços, a ordem de subida e o que é publicado no host
 requirements.txt       as versões fixadas, e o piso de compatibilidade do Django
 .env.example           o contrato de variáveis de ambiente
-docs/adr/              as onze decisões de arquitetura, uma por arquivo, mais o template
+docs/adr/              as quatorze decisões de arquitetura, uma por arquivo, mais o template
 .claude/               sistema de agentes; não participa da execução do IdP
 ```
 
@@ -174,6 +183,9 @@ As decisões de arquitetura, uma por arquivo em `docs/adr/`:
 | O `/health` isolado da sessão e do usuário | `0009-isolar-a-view-de-health-da-sessao-e-do-usuario.md` |
 | A isenção de `/health` no redirecionamento para HTTPS | `0010-isentar-health-do-redirecionamento-para-https.md` |
 | O teto de tempo do `/health` e o `HEALTHCHECK` derivado dele | `0011-dar-teto-de-tempo-ao-health-e-derivar-o-healthcheck-dele.md` |
+| O log operacional em JSON, com identificador de requisição — **emendada pela 0014** | `0012-emitir-o-log-operacional-em-json-com-identificador-de-requisicao.md` |
+| A trilha de auditoria dos quatro sinais, em arquivo durável | `0013-registrar-a-trilha-de-auditoria-dos-quatro-sinais-em-arquivo-duravel.md` |
+| O tempo de vida do identificador de requisição; emenda à 0012 | `0014-manter-o-identificador-de-requisicao-ate-a-requisicao-seguinte.md` |
 
 ADR aceita é imutável: decisão que mudou vira ADR nova. O formato está em
 `docs/adr/template-adr.md`.
@@ -188,7 +200,9 @@ b7774d5^:docs/roadmap/09-telas-e-estaticos.md`. Onde o código diverge deliberad
 passo prescrevia, quem decide é o código, e a divergência está registrada na ADR ou no próprio
 comentário que cita o passo.
 
-O comportamento verificado está nos doze arquivos `test_*.py`, mais o
-`tests/oauth_helpers.py`, que carrega a infraestrutura do fluxo. O que cada arquivo
-garante, em que nível e contra que regressão está em `docs/testes.md`, na seção "O que cada
-arquivo garante"; é lá que também estão como rodar a suíte e o que ela não cobre.
+O comportamento verificado está nos arquivos `test_*.py` de `tests/`, ao lado de dois módulos
+que não são teste: `tests/oauth_helpers.py`, que carrega a infraestrutura do fluxo, e
+`tests/runner.py`, o executor que aponta a trilha de auditoria da suíte para um diretório
+temporário. O que cada arquivo garante, em que nível e contra que regressão está em
+`docs/testes.md`, na seção "O que cada arquivo garante"; é lá que também estão como rodar a
+suíte e o que ela não cobre.

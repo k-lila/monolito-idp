@@ -7,6 +7,21 @@
 > executada. Classificador de compatibilidade é declaração do autor do pacote, não prova de
 > funcionamento.
 
+> **Nota de estado, 2026-09-09.** Duas afirmações deste documento já não valem — a de que nada
+> aqui está decidido, no alto, e a de que não há código a provar, no fim. O corpo continua como
+> estava, de propósito: ele é o retrato do que se sabia antes da TASK-013, e reescrevê-lo
+> apagaria o levantamento que sustentou as decisões. O que mudou: o log operacional em JSON e a
+> trilha de auditoria dos quatro sinais existem em código, em `config/observabilidade.py` e
+> `accounts/auditoria.py`, com suíte que os prova; e a decisão que a seção 3.3 deixa aberta —
+> o identificador na falha de autenticação — está fechada pela ADR 0013, que escolheu o resumo
+> SHA-256 (Secure Hash Algorithm de 256 bits) do identificador tentado, em hexadecimal completo
+> e sem normalizar caixa. Quem quiser o que vale hoje leia
+> `docs/adr/0012-emitir-o-log-operacional-em-json-com-identificador-de-requisicao.md`,
+> `docs/adr/0013-registrar-a-trilha-de-auditoria-dos-quatro-sinais-em-arquivo-duravel.md` e
+> `docs/adr/0014-manter-o-identificador-de-requisicao-ate-a-requisicao-seguinte.md`, nesta
+> ordem. O resto do que a seção 10 lista como não decidido — métricas, tracing, retenção,
+> alertas — segue aberto.
+
 ## Como ler este documento
 
 | A que pergunta você quer responder | Seção |

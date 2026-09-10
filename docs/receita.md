@@ -58,6 +58,14 @@ Locator), que vale para `DATABASE_URL` e `REDIS_URL`.
 `6379`. Se alguma já estiver ocupada nesta máquina, mude aqui: as portas internas do compose
 não mudam.
 
+`AUDIT_LOG_PATH` já sai preenchida com `logs/audit.log`, o caminho da trilha de auditoria na
+jornada de construção — relativo ao diretório de trabalho, e é por isso que os comandos se rodam
+da raiz do repositório. O diretório `logs/` vem versionado no clone, por um `.gitkeep`. Dentro do
+container o `docker-compose.yml` sobrescreve a variável para `/var/log/nova_api/audit.log`, no
+volume nomeado `auditlog`. **Se o seu `.env` é anterior a esta variável, acrescente a linha à
+mão**: sem ela nada sobe, e a mensagem nomeia a variável
+(`docs/adr/0013-registrar-a-trilha-de-auditoria-dos-quatro-sinais-em-arquivo-duravel.md`).
+
 **Como você sabe que deu certo.**
 
 ```bash
@@ -309,10 +317,24 @@ docker compose exec app python manage.py shell
 docker compose logs -f app
 ```
 
-O gunicorn roda sem `--access-logfile`, e o log traz só o que interessa: `migrate` e
-`collectstatic` no boot, as mensagens de `django.request` e de `oauth2_provider`, e o
-traceback de um 500. O nível vem de `LOG_LEVEL`. Na jornada de construção esse mesmo log sai
-no terminal do `runserver`. Não há coleta externa: o log some com o container.
+O gunicorn continua rodando sem `--access-logfile`, mas o log de acesso existe por outro
+caminho: quem emite a linha é o middleware do projeto, no logger `access`, com o nome da rota, o
+método, o status e a duração — e o `/health` fica de fora, para que a sonda de dez em dez
+segundos não afogue o resto. O log traz ainda `migrate` e `collectstatic` no boot, as mensagens
+de `django.request` e de `oauth2_provider`, e o traceback de um 500. O nível vem de `LOG_LEVEL`,
+que governa também a linha de acesso. Na jornada de construção esse mesmo log sai no terminal do
+`runserver`.
+
+**Toda linha da aplicação é um objeto JSON**, e o log do container é misto: as linhas do gunicorn
+e a saída de `migrate` e de `collectstatic` continuam em texto plano. A forma que funciona é a de
+`docs/runbook.md`:
+
+```bash
+docker compose logs --no-color --no-log-prefix app | jq -R 'fromjson? | select(.level=="ERROR")'
+```
+
+Não há coleta externa: o log operacional some com o container. A trilha de auditoria, essa não —
+vive em volume nomeado, e como lê-la está em `docs/runbook.md`.
 
 ## Produção — o que ainda não existe
 
@@ -341,9 +363,12 @@ produção agora seria inventar um caminho que ninguém percorreu.
   ela sai do boot e vira passo próprio.
 - **Rotação da chave RSA.** Existe uma chave, sem conjunto de rotação: a primeira troca
   invalida todo token vivo.
-- **Coleta de log.** Só stdout: o log some com o container.
+- **Coleta de log.** Só stdout: o log operacional some com o container.
+- **Retenção da trilha de auditoria.** O arquivo é durável e cresce indefinidamente; poda e
+  retenção não estão decididas.
 - **`USER` no container.** A imagem roda como root, deliberadamente, sob a premissa de host
-  único com a porta em loopback — a exposição derruba a premissa.
+  único com a porta em loopback — a exposição derruba a premissa. Dar `USER` exige dar junto a
+  posse de `/var/log/nova_api`, onde a trilha é escrita.
 - **`DJANGO_SUPERUSER_*`.** Credencial administrativa no `.env`; precisa sair antes de qualquer
   ambiente compartilhado.
 

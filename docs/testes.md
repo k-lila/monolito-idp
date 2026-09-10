@@ -7,16 +7,18 @@ receita de subir o stack, no `docs/receita.md`.
 
 ## O que a suíte é
 
-Doze arquivos `test_*.py` num pacote só, `tests/`, na raiz do repositório, mais
-`tests/oauth_helpers.py`, que não é teste e sim a infraestrutura que os testes de fluxo
-reusam. Dentro deles, dezenove classes e trinta e cinco métodos de teste.
+Arquivos `test_*.py` num pacote só, `tests/`, na raiz do repositório, mais dois módulos que não
+são teste e sim a infraestrutura que a suíte usa: `tests/oauth_helpers.py`, que os testes de
+fluxo reusam, e `tests/runner.py`, o executor.
 
 O pacote é da raiz, e não de dentro de `accounts/`, porque a suíte quase toda exercita
 superfícies que `accounts` não possui: rotas declaradas em `config/urls.py`, views do toolkit
-e views prontas do `django.contrib.auth`. Um único módulo — `tests/test_oauth_validators.py` —
-testa código do app.
+e views prontas do `django.contrib.auth`. Importar de `accounts` é a exceção, e quais módulos o
+fazem responde-se por `grep -l '^from accounts' tests/*.py` — a lista cresce a cada função do
+app que valha uma prova isolada, e por isso não está escrita aqui.
 
-O executor é o nativo do Django, sobre `unittest` da biblioteca padrão. Isso é o que há:
+O executor é um `DiscoverRunner` do Django subclassado, sobre `unittest` da biblioteca padrão.
+Isso é o que há:
 
 - **não há pytest** — nenhum `conftest.py`, nenhuma dependência de teste em `requirements.txt`,
   que lista apenas as nove de execução;
@@ -32,7 +34,7 @@ docker compose exec app python manage.py test  # jornada de clonar-e-rodar
 ```
 
 Sem argumento, `manage.py test` descobre o pacote inteiro; `manage.py test tests` é a forma
-explícita e roda os mesmos trinta e cinco. Rótulo de app não serve mais como atalho:
+explícita e roda os mesmos casos. Rótulo de app não serve mais como atalho:
 `manage.py test accounts` responde `Found 0 test(s)` — nenhum teste mora lá. Enquanto a suíte
 esteve dividida entre `accounts/` e `config/`, esse mesmo comando rodava dez dos doze arquivos
 e calava sobre os outros dois.
@@ -51,21 +53,33 @@ por `static("css/idp.css")`, que resolve a URL (Uniform Resource Locator) em tem
 
 ## Os dois níveis, e o critério que os separa
 
-**Sem banco (`SimpleTestCase`).** A função sob teste é chamada diretamente, com um portador
-falso no lugar do que ela leria do mundo. Dois lugares:
+**Sem banco (`SimpleTestCase`).** O que está sob prova não precisa de linha no banco: ou a
+função é chamada diretamente, com um portador falso no lugar do que ela leria do mundo, ou é
+pura, ou o estado que ela confere já foi montado antes de o primeiro caso rodar. Os lugares:
 
 - `tests/test_oauth_validators.py`, inteiro — `get_oidc_claims` lê só `.user` e
   `.scopes`, então um objeto de duas linhas basta, e o `User` é construído sem nunca ser salvo;
 - a classe `HealthViewDatabaseDownUnitTests`, em `tests/test_health.py` — `RequestFactory`
-  mais chamada direta a `health`, com `connection` substituída por um duplo que levanta.
+  mais chamada direta a `health`, com `connection` substituída por um duplo que levanta;
+- a classe `FormatadorJSONTests`, em `tests/test_observabilidade.py` — um registro emitido por
+  um logger próprio do módulo, com o par filtro e formatador de produção anexado a um handler
+  efêmero, de modo que a linha capturada é a que sairia de verdade;
+- a classe `ResumoDoIdentificadorTests`, em `tests/test_auditoria.py` — aqui não há portador
+  nenhum a falsificar: `_resumo_do_identificador` é função pura, entra uma string e sai um
+  hexadecimal;
+- a classe `TrilhaIsoladaDuranteASuiteTests`, em `tests/test_auditoria.py` — a exceção ao
+  critério, e deliberada: o que ela confere é o handler `audit` **real**, já redirecionado pelo
+  executor, e a escrita que ela faz é em arquivo de verdade. Nada disso pede banco, e falsificar
+  o handler destruiria justamente o que se quer provar.
 
 **Com banco e cliente de teste (`TestCase`).** A requisição atravessa o URLConf, o middleware, a
-view, o template e o banco de teste. É onde estão os outros dez arquivos e as outras três
-classes de `tests/test_health.py`.
+view, o template e o banco de teste. É onde está todo o resto: os arquivos ausentes da lista
+acima, inteiros, e as demais classes dos que aparecem nela — só `tests/test_oauth_validators.py`
+não deixa nada para cá.
 
-O critério de escolha é o mesmo em todos os casos: **o nível sem banco vale quando a decisão
-cabe inteira numa função isolável; nos demais, o que pode quebrar é a costura, e só a resposta
-HTTP a revela.** A costura aqui é quase sempre entre configuração e biblioteca de terceiro:
+Fora a exceção nomeada acima, o critério de escolha é um só: **o nível sem banco vale quando a
+decisão cabe inteira numa função isolável; nos demais, o que pode quebrar é a costura, e só a
+resposta HTTP a revela.** A costura aqui é quase sempre entre configuração e biblioteca de terceiro:
 `PKCE_REQUIRED`, que exige o Proof Key for Code Exchange (PKCE); `OIDC_ISS_ENDPOINT`, que fixa o
 issuer; `SECURE_REDIRECT_EXEMPT`, que isenta `/health`; a allowlist de `redirect_uri`. Um teste
 isolado sobre qualquer uma delas só afirmaria o valor de uma chave de `config/settings.py`, que
@@ -92,6 +106,8 @@ nível fim-a-fim neste projeto.
 | Ausência das rotas de recuperação de senha | `tests/test_password_reset_urls.py` | com banco |
 | Comentário de template vazando para o corpo da página | `tests/test_template_comment_leak.py` | com banco |
 | Prontidão de banco e de cache, e a isenção de HTTPS | `tests/test_health.py` | misto |
+| Esquema da linha de log, correlação por `request_id` e a linha de acesso: campos, e o `/health` fora dela | `tests/test_observabilidade.py` | misto |
+| Trilha de auditoria: os quatro sinais, a ausência de segredo e o isolamento sob a suíte | `tests/test_auditoria.py` | misto |
 
 As linhas que o nome do arquivo não explica sozinho:
 
@@ -122,6 +138,14 @@ isenção é a segunda mutação silenciosa possível ali. O caso de controle, c
 isenta recebendo 301, é o que distingue "a isenção funciona" de "o redirecionamento nunca
 esteve ligado".
 
+**Correlação por `request_id`.** A classe `RequestIdCorrelationTests`, em
+`tests/test_observabilidade.py`, é a prova de regressão da ADR (Architecture Decision Record)
+`docs/adr/0014-manter-o-identificador-de-requisicao-ate-a-requisicao-seguinte.md`: é o caso que
+fica vermelho se alguém repuser o `reset()` do `ContextVar` no middleware. O que a sustenta é o
+momento em que a linha nasce — tanto o 404 quanto o 400 devolvido por uma view são registrados
+por `log_response`, depois que a cadeia de middleware inteira retornou, e um `reset()` ali os
+mandaria de volta ao sentinela `-`, sem ligação com o pedido que os causou.
+
 ### Três guardas cuja razão de ser não está no nome
 
 **A `redirect_uri` com uma barra a mais.** Em `tests/test_authorize_guards.py`, a
@@ -140,6 +164,26 @@ o `#}` em outra linha, o texto sai renderizado no corpo da página.
 delimitadores, nunca pelo texto de um comentário — o texto muda, os delimitadores nunca podem
 aparecer numa resposta. É uma classe de defeito que nenhuma leitura de código pega: só aparece
 na tela renderizada.
+
+## `tests/runner.py`, e por que a suíte tem executor próprio
+
+`TEST_RUNNER`, em `config/settings.py`, aponta para `tests.runner.RunnerComTrilhaIsolada`. Sem
+ele, `manage.py test` escreveria na **trilha de auditoria do ambiente** — o arquivo de
+`AUDIT_LOG_PATH` —, misturando linha de teste com evidência de operação. As settings são únicas,
+sem separação entre desenvolvimento e produção, de modo que não há um segundo `LOGGING` a
+declarar.
+
+O que ele faz é trocar um valor só: em `setup_test_environment()`, reaplica o `dictConfig` com o
+`filename` do handler `audit` apontando para um diretório temporário, e desfaz no teardown.
+Formatador, filtro, handler, receptores e esquema são os mesmos objetos sob teste e em produção,
+e a escrita é real, em arquivo real — é o que permite a um teste varrer a trilha em busca de
+campo proibido. O precedente é `DATABASES`, cujo nome o mesmo executor já redireciona para
+`test_*`; a alternativa recusada, um `if TESTING:` nas settings, está registrada em
+`docs/adr/0013-registrar-a-trilha-de-auditoria-dos-quatro-sinais-em-arquivo-duravel.md`.
+
+A consequência de operação: **rodar a suíte não polui a trilha, e a trilha da suíte não
+sobrevive à execução.** Quem quiser inspecionar o que um teste escreveu tem de fazê-lo de dentro
+do próprio teste.
 
 ## `tests/oauth_helpers.py`
 
@@ -229,6 +273,11 @@ relatório de ferramenta — vale como inventário, não como percentual.
   isenção de redirecionamento, ambas em processo. A probe de verdade, com os tempos de
   `docs/adr/0011-dar-teto-de-tempo-ao-health-e-derivar-o-healthcheck-dele.md`, nunca roda aqui.
 - **O build da imagem.** Nada verifica que o `Dockerfile` constrói, nem que a imagem sobe.
+- **Segredo que a suíte não conhece.** A varredura do log e da trilha procura valores que o
+  próprio fluxo produziu — senha, `code`, `code_verifier`, tokens, `SECRET_KEY`, o e-mail
+  digitado —, em todos os loggers do processo, a raiz inclusive. O que ela não pode fazer é
+  procurar o que não sabe existir: dado sensível de um caminho que a suíte não exercita, ou de
+  um campo que alguém acrescente amanhã, passa sem ser visto.
 - **O que o container instala.** A suíte roda contra o ambiente virtual do host, resolvido a
   partir de `requirements.txt`. O container instala de um wheelhouse construído por `pip wheel`
   no momento do build, que resolve as dependências transitivas sem versão fixada. São dois

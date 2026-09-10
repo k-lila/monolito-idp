@@ -26,6 +26,7 @@ Provider*) e da operação corrente. Os demais documentos apontam para cá em ve
 | `createsuperuser` falha por unicidade | [12](#12-createsuperuser-falha-por-unicidade) |
 | A relying party não acha a descoberta e recebe 404 | [13](#13-a-relying-party-recebe-404-ao-procurar-a-descoberta) |
 | Nada quebrou, e eu quero saber o que está errado assim mesmo | [14](#14-as-falhas-que-não-produzem-sintoma-nenhum-hoje) |
+| O processo não sobe, e a mensagem cita `AUDIT_LOG_PATH` | [15](#15-o-processo-não-sobe-e-a-mensagem-cita-audit_log_path) |
 
 A operação do dia a dia — revogar acesso, limpar tabela, trocar chave, subir versão — está em
 [Operação corrente](#operação-corrente).
@@ -55,15 +56,46 @@ Ali estão a falha do `migrate`, o traceback dos 500 e os dois `logger.exception
 O `LOGGING` de `config/settings.py` manda tudo para `ext://sys.stdout` e não emudece
 `django.request` com `DEBUG=False`, que é o modo em que o container roda.
 
-Duas propriedades desse log valem saber antes de precisar dele:
+**Toda linha emitida pela aplicação é um objeto JSON**, com `ts` em UTC, `level`, `logger`,
+`request_id` e `msg`, mais `exc` quando houver traceback (ADR — Architecture Decision Record —
+`docs/adr/0012-emitir-o-log-operacional-em-json-com-identificador-de-requisicao.md`). Quem opera
+precisa de `jq`:
+
+```bash
+docker compose logs --no-color --no-log-prefix app | jq -R 'fromjson? | select(.level=="ERROR")'
+```
+
+**Nenhuma das três opções é enfeite, porque o log do container é misto.** As linhas do gunicorn
+— boot, sinais, worker — e a saída de `migrate` e de `collectstatic` não atravessam o `logging`
+do Django e continuam em texto plano, deliberadamente: é o que mantém a falha de `migrate`
+legível sem rolagem. Um `jq .` puro morre na primeira delas. O `-R` mais o `fromjson?` leem o que
+é JSON e descartam o resto; o `--no-log-prefix` remove o `app-1  | ` que o compose antepõe a cada
+linha, e **sem ele o comando não devolve erro nenhum: devolve nada**.
+
+Três propriedades desse log valem saber antes de precisar dele:
 
 - **A linha sai na hora.** O `Dockerfile` declara `PYTHONUNBUFFERED=1`; sem ele, stdout ligado
   a um pipe — que é o que `docker logs` dá — seria bufferizado em bloco, e o traceback de um
   500 ficaria retido até o buffer encher.
-- **Não há linha de acesso.** O `exec gunicorn` do `docker/entrypoint.sh` não passa
-  `--access-logfile`, deliberadamente: uma linha a cada 10 s de sonda afogaria justamente o
-  que se precisa ver. A consequência para o diagnóstico é direta — **a ausência de registro de
-  uma requisição não é prova de que ela não chegou**.
+- **Toda linha de um mesmo pedido carrega o mesmo `request_id`.** É o que amarra o traceback de
+  `django.request` à linha de `oauth2_provider` da mesma requisição, entre os três workers —
+  inclusive a linha de erro que o Django emite depois de a cadeia de middleware retornar, que é
+  a de todo 404, 503 e 400 (ADR
+  `docs/adr/0014-manter-o-identificador-de-requisicao-ate-a-requisicao-seguinte.md`). O
+  identificador é sempre gerado aqui dentro: cabeçalho de entrada não é lido, e nenhuma resposta
+  o devolve — quem investiga pelo navegador acha o pedido pelo horário. A contrapartida está no
+  que **não** nasce numa requisição: essa linha sai com `-` num processo que ainda não atendeu
+  nada, e com o identificador da última requisição num processo que já atendeu.
+- **Há linha de acesso, e ela não é do gunicorn.** O `exec gunicorn` do `docker/entrypoint.sh`
+  continua sem `--access-logfile`; quem emite a linha é o middleware do projeto, no logger
+  `access`, com `route` (o **nome** da rota, nunca o caminho), `method`, `status` e
+  `duration_ms`. O `/health` fica de fora por `ACCESS_LOG_EXCLUDED_ROUTES`, e é isso que impede
+  a sonda de dez em dez segundos de afogar o log. Para toda rota que não seja a sonda, a
+  ausência de registro passou a ser sinal:
+
+```bash
+docker compose logs --no-color --no-log-prefix app | jq -R 'fromjson? | select(.logger=="access")'
+```
 
 **3. O veredito da sonda do container.**
 
@@ -125,10 +157,13 @@ sintoma vai depurar o `/o/authorize/`, que estava certo o tempo todo.
 **Verificação.**
 
 ```bash
-docker compose logs app | grep ImproperlyConfigured
+docker compose logs --no-color --no-log-prefix app \
+  | jq -R 'fromjson? | select((.exc // "") | test("ImproperlyConfigured"))'
 ```
 
-A linha é `ImproperlyConfigured: This application does not support signed tokens`.
+A mensagem é `ImproperlyConfigured: This application does not support signed tokens`, e ela vem
+no campo `exc`, que carrega o traceback — o `msg` do registro de `django.request` traz apenas
+`Internal Server Error: /o/token/`. Acrescente `| .exc` ao filtro para ler a pilha formatada.
 
 **Correção.** Em `/admin/oauth2_provider/application/`, ponha `algorithm` em **RS256**. Os
 outros três campos que importam são `client_type` = public, `authorization_grant_type` =
@@ -301,7 +336,8 @@ curl -s -o /dev/stdout -w '\n%{http_code}\n' http://localhost:8000/health
 pelos dois `logger.exception` de `config/views.py`:
 
 ```bash
-docker compose logs app | grep 'health:'
+docker compose logs --no-color --no-log-prefix app \
+  | jq -R 'fromjson? | select(.msg | startswith("health:"))'
 ```
 
 As duas mensagens são `health: banco inalcançável` e `health: cache inalcançável ou
@@ -348,7 +384,7 @@ relying party está em `docs/integracao-rp.md`.
 
 ### 14. As falhas que não produzem sintoma nenhum hoje
 
-Três defeitos deste sistema não têm entrada de sintoma porque **não têm sintoma**. Só se
+Oito defeitos deste sistema não têm entrada de sintoma porque **não têm sintoma**. Só se
 descobrem lendo, e é por isso que estão listados aqui.
 
 **`BEHIND_TLS_PROXY=False` atrás de um proxy TLS real.** Cookie com flag `Secure`, HSTS (HTTP
@@ -363,12 +399,72 @@ configuração de hoje — o middleware é inerte, e uma posição errada é **i
 só apareceria na fase de uma SPA (Single-Page Application), como erro de CORS que ninguém
 associa àquela linha.
 
-**Log só em stdout, sem coleta externa.** O log some quando o container é recriado. Se você vai
-recriar o `app` para investigar alguma coisa, **salve o log antes**:
+**Log operacional só em stdout, sem coleta externa.** O log some quando o container é recriado.
+Se você vai recriar o `app` para investigar alguma coisa, **salve o log antes**:
 
 ```bash
 docker compose logs --no-color app > /tmp/app.log
 ```
+
+Vale para o log operacional, e não para a trilha de auditoria: ela vive em volume nomeado e
+sobrevive ao recreate — ver [A trilha de auditoria](#a-trilha-de-auditoria-onde-fica-e-como-lê-la).
+
+**Linha de trilha perdida por falha de escrita do handler.** Disco cheio, volume desmontado ou
+permissão negada no arquivo da trilha **não** derrubam nada e não produzem linha de erro no log:
+o próprio `logging` engole o erro do handler e o manda para `stderr`. A trilha simplesmente para
+de crescer enquanto o IdP segue autenticando normalmente. Os receptores de `accounts/auditoria.py`
+capturam a própria exceção deles e gritam no log operacional, mas essa captura não alcança a
+escrita do handler. A verificação é olhar o tamanho do arquivo depois de um login.
+
+**O identificador de requisição permanece no worker depois da requisição.** Não há `reset` na
+saída do middleware, deliberadamente: sem isso, a linha de erro de todo 404, 503 e 400 sairia
+sem o pedido a que pertence, porque o Django a emite depois que a cadeia de middleware retornou
+(ADR `docs/adr/0014-manter-o-identificador-de-requisicao-ate-a-requisicao-seguinte.md`). O preço
+é este: uma linha emitida **fora** de qualquer requisição, num processo que já atendeu alguma,
+sai carimbada com o identificador da última — parece correlacionada e não está, e nada a
+distingue de uma correta. No container não há código que registre entre um pedido e o seguinte;
+sob `manage.py test`, há.
+
+**`LOG_LEVEL=WARNING` apaga a linha de acesso inteira.** A linha de acesso é log operacional e
+segue `LOG_LEVEL`, que é coerente; o efeito é que subir o nível para reduzir ruído remove, sem
+aviso nenhum, todo o registro de requisição — e volta-se ao estado em que a ausência de registro
+não prova nada. A trilha de auditoria não é afetada: o logger `audit` tem nível `INFO` fixo, e
+nenhuma variável de ambiente o desliga.
+
+**A preflight de CORS não deixa rastro.** O middleware de observabilidade está no índice 1 do
+`MIDDLEWARE`, logo abaixo do `CorsMiddleware` — e uma resposta emitida pelo `CorsMiddleware`,
+como a preflight `OPTIONS`, sai sem `request_id` e sem linha de acesso. Hoje isso é inerte,
+porque a allowlist está vazia e ele não emite resposta nenhuma. No dia da primeira SPA
+(Single-Page Application) deixa de ser, e nada avisará: é o mesmo silêncio da posição do
+`CorsMiddleware`, agora com um segundo efeito.
+
+**`app_authorized` também dispara no refresh.** O sinal é emitido em toda resposta 200 de
+`/o/token/`, o que inclui a renovação por `refresh_token`. A trilha terá mais linhas
+`app_authorized` do que houve consentimentos, e quem contar linhas para contar autorizações
+contará errado. O `client_id` e o `sub` de cada linha continuam corretos.
+
+### 15. O processo não sobe, e a mensagem cita `AUDIT_LOG_PATH`
+
+**Sintoma.** Nada sobe. Na jornada de construção, qualquer `manage.py` aborta antes de fazer o
+que se pediu; no container, o `app` morre no boot. A mensagem nomeia a variável — é uma
+`ImproperlyConfigured` dizendo que `AUDIT_LOG_PATH` está ausente do ambiente.
+
+**Causa.** A linha não está no `.env`. `config/settings.py` não tem default no código, e este em
+particular é ausência deliberada: um default faria a trilha gravar dentro da camada de escrita do
+container e sumir no primeiro `down`, o que pareceria funcionar (ADR
+`docs/adr/0013-registrar-a-trilha-de-auditoria-dos-quatro-sinais-em-arquivo-duravel.md`).
+
+**Correção.** Acrescente `AUDIT_LOG_PATH=logs/audit.log` ao `.env`, à mão. **Não copie o
+`.env.example` por cima:** o `.env` é untracked, não tem cópia, e sobrescrevê-lo apaga a chave
+RSA e a `SECRET_KEY` do projeto.
+
+Uma variante com o mesmo desfecho e outra mensagem: **a última linha do traceback é
+`ValueError: Unable to configure handler 'audit'`**, que não nomeia caminho nenhum. O caminho
+está mais acima, no `FileNotFoundError` ou no erro de permissão que o `logging` guardou como
+causa — ler só o fim do traceback não encontra o que esta seção manda procurar. Aí a variável
+existe e aponta para um diretório que não existe ou que o processo não pode escrever: o arquivo
+é aberto na configuração do logging, dentro de `django.setup()`, e a falha é no boot de
+propósito. Crie o diretório, ou corrija o caminho.
 
 ## Operação corrente
 
@@ -454,11 +550,89 @@ docker compose up -d --force-recreate app
 A primeira rotação será disruptiva por construção. A chave de produção não sai deste script:
 `gen_dev_key.sh` gera 2048 bits fixos, que é o piso aceito para RS256 (RSA com SHA-256).
 
-### O volume `pgdata`, e por que `down -v` é grave
+### A trilha de auditoria: onde fica e como lê-la
 
-`docker compose down -v` destrói os volumes nomeados `pgdata` e `redisdata`. Com o `pgdata`
-vão-se contas, Applications, grants, tokens e a `django_session` — tudo. `docker compose down`
-sem `-v` preserva os dois.
+Quatro eventos são registrados no instante em que acontecem: `user_logged_in`,
+`user_login_failed`, `user_logged_out` e `app_authorized`. O arquivo é JSON por linha, no mesmo
+esquema do log operacional e com o mesmo `request_id`, o que permite casar uma linha de auditoria
+com o traceback do mesmo pedido.
+
+**O casamento por `request_id` tem janela.** Ele vale enquanto o container corrente não tiver sido
+recriado: o log operacional existe só em stdout e morre a cada `docker compose build` mais
+`up -d`, que é a sequência de [Subir versão nova](#subir-versão-nova); a trilha é durável e
+sobrevive às duas. Uma linha `app_authorized` de novembro investigada em fevereiro não tem
+traceback com que casar, e `docker compose logs app | jq 'select(.request_id=="9f2c...")'` devolve
+vazio. Salvar o log operacional antes de recriar o container é o que a
+[seção 14](#14-as-falhas-que-não-produzem-sintoma-nenhum-hoje) prescreve.
+
+Onde ele fica depende da jornada:
+
+| Jornada | Caminho | Sobrevive a |
+| --- | --- | --- |
+| construção | `logs/audit.log`, relativo ao diretório de trabalho | tudo, menos `git clean -xd` |
+| clonar-e-rodar | `/var/log/nova_api/audit.log`, no volume nomeado `auditlog` | `docker compose down`, e não `down -v` |
+
+```bash
+docker compose exec app cat /var/log/nova_api/audit.log | jq -c 'select(.event=="user_logged_in")'
+```
+
+O `jq` roda no host: a imagem é `python:3.14-slim` e não o traz. Os campos de cada linha, além
+dos comuns, são `event` — que recebe o **nome do sinal**, para levar por `grep` até quem o emite
+—, `sub`, `ip` e `outcome`; mais `client_id` em `app_authorized` e `identifier_sha256` em
+`user_login_failed`.
+
+**Nenhum e-mail é gravado, e nenhum valor de token.** A pessoa aparece pelo `sub`, que é a chave
+primária do usuário — a mesma claim `sub` de todo `id_token`. Numa falha de autenticação não há
+pessoa confirmada a nomear, e o que se registra é o resumo SHA-256 do identificador tentado.
+Procurar as tentativas contra uma conta conhecida exige recalcular o resumo:
+
+```bash
+python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.argv[1].encode("utf-8")).hexdigest())' \
+  pessoa@exemplo.com
+```
+
+O resumo é calculado sobre o valor **como foi digitado**, sem normalizar caixa: `A@x.com` e
+`a@x.com` são contas distintas sob Postgres, e por isso produzem resumos distintos. Se a busca
+não achar nada, tente as outras caixas antes de concluir que não houve tentativa.
+
+**A ausência de linha não prova a ausência do evento.** Procurar um `sub` e não achar nada é
+compatível com quatro situações, e nada na trilha as distingue:
+
+- o login ocorreu **na outra jornada**, e está em `logs/audit.log`, no host. A trilha bifurca por
+  jornada; o Postgres é o mesmo nas duas, de modo que a identidade é única e a evidência não;
+- o **volume foi recriado**, e para isso basta um clone do repositório em diretório de outro nome,
+  porque o nome do volume carrega o nome do projeto do compose. Ver
+  [Os volumes nomeados](#os-volumes-nomeados-e-por-que-down--v-é-grave);
+- a **escrita do handler falhou** e o `logging` engoliu o erro para `stderr`, que é a falha sem
+  sintoma da [seção 14](#14-as-falhas-que-não-produzem-sintoma-nenhum-hoje): a trilha para de
+  crescer enquanto o IdP segue autenticando;
+- o arquivo foi **truncado por quem tem acesso ao host**, que é o adversário que a ADR 0013 admite
+  ao recusar o HMAC (Hash-based Message Authentication Code).
+
+O arquivo tampouco declara desde quando cobre o que registra: não há marca de início, e uma
+trilha curta é indistinguível de um sistema pouco usado.
+
+**Na jornada de clonar-e-rodar, o campo `ip` não é a origem real.** O que se registra é
+`REMOTE_ADDR`, e quem chega ao container passa antes pelo NAT (Network Address Translation) da
+bridge do Docker: um `curl` partido do host aparece na trilha como `172.18.0.1`, o gateway da
+rede do compose, e não como o endereço de quem chamou. Verificado à mão. Toda requisição de fora
+do container colapsa nesse mesmo endereço, de modo que hoje o campo distingue "veio de dentro do
+container" de "veio de fora", e nada mais fino. A ADR 0013 registra essa perda como futura, para
+o dia em que houver um proxy à frente; ela já é presente aqui, porque o NAT já está à frente. Na
+jornada de construção, com o `runserver` no host, o endereço é o real.
+
+Duas ressalvas de contagem e uma de durabilidade: `app_authorized` sai também a cada renovação de
+`refresh_token`, de modo que linhas não são consentimentos; criação de Application e revogação de
+token **não** aparecem, por não existir sinal que as emita; e não há retenção nem poda — o arquivo
+cresce indefinidamente, e nada o monitora.
+
+### Os volumes nomeados, e por que `down -v` é grave
+
+`docker compose down -v` destrói os três volumes nomeados: `pgdata`, `redisdata` e `auditlog`.
+Com o `pgdata` vão-se contas, Applications, grants, tokens e a `django_session` — tudo; com o
+`auditlog` vai-se a trilha de auditoria inteira, que é justamente a evidência de quem tocou o que
+se perdeu. É a mesma tecla, e ela leva as duas coisas. `docker compose down` sem `-v` preserva os
+três.
 
 **A gravidade não é a perda dos dados; é a reciclagem do par `(iss, sub)`.** O `sub` de todo
 `id_token` é a chave primária (PK) do usuário, um `BigAutoField` fixado antes da migração
