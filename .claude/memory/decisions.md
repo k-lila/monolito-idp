@@ -54,6 +54,31 @@ memória — é sedimento.
 
 ---
 
+## [2026-09-17] TASK-016 · Passo 1 do plano do contrato: fechado sem edição, porque o código já estava à frente do plano
+
+O passo 1 de `docs/plano-contrato-backend.md` pedia três coisas: retirar de
+`docs/contrato-backend.md` a afirmação sobre `5433` sem `POSTGRES_PORT`; alinhar a tabela da
+seção 8 com a checklist da seção 9, retirando a linha do logout pela RP; e apontar `README.md`
+e `../CLAUDE.md` para o contrato e para o plano. Conferido contra o repositório em `57a007f`,
+os dois primeiros já estavam feitos e o terceiro estava feito no `README.md`. O plano e o
+contrato entraram no mesmo commit que os corrigiu, e o plano descreve o estado anterior.
+
+- **Decisão:** não acrescentar `docs/plano-contrato-backend.md` à célula "Contrato" do
+  `../CLAUDE.md` da raiz `idp/`. A célula nomeia o que se preserva entre os dois projetos, e o
+  plano é caminho de implementação, não contrato. O `README.md` já é o mapa que leva a ele. O
+  item 3 fica cumprido no espírito, não à letra — e é o código, não o plano, que decide.
+- **Decisão ratificada pelo usuário:** a linha do logout pela RP fica fora da seção 8, sem ADR
+  própria. A ADR 0010 da SPA fixa a decisão do lado consumidor; do lado do IdP, o comentário em
+  `config/settings.py` ao lado de `OIDC_RP_INITIATED_LOGOUT_ENABLED=False` cumpre o papel.
+- **Observação:** o plano ficou para trás do código no seu próprio commit de origem. Os passos
+  seguintes devem começar pela mesma varredura — o passo 2, por exemplo, afirma que o `.env`
+  está atrás do compose, e isso se confere contra o `.env`, não contra o plano.
+- **Rota:** `/chore`, encerrada na Fase 1; nenhum agente invocado, nenhum arquivo do projeto
+  modificado.
+- **Tipo:** decisão e observação.
+
+---
+
 ## [2026-09-17] TASK-015 · Bloco C: o proxy no compose, a procedência do endereço e as duas decisões sem ADR
 
 O TLS (Transport Layer Security) passou a terminar num proxy declarado no compose, só ele
