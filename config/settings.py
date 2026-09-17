@@ -5,6 +5,7 @@ nomeando-se. Não há split dev/prod — um arquivo de dev que nunca roda em pro
 é um caminho não exercitado.
 """
 
+from datetime import timedelta
 from pathlib import Path
 
 import environ
@@ -31,6 +32,14 @@ BEHIND_TLS_PROXY = env.bool("BEHIND_TLS_PROXY")
 LOG_LEVEL = env.str("LOG_LEVEL")
 CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS")
 
+# Sem default, deliberadamente: um default faria a trilha de auditoria gravar dentro da
+# camada de escrita do container e desaparecer no primeiro `docker compose down` —
+# pareceria funcionar, seria confiada, e sumiria. Ausente, esta linha derruba o processo na
+# leitura das settings nomeando a si mesma, como manda o precedente da ADR 0004. O caminho
+# é relativo ao diretório de trabalho do processo; no container o compose o sobrescreve
+# por um absoluto, dentro do volume nomeado `auditlog`.
+AUDIT_LOG_PATH = env.str("AUDIT_LOG_PATH")
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -42,6 +51,13 @@ INSTALLED_APPS = [
     # `security`, o que torna uma allowlist malformada um erro de `manage.py check`.
     "corsheaders",
     "oauth2_provider",
+    # No INSTALLED_APPS por dois motivos: traz as próprias migrações, e é o app que registra
+    # os checks de `axes/checks.py`, que denunciam middleware ausente (`axes.W002`), backend
+    # ausente (`axes.W003`) e `AXES_LOCKOUT_PARAMETERS` sem `ip_address` (`axes.W006`).
+    # Denunciam, e não reprovam: são `Warning`, e `manage.py check` os imprime com código de
+    # saída ZERO — só quebram o comando com `--fail-level WARNING`. Quem confia no código de
+    # saída não vê uma tela de login sem teto.
+    "axes",
     "accounts",
 ]
 
@@ -57,16 +73,51 @@ MIDDLEWARE = [
     # isso uma posição errada é INDETECTÁVEL nesta fase: o sinal só aparece na
     # fase do SPA, como erro de CORS sem pista que aponte para esta linha.
     "corsheaders.middleware.CorsMiddleware",
+    # Índice 1, e as duas metades da razão importam.
+    #
+    # Por que tão alto: tudo que estiver acima dele emite resposta sem request_id e sem
+    # linha de acesso. Abaixo dele ficam o 301 do SecurityMiddleware (o mesmo da ADR 0010),
+    # os estáticos do WhiteNoise, o redirecionamento de APPEND_SLASH e o 403 do CSRF —
+    # exatamente as respostas que hoje não deixam rastro nenhum.
+    #
+    # Por que não acima do CorsMiddleware: a regra escrita ali é absoluta, e o que se
+    # ganharia é registrar as preflight OPTIONS, que são zero enquanto a allowlist estiver
+    # vazia. A perda é real: no dia em que houver uma SPA, a preflight não aparecerá no log
+    # de acesso, e nada avisará.
+    "config.observabilidade.ObservabilidadeMiddleware",
     "django.middleware.security.SecurityMiddleware",
     # Logo abaixo do SecurityMiddleware: o estático é servido sem atravessar sessão,
     # CSRF e autenticação. Com DEBUG=False é quem serve /static/ — o runserver não serve.
     "whitenoise.middleware.WhiteNoiseMiddleware",
+    # Índice 4, e as três razões desta posição são independentes.
+    #
+    # Abaixo do SecurityMiddleware e do WhiteNoise: o 301 de HTTPS (ADR 0010) e cada arquivo
+    # estático não consomem contador — não é tráfego contra a superfície de autenticação.
+    #
+    # Acima do SessionMiddleware: a recusa por excesso não precisa de sessão, de CSRF
+    # (Cross-Site Request Forgery) nem de usuário, e cada um desses custa Redis ou Postgres.
+    # É exatamente o custo que o limitador existe para não pagar sob varredura.
+    #
+    # Abaixo do ObservabilidadeMiddleware: o 429 é uma resposta, e tem de sair com
+    # `request_id` e com linha de acesso como qualquer outra.
+    #
+    # O SILÊNCIO desta linha: este middleware EMITE RESPOSTA, e por isso tem de ficar abaixo
+    # do CorsMiddleware — resposta emitida acima dele sai sem os cabeçalhos de CORS. Com a
+    # allowlist vazia isso é INDETECTÁVEL, e o sinal só apareceria na fase do SPA
+    # (Single-Page Application), como um 429 que o navegador esconde atrás de um erro de
+    # CORS sem pista que aponte para cá.
+    "config.limites.LimiteDeTaxaMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # No fim da lista, como a documentação do axes pede. Ele não conta nada — converte em
+    # resposta a exceção PermissionDenied que o backend levanta, e para isso precisa
+    # envolver a cadeia inteira. O check `axes.W002` verifica a PRESENÇA desta linha, nunca
+    # a posição: posição errada aqui é silenciosa.
+    "axes.middleware.AxesMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -135,6 +186,112 @@ PASSWORD_HASHERS = [
     "django.contrib.auth.hashers.ScryptPasswordHasher",
 ]
 
+# A PRIMEIRA declaração de AUTHENTICATION_BACKENDS na história deste projeto, e o silêncio
+# mais caro do arquivo: declarar a lista SUBSTITUI o default do Django. Sem a segunda linha,
+# `ModelBackend`, ninguém autentica — todas as contas trancadas de uma vez, e o sintoma é uma
+# senha correta recusada, indistinguível de senha errada.
+#
+# `AxesStandaloneBackend`, e nunca `AxesBackend`: o segundo herda de `ModelBackend` e produz
+# uma lista que parece certa e verifica a senha duas vezes. Primeiro na ordem porque é ele
+# quem recusa a conta bloqueada antes de o `ModelBackend` chegar a conferir credencial.
+AUTHENTICATION_BACKENDS = [
+    "axes.backends.AxesStandaloneBackend",
+    "django.contrib.auth.backends.ModelBackend",
+]
+
+# Teto da tela de login, contado por tentativa falha no caminho de `authenticate()`. Cinco, e
+# não o default 3: três erros trancam quem digitou com a tecla de maiúsculas presa, e cinco
+# mantêm o espaço de busca inviável.
+AXES_FAILURE_LIMIT = 5
+# Quinze minutos, e nunca o default None, que é bloqueio sem prazo. Este projeto não tem rota
+# de recuperação de senha (`tests/test_password_reset_urls.py` prova a ausência), e um
+# bloqueio sem prazo transferiria a quem opera todo engano de quem usa.
+#
+# O prazo conta da ÚLTIMA tentativa, e não do bloqueio: o axes soma as falhas da janela e
+# atualiza o registro a cada nova falha, inclusive as que chegam com a conta já bloqueada
+# (`AXES_RESET_COOL_OFF_ON_FAILURE_DURING_LOCKOUT`, cujo default é True na 8.3.1). Quem
+# insiste adia o próprio acesso, e um ataque sustentado mantém a conta fora enquanto durar —
+# daí a saída manual de `docs/runbook.md`. É este prazo que a tela de bloqueio declara.
+AXES_COOLOFF_TIME = timedelta(minutes=15)
+# DOIS ELEMENTOS, e é o número deles que separa "por conta OU por origem" de "pela combinação
+# das duas". `get_client_parameters` (`axes/helpers.py:285-293`) percorre a lista e faz de cada
+# ELEMENTO um filtro independente: elemento string filtra por uma chave, elemento lista filtra
+# pela combinação das chaves dele. Daí que `["username", "ip_address"]`, sem os colchetes
+# internos, é idêntico ao valor escrito abaixo — dois elementos, dois filtros — e trocar um
+# pelo outro não muda nada.
+#
+# O erro de digitação caro é outro: `[["username", "ip_address"]]`, com UM elemento só e as
+# duas chaves dentro. Aí o axes passa a contar pelo par, e nem o excesso contra a mesma conta
+# vindo de origens diferentes nem o excesso da mesma origem contra contas diferentes chegam a
+# disparar. Falha calada: os dois cenários simplesmente nunca bloqueiam.
+AXES_LOCKOUT_PARAMETERS = [["username"], ["ip_address"]]
+# Declarado, embora seja o default de `axes/conf.py`, porque é o nome do campo do FORMULÁRIO,
+# e não o do modelo. O `AuthenticationForm` do Django chama seu campo de `username` mesmo com
+# USERNAME_FIELD = "email" (a armadilha já registrada em `tests/test_login_view.py:28`), e o
+# default do axes na 8.3.1 é `USERNAME_FIELD` — ou seja, `email`, campo que este formulário
+# não tem. Sem esta linha o axes lê None em toda tentativa e para de contar por conta, sem
+# erro e sem log, restando só a contagem por origem. Renomear o campo do formulário produz o
+# mesmo silêncio.
+AXES_USERNAME_FORM_FIELD = "username"
+# Login bem-sucedido zera o contador da conta: erros espaçados ao longo de semanas não somam
+# contra quem nunca esteve sob ataque.
+AXES_RESET_ON_SUCCESS = True
+# Contador no banco, que é o default, e a escolha é deliberada: o rollback do `TestCase` o
+# limpa entre casos, e a independência de ordem da suíte deixa de depender da disciplina de
+# quem escreve teste. O handler de cache seria mais rápido e alcançaria, na limpeza, o cache
+# que guarda a sessão (ADR 0005).
+AXES_HANDLER = "axes.handlers.database.AxesDatabaseHandler"
+# Contrato por string, resolvido em runtime pelo axes: é o que faz a origem que ele conta ser
+# a mesma que a trilha grava (ADR 0015).
+#
+# O SILÊNCIO DESTA LINHA é o de removê-la: hoje a remoção não muda um único valor, e por isso
+# nada a acusaria. O `ipware` não está instalado — não é dependência do axes 8.3.1 —, de modo
+# que `IPWARE_INSTALLED` é falso e o caminho alternativo de `axes/helpers.py:206-225` cai em
+# `request.META.get("REMOTE_ADDR")`, que é exatamente o que esta função devolve enquanto
+# `BEHIND_TLS_PROXY` for falso. A remoção só passa a custar quando a variável de proxy for
+# ligada, e aí custa a igualdade inteira. O único teste que alcança a diferença é o T-04 de
+# `tests/test_limite_login.py`, e ele só a alcança porque roda sob
+# `override_settings(BEHIND_TLS_PROXY=True)`.
+AXES_CLIENT_IP_CALLABLE = "config.origem.origem_da_requisicao"
+# 429, e não o default 403: a recusa é por excesso, não por falta de permissão, e o status
+# distingue-a do 200 com a lista de erros do formulário que uma senha errada isolada devolve.
+AXES_HTTP_RESPONSE_CODE = 429
+AXES_LOCKOUT_TEMPLATE = "registration/bloqueio.html"
+AXES_VERBOSE = False
+
+# O teto de requisições por origem, por caminho, aplicado por `config/limites.py`. O nome não
+# diz "OAUTH" porque a chave governa também `/accounts/login/`, que não é OAuth.
+#
+# Cento e vinte por minuto em `/o/` é duas por segundo sustentadas por uma origem só — uma
+# ordem de grandeza acima do pico plausível desta sandbox, e ordens de grandeza abaixo do que
+# uma varredura de `code` precisaria para ter chance.
+#
+# Sessenta REQUISIÇÕES por minuto em `/accounts/login/`, e a unidade é o que importa: o contador
+# soma toda requisição do caminho, e uma tentativa feita pela tela custa DUAS — o GET que
+# renderiza o formulário e o POST que o envia. Sessenta requisições são, portanto, cerca de
+# trinta tentativas por minuto, contra as cinco a dez que quem digita senha faz no pior caso —
+# ainda uma ordem de grandeza acima de todo uso legítimo de uma tela de login vinda de uma
+# origem só. O teto fica ACIMA do teto de cinco falhas do axes de propósito — a semântica de
+# segurança continua sendo dele, e este teto existe só para pôr limite no CUSTO de cada
+# tentativa.
+#
+# O custo, medido contra `axes/handlers/database.py:139-246`: com o prazo móvel, cada tentativa
+# bloqueada roda um DELETE, um `select_for_update`, um UPDATE com dois `Concat` e dois SELECT
+# de agregação, e reescreve `attempt_time` — o que impede `clean_expired_user_attempts` de
+# alcançar aquela linha. A linha cresce cerca de 130 bytes por tentativa, e cada UPDATE a
+# reescreve inteira. Sem teto de requisição, um laço de `curl` paga isso indefinidamente.
+#
+# Literais no código versionado, NUNCA variáveis de ambiente: não são segredo, não variam por
+# ambiente, e uma variável nova sem default derrubaria o boot e a suíte de todo ambiente já
+# montado — o `.env` é untracked e não tem cópia, como `AUDIT_LOG_PATH` mostrou. Política vive
+# no código, com a razão ao lado.
+RATE_LIMIT_POR_CAMINHO = {
+    "/o/token/": 120,
+    "/o/authorize/": 120,
+    "/accounts/login/": 60,
+}
+RATE_LIMIT_JANELA_SEGUNDOS = 60
+
 OAUTH2_PROVIDER = {
     # Sem ela, OIDCOnlyMixin devolve 404 em discovery, JWKS e userinfo — o servidor sobe
     # inteiro e só os endpoints de OIDC somem.
@@ -180,18 +337,66 @@ SECURE_SSL_REDIRECT = BEHIND_TLS_PROXY
 # casa contra request.path.lstrip("/"), por isso `health` sem barra é ancorado nas duas pontas.
 # Inerte enquanto SECURE_SSL_REDIRECT for False (ADR 0010).
 SECURE_REDIRECT_EXEMPT = [r"^health$"]
+# Exclusão por NOME de rota, nunca por caminho. Adjacente à lista acima de propósito: as
+# duas se acoplam à mesma string, `health`, e nenhum mecanismo verifica nenhuma das duas —
+# a vizinhança é o que dá a quem renomear a rota alguma chance de ver as duas. Sem esta
+# entrada, a sonda de dez em dez segundos afogaria o log, que é o problema que a omissão do
+# --access-logfile no docker/entrypoint.sh fechou.
+ACCESS_LOG_EXCLUDED_ROUTES = ["health"]
 SECURE_HSTS_SECONDS = 31536000 if BEHIND_TLS_PROXY else 0
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https") if BEHIND_TLS_PROXY else None
+# Quantos proxies escrevem em `X-Forwarded-For` antes de a requisição chegar aqui. Vizinha da
+# linha acima porque as duas confiam no mesmo terceiro: uma no `X-Forwarded-Proto`, outra no
+# `X-Forwarded-For`. Só é lida com BEHIND_TLS_PROXY verdadeiro, e quem a lê é
+# `config/origem.py`, que conta o salto a partir da direita — nunca o primeiro elemento, que
+# é escrito pelo cliente. Mal escolhido, este número erra de dois modos. Alto demais: o
+# cabeçalho nunca traz tantos saltos quanto os declarados, toda requisição externa cai no
+# endereço direto e a contagem colapsa numa chave só, sem erro nenhum. Zero: `saltos[-0]` é
+# `saltos[0]`, o primeiro elemento — o que o cliente escreve. Com o cabeçalho presente, isso
+# entrega ao cliente a escolha da própria chave de contagem; com o cabeçalho AUSENTE, a lista
+# está vazia e a leitura levanta `IndexError`, isto é, 500 em toda tentativa de login e em
+# toda requisição a `/o/token/` e a `/o/authorize/` — as três superfícies limitadas, que são
+# as que chamam a função. O resto do site, `/health` inclusive, segue respondendo, e é o que
+# torna o estrago difícil de ler pela sonda. Não há guarda contra o zero, deliberadamente: o
+# número é literal versionado, não vem do ambiente, e o cenário só existe se alguém escrever
+# `0` nesta linha.
+TRUSTED_PROXY_COUNT = 1
 
 # Sem require_debug_true e sem mail_admins (ADR 0006): o default do Django emudece
 # django.request quando DEBUG é falso, que é o modo em que o container roda.
+#
+# Todo registro sai como um objeto JSON por linha, com o identificador da requisição
+# (ADR 0012). O filtro vai nos HANDLERS, não em cada logger: uma declaração por handler
+# alcança as entradas todas, e um logger novo não esquece o filtro em silêncio.
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
+    "filters": {"request_id": {"()": "config.observabilidade.FiltroRequestId"}},
+    "formatters": {"json": {"()": "config.observabilidade.FormatadorJSON"}},
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
             "stream": "ext://sys.stdout",  # o default do StreamHandler é stderr
+            "formatter": "json",
+            "filters": ["request_id"],
+        },
+        "audit": {
+            # WatchedFileHandler, nunca RotatingFileHandler: três workers rotacionando o
+            # mesmo arquivo perdem linhas sem emitir nada. A rotação, se um dia existir,
+            # é externa ao processo — este handler apenas reabre o arquivo quando ele é
+            # substituído.
+            "class": "logging.handlers.WatchedFileHandler",
+            "filename": AUDIT_LOG_PATH,
+            "encoding": "utf-8",
+            # É o default do FileHandler, e está escrito assim mesmo porque um "w"
+            # truncaria a trilha a cada boot: perda total, silenciosa e irrecuperável.
+            "mode": "a",
+            # Sem delay=True: o arquivo é aberto na configuração do logging, dentro de
+            # django.setup(), de modo que caminho inválido ou diretório sem permissão
+            # derruba o processo no boot, ruidosamente. Com delay, a mesma falha só
+            # apareceria no primeiro login — o pior momento possível.
+            "formatter": "json",
+            "filters": ["request_id"],
         },
     },
     "root": {
@@ -214,8 +419,42 @@ LOGGING = {
             "level": LOG_LEVEL,
             "propagate": False,
         },
+        "axes": {
+            "handlers": ["console"],
+            # ERROR fixo, e é uma decisão de APAGAR log de terceiro: o axes escreve o
+            # identificador tentado em claro nas mensagens de tentativa e de bloqueio, todas
+            # em INFO e WARNING, e o e-mail de quem tenta entrar não vai para o stdout deste
+            # projeto. O rastro do bloqueio não se perde — ele passa a ser o da trilha, com
+            # `identifier_sha256` em vez do e-mail, que é a regra de desenho da ADR 0013. O
+            # que se perde é o diagnóstico próprio da biblioteca: quem investigar um bloqueio
+            # tem a trilha, e não estas linhas.
+            "level": "ERROR",
+            "propagate": False,
+        },
+        "access": {
+            "handlers": ["console"],
+            # Segue LOG_LEVEL porque a linha de acesso é log operacional, e LOG_LEVEL é o
+            # botão do log operacional. A consequência não tem sintoma: LOG_LEVEL=WARNING
+            # apaga a linha de acesso inteira, sem aviso nenhum.
+            "level": LOG_LEVEL,
+            "propagate": False,
+        },
+        "audit": {
+            "handlers": ["audit"],
+            # INFO fixo, nunca LOG_LEVEL: uma trilha que um botão de verbosidade desliga
+            # não é trilha.
+            "level": "INFO",
+            # Não propaga para o console: duas cópias da mesma evidência, com tempos de
+            # vida diferentes, divergem.
+            "propagate": False,
+        },
     },
 }
+
+# A suíte não pode escrever na trilha do ambiente: linha de teste misturada com evidência
+# de operação contamina as duas. O executor redireciona o handler `audit` para um diretório
+# temporário, pelo mesmo precedente com que já redireciona o nome do banco para `test_*`.
+TEST_RUNNER = "tests.runner.RunnerComTrilhaIsolada"
 
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "UTC"

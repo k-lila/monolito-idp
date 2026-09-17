@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Boot do container: migração, coleta de estáticos, superusuário condicional, gunicorn.
+# Boot do container: migração, coleta de estáticos, gunicorn.
 #
 # Sem laço de polling esperando Postgres ou Redis — a espera é do `depends_on` do compose,
 # com `condition: service_healthy`.
@@ -16,17 +16,13 @@ fi
 python manage.py migrate --noinput
 python manage.py collectstatic --noinput
 
-# `${VAR:-}` é obrigatório sob `set -u`: as duas variáveis saem comentadas do .env.example,
-# e uma referência nua abortaria o boot com `unbound variable`.
+# Sem criação de superusuário: ela saiu daqui com a ADR 0019, e a conta administrativa nasce
+# de `docker compose run --rm app python manage.py createsuperuser`, interativo, atendido
+# pela guarda de `$#` acima. A senha passou a ser digitada num prompt em vez de ficar em
+# texto claro no `.env`, lida pelo compose e herdada por todo `exec` posterior.
 #
-# O `||` cobre o único modo de falha realista depois de um migrate bem-sucedido:
-# createsuperuser com e-mail já existente levanta CommandError e sai com código 1, que sob
-# `set -e` derrubaria o container. Engolimos o código de saída, nunca a mensagem — o
-# CommandError sai em stderr e aparece imediatamente acima da nossa linha em `docker logs`.
-if [ -n "${DJANGO_SUPERUSER_EMAIL:-}" ] && [ -n "${DJANGO_SUPERUSER_PASSWORD:-}" ]; then
-    python manage.py createsuperuser --noinput \
-        || echo "entrypoint: createsuperuser não criou conta — a mensagem acima diz por quê; boot segue"
-fi
+# A consequência é de operação: ambiente novo sobe SEM conta nenhuma, e `up --wait` verde
+# deixou de significar "pronto para usar". O comando está no arranque mínimo do `README.md`.
 
 # `exec` para que o gunicorn receba os sinais do container diretamente, sem o bash no meio.
 #

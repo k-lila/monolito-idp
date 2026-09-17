@@ -1,8 +1,8 @@
 """TASK-007/T-08, TASK-007/T-09, TASK-007/T-10 — /health e a view `health`, prontidão de banco e cache.
 
-Demanda do quality-assurance (bloco E). Pacote novo: /health não afirma nada
-sobre identidade e não pertence ao app `accounts` — reusa oauth_helpers de lugar
-nenhum, então não há infraestrutura de accounts/tests/ para puxar aqui.
+Demanda do quality-assurance (bloco E). /health não afirma nada sobre identidade,
+e é o único módulo da suíte que não puxa nada de `oauth_helpers`: não há Application,
+nem fluxo, nem sessão a montar antes de sondar banco e cache.
 """
 
 import json
@@ -86,9 +86,11 @@ class HealthViewDatabaseDownUnitTests(SimpleTestCase):
 class HealthRedirectExemptionTests(TestCase):
     """TASK-009/T-01 — SECURE_REDIRECT_EXEMPT tem de sobreviver a duas mutações silenciosas.
 
-    O .env da jornada de construção traz BEHIND_TLS_PROXY=False, então
-    SECURE_SSL_REDIRECT é False e a isenção fica inerte na suíte inteira: sem o
-    override abaixo, apagar `SECURE_REDIRECT_EXEMPT` em settings.py não derrubaria
+    TASK-015/T-04 revisou este docstring: `tests/runner.py` zera `SECURE_SSL_REDIRECT` para
+    a suíte inteira (razão completa no docstring daquele módulo), e não mais o `.env` da
+    jornada de construção — a isenção seguiria inerte mesmo que a jornada em curso trouxesse
+    `BEHIND_TLS_PROXY=True`. É por isso que o `override_settings` abaixo é indispensável em
+    toda jornada: sem ele, apagar `SECURE_REDIRECT_EXEMPT` em settings.py não derrubaria
     teste nenhum. reverse("health") em vez de "/health" escrito a mao morde a
     segunda mutação — renomear a rota `health` em urls.py sem atualizar o regex faz
     a isenção deixar de casar, e é o path resolvido aqui, não um literal, que

@@ -3,8 +3,7 @@
 Não é teste em si: é o que os T-04 e T-05 reusam para não duplicar fixture nem o
 ritual do fluxo Authorization Code + PKCE (redirect_uri fixa, Application pública
 RS256, geração de code_verifier/code_challenge, repostagem dos campos ocultos da
-tela de consentimento). Ver nota do orquestrador no prompt de invocação sobre a
-forma do form de `/o/authorize/`.
+tela de consentimento).
 """
 
 import base64

@@ -9,7 +9,7 @@ DOT — nenhuma peça isolada garante o fechamento do ciclo.
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
-from accounts.tests.oauth_helpers import (
+from tests.oauth_helpers import (
     REDIRECT_URI,
     create_public_rs256_application,
     make_pkce_pair,

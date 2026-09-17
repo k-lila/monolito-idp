@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}IdP — tentativas em excesso{% endblock %}
+
+{% block content %}
+    <div class="cartao">
+        <h1>Tentativas em excesso</h1>
+
+        {% comment %}
+        Nada aqui nomeia a conta, diz se ela existe ou ecoa o que foi digitado — é a mesma
+        regra de desenho da trilha de auditoria. O contexto que o axes entrega a este
+        template TRAZ o identificador tentado, em `username`, e traz também `failure_limit`:
+        renderizar qualquer dos dois faz desta tela um oráculo de contas e de política.
+        {% endcomment %}
+        <p>
+            Esta tela foi bloqueada por tentativas de entrada em excesso. Não há o que
+            fazer aqui: o bloqueio termina sozinho quinze minutos depois da última
+            tentativa.
+        </p>
+
+        {% comment %}
+        "Depois da última tentativa", e não "a partir de agora": o axes conta as tentativas
+        da janela de AXES_COOLOFF_TIME e atualiza o registro a cada nova falha, inclusive as
+        que chegam durante o bloqueio. Insistir adia o fim, e prometer prazo fixo faria esta
+        tela mentir para quem espera.
+
+        Quinze minutos é o valor de AXES_COOLOFF_TIME, em `config/settings.py`, escrito aqui
+        por extenso. O contexto traz o prazo em `cooloff_timedelta`, mas na forma `0:15:00`,
+        que não é prosa. O preço é o acoplamento: mudar aquela setting sem mudar esta linha
+        faz a tela mentir de outro jeito, sem erro e sem log.
+        {% endcomment %}
+    </div>
+{% endblock %}

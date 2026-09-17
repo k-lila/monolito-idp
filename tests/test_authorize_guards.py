@@ -8,7 +8,7 @@ unitário só afirmaria o valor da chave na settings, que não está em dúvida.
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
-from accounts.tests.oauth_helpers import (
+from tests.oauth_helpers import (
     REDIRECT_URI,
     authorize_and_get_code,
     create_public_rs256_application,
@@ -79,9 +79,9 @@ class AuthorizeGuardsTests(TestCase):
         self.assertEqual(response.status_code, 400)
 
     def test_v_code_challenge_method_plain_e_recusado(self):
-        """CRITICO aceito e corrigido no commit 5aa4427 (nota do orquestrador
-        no prompt de invocação): com plain corrigido, a recusa acontece no
-        POST, não no GET — o GET ainda devolve a tela de consentimento 200.
+        """CRITICO aceito e corrigido no commit 5aa4427: com plain corrigido, a
+        recusa acontece no POST, não no GET — o GET ainda devolve a tela de
+        consentimento 200.
         Assertar só no GET não pegaria a regressão; por isso o teste segue o
         POST e confere a ausência de `code` no Location de erro."""
         verifier = "verifier-usado-como-o-proprio-challenge-em-plain"
@@ -98,7 +98,7 @@ class AuthorizeGuardsTests(TestCase):
         get_response = self.client.get("/o/authorize/", params)
         self.assertEqual(get_response.status_code, 200, "GET ainda deve mostrar consentimento")
 
-        from accounts.tests.oauth_helpers import extract_hidden_inputs
+        from tests.oauth_helpers import extract_hidden_inputs
 
         hidden = extract_hidden_inputs(get_response.content.decode())
         post_data = dict(hidden)
