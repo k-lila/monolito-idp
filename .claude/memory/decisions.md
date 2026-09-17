@@ -28,15 +28,20 @@
 | 2026-08-29 | Identidade em `User` customizado com e-mail como identificador | [0003](../../docs/adr/0003-modelar-identidade-em-user-customizado-com-email-como-identificador.md) |
 | 2026-08-29 | Assinar tokens com RS256, chave privada no ambiente | [0004](../../docs/adr/0004-assinar-tokens-com-rs256-e-custodiar-a-chave-privada-no-ambiente.md) |
 | 2026-08-29 | Sessão SSO em sessão Django com backend `cached_db` sobre Redis | [0005](../../docs/adr/0005-manter-a-sessao-sso-em-sessao-django-com-backend-cached-db.md) |
-| 2026-08-29 | Empacotar o IdP como container único orquestrado por docker-compose | [0006](../../docs/adr/0006-empacotar-o-idp-como-container-unico-orquestrado-por-docker-compose.md) |
+| 2026-08-29 | Empacotar o IdP como container único orquestrado por docker-compose — **emendada pelas 0017 e 0019** | [0006](../../docs/adr/0006-empacotar-o-idp-como-container-unico-orquestrado-por-docker-compose.md) |
 | 2026-08-29 | Fixar o issuer do IdP em `{BASE_URL}/o` | [0007](../../docs/adr/0007-fixar-o-issuer-do-idp-em-base-url-barra-o.md) |
 | 2026-09-01 | Servir estáticos com WhiteNoise sem manifesto de hash | [0008](../../docs/adr/0008-servir-estaticos-com-whitenoise-sem-manifesto-de-hash.md) |
 | 2026-09-01 | Isolar a view de `/health` da sessão e do usuário | [0009](../../docs/adr/0009-isolar-a-view-de-health-da-sessao-e-do-usuario.md) |
 | 2026-09-01 | Isentar `/health` do redirecionamento para HTTPS | [0010](../../docs/adr/0010-isentar-health-do-redirecionamento-para-https.md) |
 | 2026-09-01 | Dar teto de tempo ao `/health` e derivar o `HEALTHCHECK` dele | [0011](../../docs/adr/0011-dar-teto-de-tempo-ao-health-e-derivar-o-healthcheck-dele.md) |
 | 2026-09-08 | Emitir o log operacional em JSON, com identificador de requisição — **emendada pela 0014** | [0012](../../docs/adr/0012-emitir-o-log-operacional-em-json-com-identificador-de-requisicao.md) |
-| 2026-09-08 | Registrar a trilha de auditoria dos quatro sinais em arquivo durável | [0013](../../docs/adr/0013-registrar-a-trilha-de-auditoria-dos-quatro-sinais-em-arquivo-duravel.md) |
+| 2026-09-08 | Registrar a trilha de auditoria dos quatro sinais em arquivo durável — **estendida pela 0018** | [0013](../../docs/adr/0013-registrar-a-trilha-de-auditoria-dos-quatro-sinais-em-arquivo-duravel.md) |
 | 2026-09-08 | Manter o identificador de requisição até a requisição seguinte; emenda à 0012 | [0014](../../docs/adr/0014-manter-o-identificador-de-requisicao-ate-a-requisicao-seguinte.md) |
+| 2026-09-10 | Resolver a origem do cliente num ponto único — a chave de contagem | [0015](../../docs/adr/0015-resolver-a-origem-do-cliente-num-ponto-unico.md) |
+| 2026-09-10 | Limitar a taxa na superfície de autenticação: axes no login, middleware próprio nos três caminhos | [0016](../../docs/adr/0016-limitar-a-taxa-na-superficie-de-autenticacao.md) |
+| 2026-09-13 | Terminar o TLS num proxy declarado no compose e publicar só ele; emenda à 0006 | [0017](../../docs/adr/0017-terminar-o-tls-num-proxy-declarado-no-compose.md) |
+| 2026-09-13 | Declarar a procedência do endereço em cada linha da trilha; estende a 0013 | [0018](../../docs/adr/0018-declarar-a-procedencia-do-endereco-em-cada-linha-da-trilha.md) |
+| 2026-09-13 | Criar o superusuário por comando explícito, fora do boot; emenda à 0006 | [0019](../../docs/adr/0019-criar-o-superusuario-por-comando-explicito-fora-do-boot.md) |
 
 ---
 
@@ -48,145 +53,147 @@ memória — é sedimento.
 
 ---
 
-## [2026-09-09] TASK-013 · Bloco A: o instrumento de pé, e o que a mutação achou que a leitura não achava
+## [2026-09-13] TASK-014 · Bloco B: o teto nas três portas, e o preço de desenhar contra documento
 
-O log operacional em JSON com identificador de requisição e a trilha de auditoria dos quatro
-sinais entraram juntos, como o guia previa. O que o guia não previa está aqui.
+O limitador entrou nas três portas e a chave de contagem foi decidida antes do proxy, que era a
+única ordem que o repositório já tinha por escrito. O que o guia não previa está aqui.
 
-**Três ADRs, não duas.** `docs/gaps/observabilidade.md` §9 previa duas. A terceira nasceu de um
-critério de aceite que o desenho não atendia: o `reset` do `ContextVar` na saída do middleware
-rodava antes de `log_response`, e a linha de erro de todo 404, 503 e 400 saía sem o pedido a que
-pertencia. O `architect` recusou emendar o critério e redigiu a ADR 0014 como emenda à 0012 —
-sobrescrever sem repor. O preço está na seção 14 do runbook: linha emitida fora de requisição,
-num processo que já atendeu alguma, carrega o identificador da última.
+**A ficha 2.1 estava errada, e ninguém tinha como saber antes de instalar.** O desenho inteiro do
+`architect` repousou em `docs/robustez-info.md`, e a dependência que ela descreve não estava no
+`.venv` nem no `requirements.txt`. Três afirmações caíram assim que o `writer` instalou:
+`AXES_USERNAME_FORM_FIELD` tem por default `USERNAME_FIELD`, isto é `email` — campo que o
+formulário não tem —, e sem a linha explícita o AC-01 **nunca dispararia**, em silêncio; os checks
+do axes são `Warning` e `manage.py check` sai com código zero, não reprova; e
+`AXES_RESET_COOL_OFF_ON_FAILURE_DURING_LOCKOUT` é `True`, de modo que o prazo é móvel. As duas
+últimas nem estavam na ficha — foram omissões, e omissão não aparece em revisão nenhuma.
 
-**A suíte foi de 35 para 57 casos, e o que a fez crescer duas vezes foi a mutação.** A segunda
-passagem do `quality-assurance` não conferiu os testes lendo-os: inverteu o código num clone
-descartável e olhou qual caso ficava vermelho. Onze mutações ficaram vermelhas, o que prova as
-guardas. Três sobreviveram, e cada uma virou demanda:
+**O critério que sobrou disso vale para os blocos que faltam**, e é mais estreito que "desconfiar
+das fichas": tudo que a ficha 2.1 cita como **valor** com `arquivo:linha` continua verdadeiro; o
+que caiu foi o único ponto em que ela usa **verbo** sobre comportamento. Valor citado com
+`arquivo:linha` conta como levantamento; verbo sobre o que a biblioteca faz conta como hipótese. A
+ficha 2.2, que governa o Bloco C, tem a mesma forma — e o verbo sem citação dela
+(`SECURE_PROXY_SSL_HEADER` "faz o Django confiar em `X-Forwarded-Proto` de qualquer origem")
+sustenta um item inteiro daquele bloco.
 
-- segredo registrado em logger não declarado em `LOGGING` sai pelo handler da raiz, e o coletor
-  do caso que varre segredos estava anexado só aos quatro loggers nomeados (T-11);
-- `"identifier": credentials.get("username")` acrescentado à linha de falha de autenticação grava
-  o e-mail em claro, e nenhum caso exercitava o caminho de falha (T-12);
-- o `extra=` da linha de acesso reduzido a `{"route": request.path}` perde `method`, `status` e
-  `duration_ms` e troca o nome da rota pelo caminho, contra o que o runbook promete a quem opera
-  (T-13).
+**A ADR 0016 nasceu com quatro afirmações falsas, e a imutabilidade foi suspensa três vezes.** Duas
+vinham da ficha (os checks, e a forma de `AXES_LOCKOUT_PARAMETERS`); uma era do desenho ("uma
+escrita a mais no Postgres a cada tentativa falha", quando são quatro a cinco consultas); e a
+quarta nem era culpa dela — uma decisão posterior do `quality-assurance` a superou. O usuário
+autorizou as três correções in loco, com a mesma justificativa a cada vez: untracked, nunca
+revisada, carimbada "Aceito" pelo próprio autor. **A regra do `CLAUDE.md` continua valendo para
+todas as outras ADRs.** O que este caso ensina é anterior à regra: ADR redigida sobre documento não
+conferido não é decisão registrada, é hipótese com carimbo.
 
-As três estão fechadas, e a mutação de cada uma hoje derruba exatamente o caso que a persegue.
-O método fica: **guarda de teste prova-se invertendo o código, não lendo o teste.**
+**A mutação achou o que a leitura não achava, de novo — e desta vez contra um comentário.** O
+comentário de `AXES_LOCKOUT_PARAMETERS` existia para nomear uma falha silenciosa e nomeava a
+mutação **inócua**: dizia que `["username", "ip_address"]`, sem os colchetes internos, faria o axes
+contar pelo par. Não faz — a suíte fica inteira verde com ela. Em `axes/helpers.py:285-293` cada
+**elemento** da lista vira um filtro independente, e elemento string produz o mesmo filtro que
+elemento lista de um item. A forma cara, que derruba AC-01 e AC-02 de uma vez, é
+`[["username", "ip_address"]]`: um elemento só, com as duas chaves dentro. O comentário estava em
+três lugares e os três foram corrigidos.
 
-**A trilha ia para dentro da imagem.** O gate adversarial achou o que duas passagens de
-conformidade não acharam: o `.dockerignore` barra `.env`, `*.pem` e `docs/`, e não barrava
-`logs/`; o `Dockerfile` faz `COPY . .`. Verificado na imagem de então —
-`docker run --rm --entrypoint ls nova_api-app -la /app/logs/` devolvia `audit.log`. Numa máquina
-onde alguém autenticou pela jornada de construção, aquele arquivo leva `sub`, endereço de origem
-real e `identifier_sha256` para toda imagem construída dali em diante: inerte, porque o compose
-aponta `AUDIT_LOG_PATH` para o volume, e ao mesmo tempo presente, sem retenção e fora de todo
-lugar que a documentação dá como endereço da trilha. Corrigido com uma linha, e verificado: na
-imagem nova `/app/logs` não existe, o container sobe `Healthy`, a suíte passa dentro dele, e a
-trilha do volume atravessou o build intacta — 1284 bytes, as mesmas quatro linhas. **O que a
-correção introduz**, e está no relatório do `writer`: `docker run` nu da imagem, sem compose,
-herda `AUDIT_LOG_PATH=logs/audit.log` do `.env` e agora morre no boot com o
-`ValueError: Unable to configure handler 'audit'` da seção 15. Não é jornada documentada — toda
-invocação escrita passa por `docker compose exec` ou `run`, que carregam a sobrescrita.
+**O AC-12 reprovou por um defeito que a suíte verde escondia.** Seis execuções consecutivas em
+menos de sessenta segundos: as cinco primeiras `OK`, a sexta `FAILED (failures=15)`, com
+diagnóstico que não mencionava limitação em lugar nenhum — `consentimento nao produziu code`. O
+contador vivia no Redis do ambiente, na mesma chave que o `runserver` da jornada de construção
+enche, e `tests/runner.py` isolava `DATABASES` e `LOGGING` e não `CACHES`. Fechado desligando o
+dicionário inteiro na suíte (T-10, revisto pelo T-13), e o preço disso é pago pelo T-17, que prova
+que o dicionário de produção ainda alcança o middleware — sem ele, `RATE_LIMIT_POR_CAMINHO = {}`
+deixado por engano passaria com tudo verde.
 
-**A contagem saiu dos documentos, por decisão.** `docs/testes.md` afirmava quatro números — "um
-único módulo testa código do app", "dois lugares" sem banco, "os outros dez arquivos" — e os
-quatro ficaram falsos dentro desta mesma tarefa. Nenhum volta. O documento passou a dizer o
-critério e o comando que o responde: `grep -l '^from accounts' tests/*.py`. A contagem da suíte
-também não entrou em documento nenhum.
+**Dois comportamentos nasceram de decisão do usuário depois dos treze critérios**, e por isso a
+tarefa voltou ao `product-manager` para cunhar AC-14 e AC-15. O gate adversarial mostrou que o
+prazo móvel, que já estava decidido, é **também** o caminho de escrita caro: com ele, o retorno
+curto de `axes/handlers/database.py:150-162` nunca dispara, e cada tentativa bloqueada roda um
+DELETE, um `select_for_update`, um UPDATE com dois `Concat` e dois SELECT, reescrevendo
+`attempt_time` e escapando da limpeza automática. `/accounts/login/` ganhou teto de requisição de
+60 por minuto por origem — **acima** do teto do axes de propósito, porque a semântica de segurança
+continua sendo dele e este teto existe só para limitar custo. E o limitador passou a **falhar
+aberto**: antes desta tarefa `/o/token/` não tocava o Redis, e o middleware novo o tinha tornado
+500 durante uma queda.
 
-**O que este fechamento deve à perda de contexto.** A sessão que rodou as fases 1 a 8 morreu, e
-com ela os relatórios que a fase 8 do `/feature` manda repassar verbatim. A segunda passagem foi
-**reexecutada** contra o disco, e achou o que a original não tinha achado: cinco apontamentos
-críticos em vez de dois, e o AC-10 parcial onde a original dava os catorze critérios por
-atendidos. Os dois críticos de documentação da passagem original nunca foram gravados em
-`context.json` e continuam desconhecidos. A lição entrou no arquivo: os enunciados íntegros de
-T-11, T-12 e T-13 foram gravados em `context.json` antes de o `tester` ser invocado, justamente
-porque o relatório que os continha ia morrer.
-- **Tech-debt e melhorias, com a disposição de cada um.** Quarenta e nove apontamentos entraram
-  na lista ao longo da tarefa. Os que foram corrigidos dentro dela não têm linha aqui: estão no
-  código. Ficam registrados os que sobrevivem.
+**O `product-manager` recusou-se a prometer o que não daria para verificar.** O gate adversarial
+afirmou que "o axes continua de pé durante a queda do Redis, porque conta no Postgres"; ele foi ao
+código e achou a metade falsa — `cached_db.py` captura `Exception` em `load` e em `save` e **não**
+em `exists`, usado na criação de chave de sessão. O `writer` confirmou rodando
+`SessionStore()._get_new_session_key()` com o cache fora do ar. Senha errada continua contada e
+bloqueada; senha certa tende a 500, por caminho alheio ao limitador. Isso ficou fora do AC-15 e
+dentro do runbook.
 
-  **Adiado para um bloco nomeado de `docs/implementacao-robustez.md`:**
-  - **Bloco B.** O campo `ip` da trilha e a chave de contagem do limitador são a mesma decisão
-    vista duas vezes; decidir uma sem a outra é adiar a metade que não emite sinal.
-  - **Bloco C.** O usuário dedicado no container exigirá revisar a posse do volume da trilha. E,
-    mais grave, é o bloco que cria duas populações de `ip` no mesmo arquivo append-only: hoje o
-    campo é `REMOTE_ADDR`, que no container é sempre `172.18.0.1`; no dia em que alguém ler
-    `X-Forwarded-For` para que o campo volte a dizer algo, o passado fica ambíguo e nada na linha
-    distingue as duas leituras, porque o instante da troca não está gravado. A ADR 0012 declara
-    que mudar o esquema "não depende de ninguém" — o que era verdade enquanto o único destino era
-    efêmero. **A decisão de versionar a linha tem de ser tomada antes da troca**, pela primeira
-    regra do próprio guia: decisão que encarece depois vem antes.
-  - **Bloco F.** O bloco passa a ter um terceiro objeto a copiar, o volume `auditlog`; o guia
-    ainda o descreve como "o par banco mais segredo".
-  - **Ficha 2.9, tuning do gunicorn.** Nenhuma linha identifica o processo que a escreveu:
-    `process`, `processName` e `thread` estão na lista de atributos excluídos do objeto JSON.
-    Um worker que degrada produz `duration_ms` bimodal e nada que o separe de dependência
-    intermitente. A seção 4 do guia afirma que com o bloco A haveria como saber; não há.
+**Onze documentos afirmavam sobre este código coisa que o código desmentia.** O pior deles só foi
+aberto na passagem final: `docs/seguranca.md` listava "**Sem limitação de taxa**" como controle
+ausente e mantinha a limitação de taxa como item 1 do que precisa mudar antes de expor o IdP — e
+ninguém o abrira porque o `architect` não o listou. O método que os achou foi sempre o mesmo, e é o
+que o `CLAUDE.md` já manda: varrer a superfície no código, não reler o texto que a descreve. Foi
+assim que o `writer` achou sozinho uma terceira linha falsa em `docs/arquitetura.md` e que o
+`quality-assurance` achou a contradição interna do runbook — a seção 14 dando por hipotético um
+colapso de origem que a seção seguinte, 270 linhas adiante, já registrava como presente.
 
-  **Adiado sem bloco, por não ter dono ainda:**
-  - Retenção e poda da trilha seguem indecididas, e o volume cresce sem limite. Disco cheio para
-    a escrita em silêncio. O levantamento pedia que a terceira ADR decidisse também isto; a ADR
-    0013 recusa por escrito, e o que faltava era justamente o registro de por que a recusa era
-    aceitável: o bloco A entrega o instrumento, e retenção é política de dado pessoal, que numa
-    sandbox de host único sem TLS próprio não tem ainda quem a defina.
-  - A lacuna de `docs/seguranca.md` §4 não fecha inteira: criação de `Application` e revogação de
-    token não têm sinal.
-  - Nenhum teste alcança a concorrência entre os três workers sobre o mesmo arquivo, nem o
-    alçapão A4. A escolha do `WatchedFileHandler` é leitura de código, não propriedade
-    verificada. Com `LOG_LEVEL=DEBUG`, `oauthlib` registra material de token em DEBUG e sairia
-    pelo `console`, e nenhum caso cobre essa configuração. Os dois são candidatos a `/test-gap`,
-    não a correção.
-  - A lista nominal das classes sem banco, em `docs/testes.md`, envelhece a cada teste novo, e
-    nada acusa quando envelhece. Foi o formato pedido pelo `quality-assurance` e é o mais útil
-    hoje.
+- **Tech-debt e apontamentos que sobrevivem, com a disposição de cada um.** Mais de quarenta
+  apontamentos entraram na lista ao longo da tarefa. Os corrigidos dentro dela não têm linha aqui:
+  estão no código.
 
-  **Aceito e já documentado, sem correção de código:**
-  - A posição do middleware de observabilidade ante o `CorsMiddleware` é indetectável quando
-    violada, e a preflight `OPTIONS` não deixa rastro; `app_authorized` dispara também no grant
-    de refresh, de modo que contar linhas conta errado; `LOG_LEVEL=WARNING` apaga a linha de
-    acesso inteira. Os três estão na seção 14 do runbook, que é o catálogo das falhas sem
-    sintoma.
-  - `AUDIT_LOG_PATH=logs/audit.log` é relativo ao diretório de trabalho, e `manage.py` rodado de
-    fora da raiz cria `logs/` no lugar errado. Está em `.env.example`, em `docs/receita.md` e na
-    tabela da seção da trilha, no runbook.
-  - A saída de `manage.py test` passa a carregar uma linha JSON de acesso por requisição, entre
-    os pontos do executor. Silenciar exigiria decidir algo sobre o handler `console` sob teste.
-  - O sentinela `-` no `request_id` cobria três populações quando foi apontado; a terceira
-    desapareceu com a ADR 0014, e as duas que restam — boot e comandos de `manage.py` — estão na
-    seção 2 do runbook.
+  **Aceitos e já corrigidos na tarefa** — sem linha própria: as três falsidades da ficha 2.1 (na
+  ADR e nos comentários), a contradição do runbook, o comentário de `AXES_LOCKOUT_PARAMETERS`, o de
+  `AXES_CLIENT_IP_CALLABLE`, o de `TRUSTED_PROXY_COUNT`, o AC-12, a guarda vazia do T-04, a
+  obrigação do Bloco C no guia, `docs/seguranca.md`, `docs/testes.md`, os dois procedimentos de
+  desbloqueio e as duas contaminações da trilha (truncadas por decisão do usuário).
 
-  **Registrado sem correção possível nesta tarefa:**
-  - A ADR 0013 afirma que não normalizar a caixa do resumo SHA-256 preserva a distinção entre
-    contas. É falso: `UserManager.create_user` chama `normalize_email`, que abaixa a caixa do
-    domínio, então `a@X.com` e `a@x.com` não são contas distintas. Não há consequência prática —
-    `get_by_natural_key` é sensível a caixa sob Postgres, e variar caixa não compra evasão a
-    quem ataca —, e ADR aceita é imutável: a correção, se vier, é ADR nova.
-  - A trilha não declara desde quando cobre o que afirma, e não tem proteção de integridade
-    contra quem tem acesso ao host. O runbook passou a dizer o que a ausência de linha não
-    prova; o mecanismo segue recusado pela ADR 0013.
+  **Adiados, com o gatilho de cada um:**
+  - **Sem política de senha.** `AUTH_PASSWORD_VALIDATORS` não é declarado, e o default é lista
+    vazia. Enfraquece a aritmética do teto de cinco tentativas: contra senha de seis caracteres,
+    cinco por quinze minutos ainda é muito. Candidato a bloco próprio, fora do B.
+  - **`/admin/login/` sem teto de requisição.** Protegido só pelo axes; `RATE_LIMIT_POR_CAMINHO`
+    não o nomeia. Registrado em `docs/seguranca.md`.
+  - **O T-16 guarda invariante mais fraca do que a necessária.** Ele assere
+    `teto > AXES_FAILURE_LIMIT`; como cada tentativa pela tela custa **duas** requisições contadas
+    (o GET do formulário e o POST), a alcançabilidade da tela de bloqueio exige
+    `teto > 2 × AXES_FAILURE_LIMIT`. Um valor entre 6 e 10 passaria no teste e tornaria a página
+    "Tentativas em excesso" inalcançável. Hoje são 60 contra 5, folga de seis vezes. Apertar a
+    asserção exige o AC pedir — não se legisla por cima do `product-manager`.
+  - **A alínea (b) do T-14 é vazia sob GET.** `authenticate()` não é chamado em hipótese nenhuma
+    ali, e `AccessAttempt.objects.count() == 0` valeria com o middleware ausente. A perna do AC-14
+    está atendida pela estrutura e por constatação com POST, não por aquela linha.
+  - **`tests/runner.py` não isola `CACHES`.** Além do contador, a suíte escreve no mesmo Redis do
+    ambiente a cópia quente das sessões e a chave da sonda do `/health`. Anterior a esta tarefa; o
+    T-13 resolve o contador, não o cache.
+  - **Concorrência entre jornadas.** Os três módulos que reativam o limitador por
+    `override_settings` fixam origem e apagam a chave à mão, no Redis compartilhado. Rodar as duas
+    jornadas ao mesmo tempo, ou passar `--parallel`, faz o `setUp` de uma apagar a chave enquanto a
+    outra conta.
+  - **`config/origem.py` subdeclara quem depende dele.** O docstring diz "o limitador de taxa de
+    `/o/`", e o limitador cobre três caminhos desde este bloco. O módulo existe justamente para ser
+    a única leitura de origem.
+  - **`docs/seguranca.md`, seção 2** ("O que o IdP protege hoje") não tem linha para o limitador
+    nem para o axes. Não é falsidade — a seção não se declara exaustiva —, mas quem ler só ela
+    conclui que o IdP não tem teto.
+  - **`docs/robustez.md:11` e `docs/robustez-info.md:67`** ainda descrevem a superfície como
+    "throttle nos endpoints de token". São documentos de levantamento anteriores à ADR 0016.
+  - **Uma linha de WARNING por requisição sob queda do Redis**, sem supressão. O único aviso da
+    ausência de teto é também o que mais cresce durante o incidente que o gerou.
+  - **A trilha emite uma linha `user_locked_out` por tentativa bloqueada**, não uma por bloqueio:
+    oito falhas produzem oito `user_login_failed` e quatro `user_locked_out`. Catalogado no
+    runbook; sob ataque sustentado a trilha cresce duas linhas por tentativa, em arquivo
+    append-only sem retenção.
 
-  **Três lições de processo, que não são do código:**
-  - **Evidência de container exige reconstruir a imagem antes de medir.** A evidência da jornada
-    de clonar-e-rodar reportada na fase 7 era inválida: a imagem era de 2026-09-02 e não continha
-    o código da tarefa. A segunda passagem refez quatro critérios de aceite por isso, e passou a
-    conferir `md5sum` dentro e fora do container.
-  - **A mutação que prova uma guarda roda em clone descartável, nunca na árvore.** Na fase 7 o
-    `tester` editou `config/observabilidade.py` para provar a regressão do T-05 e reverteu byte a
-    byte, declarando o desvio. É travessia de fronteira de escrita, que o protocolo define como
-    compromisso e não barreira. Na fase 8b o mesmo agente, avisado, fez as onze mutações num
-    clone fora do repositório.
-  - **Não paralelizar o `writer` sobre `docs/` com o `tester` sobre `tests/` quando o documento
-    descreve a suíte.** Foi decisão minha, e produziu duas quase-falsidades em `docs/testes.md`,
-    pegas só porque o `writer` releu o código antes de escrever: dois itens de "O que a suíte não
-    cobre" já eram falsos quando ele chegou, porque o `tester` acabara de fechar os buracos.
-    Sequenciar as duas fases custaria uma espera e removeria a classe inteira de erro.
+  **O que o Bloco C herda, e que encarece se for adiado:**
+  - **Ligar `BEHIND_TLS_PROXY` troca a população do campo `ip` da trilha e a chave do limitador na
+    mesma tecla**, num arquivo append-only onde nada distingue as duas populações. A ADR 0015
+    proíbe ligá-la antes de decidir o versionamento da linha, e o campo "Exige antes" do Bloco C
+    passou a registrar isso.
+  - **`TRUSTED_PROXY_COUNT = 0`** faria `saltos[-0]` devolver o primeiro salto, o escrito pelo
+    cliente; com o cabeçalho ausente e a variável de proxy ligada, é `IndexError` — 500 nas três
+    portas de autenticação, e não na sonda.
+  - **Uma função, três sumidouros, três domínios de validade.** Um proxy configurado para
+    repassar em vez de anexar deixa o cliente escrever `X-Forwarded-For: nao-e-um-ip`; o limitador
+    aceita como pedaço de chave, a trilha grava como string, e o axes o entrega a
+    `AccessAttempt.ip_address`, que é `GenericIPAddressField` sobre coluna `inet` — `DataError` e
+    500 em toda tentativa de login. Proxy que anexa `ip:porta` não dá erro nenhum: cada requisição
+    ganha chave própria e os dois limitadores param de contar, em silêncio.
+  - **O `requirepass` do Redis, que o Bloco C liga, é exatamente a janela da falha aberta** — só
+    que sustentada. Durante ela não há teto em nenhum dos três caminhos.
 
-- **ADR:** [0012](../../docs/adr/0012-emitir-o-log-operacional-em-json-com-identificador-de-requisicao.md),
-  [0013](../../docs/adr/0013-registrar-a-trilha-de-auditoria-dos-quatro-sinais-em-arquivo-duravel.md) e
-  [0014](../../docs/adr/0014-manter-o-identificador-de-requisicao-ate-a-requisicao-seguinte.md),
-  esta última emenda à 0012. Ver o índice no topo.
-- **Tipo:** decisão.
+- **ADR:** [0015](../../docs/adr/0015-resolver-a-origem-do-cliente-num-ponto-unico.md) e
+  [0016](../../docs/adr/0016-limitar-a-taxa-na-superficie-de-autenticacao.md). Ver o índice no topo.
+- **Tipo:** decisão e tech-debt.

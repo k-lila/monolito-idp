@@ -37,6 +37,19 @@ COPY . .
 # perde-lo produz `permission denied` no boot — mensagem que não menciona chmod.
 RUN chmod +x docker/entrypoint.sh
 
+# UID e GID FIXOS, e não os que o sistema atribuir: o volume nomeado `auditlog` guarda posse
+# NUMÉRICA, e um identificador que mude entre builds órfã o volume — a trilha para de ser
+# escrita e a mensagem fala de permissão de arquivo, nunca de UID.
+#
+# Os dois diretórios são criados aqui, na imagem, e não no boot: é da imagem que o Docker
+# copia dono e modo ao inicializar um volume nomeado VAZIO. Ambiente que já rodou tem o
+# volume populado e de posse de `root`, e para volume não vazio o Docker não recopia nada —
+# ali é preciso o passo avulso de `docs/receita.md`, uma vez só.
+RUN groupadd --gid 10001 nova_api \
+    && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin nova_api \
+    && mkdir -p /app/staticfiles /var/log/nova_api \
+    && chown nova_api:nova_api /app/staticfiles /var/log/nova_api
+
 EXPOSE 8000
 
 # Probe pelo interpretador da própria imagem: python:*-slim não traz curl nem wget, e a
@@ -61,14 +74,15 @@ EXPOSE 8000
 HEALTHCHECK --interval=10s --timeout=8s --start-period=30s --retries=3 \
   CMD ["python", "-c", "import sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=7).status == 200 else 1)"]
 
-# Sem USER dedicado, deliberadamente: sandbox de host único, uma replica, porta publicada
-# em loopback. Dar ownership de /app/staticfiles ao usuário que roda o collectstatic
-# acrescentaria superficie sem consumidor. Revisar na primeira exposicao fora de localhost.
+# A revisão que este arquivo marcava para "a primeira exposicao fora de localhost" é o
+# Bloco C, e ela é esta linha. O processo deixa de ser root; os dois diretórios que ele
+# escreve — estáticos do collectstatic e a trilha de auditoria da ADR 0013 — já saíram do
+# passo acima com a posse certa.
 #
-# A revisão ganhou um segundo diretório: a trilha de auditoria é escrita em
-# /var/log/nova_api, montado de volume nomeado e hoje possuído por root (ADR 0013). Dar
-# USER ao processo sem dar posse desse diretório faz a configuração do logging falhar no
-# boot — ruidosa, mas confusa, porque a mensagem fala de permissão de arquivo e não de USER.
+# O USER vale também para `docker compose run`, inclusive o `createsuperuser` que a ADR 0019
+# tornou o único caminho da conta administrativa. Tarefa que precise de root pede `--user
+# root` explicitamente, e o entrypoint não escala privilégio nenhum por conta própria.
+USER nova_api
 
 # Caminho absoluto: o ENTRYPOINT não depende do WORKDIR vigente nem do PATH.
 ENTRYPOINT ["/app/docker/entrypoint.sh"]

@@ -11,8 +11,11 @@ Tudo aqui descansa sobre uma premissa única, declarada no `README.md` e em
 
 - host único, orquestrado por `docker-compose.yml`;
 - uma réplica da aplicação — premissa da migração no entrypoint;
-- portas publicadas em `127.0.0.1`, para a aplicação, o Postgres e o Redis;
-- sem TLS (Transport Layer Security) próprio: o Gunicorn fala texto claro;
+- portas publicadas em `127.0.0.1`, para o proxy, o Postgres e o Redis; a aplicação não publica
+  nenhuma;
+- TLS (Transport Layer Security) terminado no proxy do compose, com certificado de uma
+  autoridade certificadora (CA) local que nenhum cliente de fora conhece; o Gunicorn fala texto
+  claro na rede interna, e só o proxy o alcança;
 - nenhuma pessoa usuária além de quem opera a máquina.
 
 **As escolhas descritas adiante são coerentes com esta premissa e só com ela.** Não são
@@ -57,15 +60,18 @@ O que cada linha compra:
 - **A trilha de auditoria** responde quem autenticou, quando, de que origem e qual relying party
   recebeu token, num arquivo durável que sobrevive à recriação do container
   (`docs/adr/0013-registrar-a-trilha-de-auditoria-dos-quatro-sinais-em-arquivo-duravel.md`).
-  Ela registra os quatro sinais que existem — autenticação, falha de autenticação, logout e
-  concessão de token — e **não fecha a lacuna inteira**: o que continua sem registro está
-  nomeado na seção 4. Nenhum e-mail e nenhum valor de token entram nela: a pessoa aparece pelo
-  `sub`, e o identificador de uma tentativa falha, por resumo SHA-256.
+  Ela registra os cinco sinais que existem — autenticação, falha de autenticação, logout,
+  concessão de token e bloqueio por tentativas em excesso, este último acrescentado pela
+  limitação de taxa (ADR 0016) — e **não fecha a lacuna inteira**: o que continua sem
+  registro está nomeado na seção 4. Nenhum e-mail e nenhum valor de token entram nela: a
+  pessoa aparece pelo `sub`, e o identificador de uma tentativa falha, por resumo SHA-256.
 
 ## 3. Superfície exposta
 
-Publicado em `127.0.0.1`, e apenas ali: a aplicação na 8000, o Postgres na 5432 e o Redis na
-6379, conforme `docker-compose.yml`.
+Publicado em `127.0.0.1`, e apenas ali: o proxy nas portas 80 e 443, o Postgres na 5432 e o
+Redis na 6379, conforme `docker-compose.yml`. **A aplicação não publica porta nenhuma** — o
+proxy é o único caminho até ela, e é isso, e não vigilância, que impede um cliente do host de
+desligar o redirecionamento para HTTPS escrevendo `X-Forwarded-Proto` (ADR 0017).
 
 Superfície própria do projeto, em `config/urls.py`: `/`, `/health`, `/accounts/login/`,
 `/accounts/logout/`, `/admin/`, e tudo sob `/o/`. O `/health` é público e sem sessão, e revela
@@ -102,23 +108,32 @@ no primeiro ambiente com mais de uma pessoa.
 
 Cada item é uma ausência conhecida, com o risco que ela deixa aberto.
 
-- **Sem limitação de taxa em `/o/authorize/`, `/o/token/` e `/admin/login/`.** Nada limita
-  tentativa de senha, enumeração de conta pelo formulário de login nem repetição de troca de
-  código. É o único item da lista com ordem declarada: a seção 6 o põe como primeiro antes de
-  qualquer exposição fora de `localhost`.
-- **Sem TLS próprio.** O Gunicorn fala texto claro; TLS é responsabilidade de um proxy à
-  frente, e o endurecimento de transporte é opt-in por `BEHIND_TLS_PROXY`. Essa variável,
-  quando configurada de forma incoerente com o ambiente, não emite sinal de alerta; o sintoma
-  e o procedimento estão em `docs/runbook.md`.
-- **Redis sem `requirepass`.** Quem alcança `127.0.0.1:6379` lê e escreve a cópia quente das
-  sessões, o que inclui sessões administrativas. O bind em loopback é a única barreira.
-- **Container sem `USER` dedicado.** O processo roda como `root` dentro do container — decisão
-  declarada no `Dockerfile`, com a revisão marcada para a primeira exposição fora de
-  `localhost`.
-- **Credencial administrativa no `.env`.** Com `DJANGO_SUPERUSER_EMAIL` e
-  `DJANGO_SUPERUSER_PASSWORD` definidas, a senha do superusuário fica em texto claro num
-  arquivo lido pelo docker compose e pelo processo. As duas saem comentadas do `.env.example`;
-  quem as descomenta assume o custo.
+- **Sem teto de requisição em `/admin/login/`, e sem política de senha.** A limitação de taxa
+  existe desde a ADR 0016, e alcança as três portas: o `django-axes` conta tentativa falha em
+  `/accounts/login/` e em `/admin/login/`, por conta e por origem separadamente, bloqueando por
+  quinze minutos contados da última tentativa; e `config/limites.py` põe teto de requisição por
+  origem em `/accounts/login/` (60 por minuto), `/o/token/` e `/o/authorize/` (120 por minuto).
+  Faltam duas coisas. `/admin/login/` **não tem teto de requisição**: o dicionário
+  `RATE_LIMIT_POR_CAMINHO` não o nomeia, de modo que ali só o axes barra, e um laço que apenas
+  carregue aquele formulário não encontra limite nenhum. E **não há política de senha**:
+  `config/settings.py` não declara `AUTH_PASSWORD_VALIDATORS`, cujo default é lista vazia, de
+  modo que nenhuma senha é recusada por ser curta, comum, numérica ou parecida com o próprio
+  identificador — os quatro defeitos que os validadores prontos do Django cobrem. É essa
+  ausência que enfraquece a aritmética do teto de cinco tentativas, o qual supõe um espaço de
+  busca inviável.
+- **Certificado de uma CA local, e só.** O transporte é TLS desde a ADR 0017, e o
+  endurecimento — cookie `Secure`, HSTS (HTTP Strict Transport Security), redirecionamento e
+  `SECURE_PROXY_SSL_HEADER` — está ligado na jornada de container. O que falta é um certificado
+  que um cliente de fora aceite: o de hoje sai da CA interna do Caddy, e confiar nela é passo
+  manual de quem opera. A jornada de construção segue em texto claro, com
+  `BEHIND_TLS_PROXY=False` — e essa variável, configurada de forma incoerente com o ambiente,
+  não emite sinal de alerta; o sintoma e o procedimento estão em `docs/runbook.md`.
+- **Sem mecanismo que confira a senha do Redis repetida no `.env`.** O `requirepass` e a
+  `REDIS_URL` do container saem da mesma variável, e o `${REDIS_PASSWORD:?}` do compose aborta
+  o `up` com ela ausente e com ela vazia: não há como este Redis subir sem autenticação. O que
+  continua manual é a jornada de construção, em que a mesma senha é escrita de novo na
+  `REDIS_URL` do `.env`. A divergência não abre acesso — o servidor recusa —, e o sintoma está
+  em `docs/runbook.md`.
 - **Chave RSA única, sem conjunto de rotação.** Não há como rotacionar
   sem invalidar a verificação de todo token vivo, o que significa que a resposta a uma suspeita
   de vazamento da chave é disruptiva por construção (ADR 0004).
@@ -141,11 +156,14 @@ Cada item é uma ausência conhecida, com o risco que ela deixa aberto.
 Curto de propósito, e limitado ao que a premissa da seção 1 admite.
 
 **Observador da rede local.** Hoje não alcança nada: o tráfego do IdP é loopback e não sai do
-host. Publicar a porta sem endereço, abrir um túnel ou pôr um proxy sem TLS muda isso de uma
-vez — o que passa a trafegar em claro é o formulário de senha, o cookie de sessão e os tokens.
+host. Publicar o proxy sem endereço ou abrir um túnel muda isso — e, com a terminação TLS de
+pé, o que ele passaria a ver é tráfego cifrado, desde que o certificado seja aceito pelo
+cliente. O que continua em claro é o trecho interno, entre o proxy e o Gunicorn, dentro da rede
+do compose.
 
-**Alguém com acesso ao host.** Lê o `.env` e com ele obtém a `SECRET_KEY`, a chave privada RSA,
-a senha do Postgres e, se definidas, a credencial do superusuário. Quem tem a chave privada é o
+**Alguém com acesso ao host.** Lê o `.env` e com ele obtém a `SECRET_KEY`, a chave privada RSA
+e as senhas do Postgres e do Redis. A credencial do superusuário saiu desse conjunto com a
+ADR 0019: ela é digitada num prompt e não fica em arquivo nenhum. Quem tem a chave privada é o
 IdP, para todos os efeitos: pode emitir identidade em nome dele para qualquer RP integrada.
 Não há controle que mitigue isso nesta fase; o bind em loopback apenas limita quem alcança o
 serviço.
@@ -162,17 +180,27 @@ hoje é registrar uma Application própria por `/o/applications/register/`, conf
 
 ## 6. A fronteira: o que muda antes de expor fora de `localhost`
 
-Só o primeiro item tem ordem declarada; a dos demais é decisão pendente, registrada na seção 7.
+Nenhum item tem ordem declarada. A limitação de taxa era o primeiro, e o único com posição
+fixada; ela saiu desta lista porque está de pé, conforme a seção 4. Saíram também quatro itens
+de transporte e de container, implantados no mesmo bloco das ADRs 0017, 0018 e 0019: o proxy
+TLS com `BEHIND_TLS_PROXY=True` e `ALLOWED_HOSTS` composto pelo compose (ADR 0017), o
+`requirepass` no Redis e o `USER` dedicado com a posse de `/var/log/nova_api` — esses dois sem
+ADR —, e a criação de superusuário fora do `.env` (ADR 0019).
+A ordem do que restou é decisão pendente, registrada na seção 7.
 
-1. **Limitação de taxa** em `/o/authorize/`, `/o/token/` e `/admin/login/`.
-
-Sem ordem declarada entre si:
-
-- TLS de verdade à frente, com `BEHIND_TLS_PROXY=True` e `ALLOWED_HOSTS` mantendo `127.0.0.1`
-  para a sonda do container — a armadilha e o procedimento estão em `docs/runbook.md`;
-- `requirepass` no Redis;
-- `USER` dedicado no `Dockerfile` — e com ele a posse de `/var/log/nova_api`;
-- criação de superusuário fora do `.env`;
+- certificado emitido por uma autoridade que o cliente já conheça, no lugar da CA interna do
+  Caddy — é trocar a diretiva `tls internal` de `docker/Caddyfile`, e deixar de trocá-la ao
+  expor faz o Caddy tentar ACME contra a internet (`docs/runbook.md`);
+- publicar o proxy fora de `127.0.0.1`, que é edição à mão no `docker-compose.yml` e não uma
+  variável — é a decisão que este bloco inteiro existe para preparar (ADR 0017);
+- conferir `TRUSTED_PROXY_COUNT` contra a topologia real, e as marcas de origem da trilha
+  junto. O sinal do próprio dia é `ip_edge`: enquanto toda linha disser `gateway`, o
+  `docker-proxy` continua no caminho e o `ip` não identifica cliente nenhum — ou a exposição
+  não tomou efeito, ou o tráfego que se está olhando veio do próprio host, que atravessa o
+  `docker-proxy` mesmo depois de a porta sair de `127.0.0.1`. A primeira linha `peer` é o que
+  prova que a origem real chegou. `remote_addr_fallback` NÃO é sinal deste dia e não
+  aparecerá: com o Caddy à frente o cabeçalho sempre chega, e aquele rótulo denuncia proxy mal
+  configurado, em qualquer dia (ADRs 0018 e 0020);
 - conjunto de rotação de chave RSA;
 - coleta externa de log;
 - pin das dependências transitivas, unificando os dois pontos de resolução;
@@ -195,9 +223,10 @@ inteiro, como manda a ADR 0002 ao proibir reescrever e envelopar endpoint de pro
 restringe-se o URLConf às rotas em uso? A tensão é entre fidelidade à biblioteca e superfície
 mínima, e a lista do que está em jogo é a tabela da seção 3.
 
-**7.2 — A ordem real da lista da seção 6, além do primeiro item.** Só a limitação de taxa tem
-posição declarada. A ordem dos demais é decisão de quem for expor o IdP, e enquanto não for
-tomada a lista acima é inventário, não plano.
+**7.2 — A ordem real da lista da seção 6.** O único item com posição declarada era a limitação
+de taxa, e ela saiu da lista por já estar implantada. Nenhum dos que restam tem ordem; ela é
+decisão de quem for expor o IdP, e enquanto não for tomada a lista acima é inventário, não
+plano.
 
 ## 8. Mapa: controle, arquivo, decisão
 
@@ -213,7 +242,16 @@ tomada a lista acima é inventário, não plano.
 | Endurecimento de transporte por `BEHIND_TLS_PROXY` | `config/settings.py` | ADR 0006 |
 | Isenção de `/health` no redirecionamento para HTTPS | `config/settings.py`, `SECURE_REDIRECT_EXEMPT` | ADR 0010 |
 | `/health` sem sessão e sem usuário | `config/views.py` | ADR 0009 |
-| Trilha de auditoria dos quatro sinais, sem e-mail e sem token | `accounts/auditoria.py`, `config/settings.py`, `LOGGING` | ADR 0013 |
-| Portas em `127.0.0.1`, uma réplica, sem TLS próprio | `docker-compose.yml`, `Dockerfile` | ADR 0006 |
+| Trilha de auditoria dos cinco sinais, sem e-mail e sem token | `accounts/auditoria.py`, `config/settings.py`, `LOGGING` | ADR 0013, ampliada pela 0016 |
+| Origem do cliente resolvida num ponto único | `config/origem.py` | ADR 0015 |
+| Bloqueio por tentativa falha em `/accounts/login/` e `/admin/login/` | `config/settings.py`, bloco `AXES_*` | ADR 0016 |
+| Teto de requisição por origem em `/accounts/login/`, `/o/token/` e `/o/authorize/` | `config/limites.py`, `RATE_LIMIT_POR_CAMINHO` | ADR 0016 |
+| Terminação TLS no proxy, e só ele publicado em `127.0.0.1` | `docker-compose.yml`, `docker/Caddyfile` | ADR 0017, emenda à 0006 |
+| Uma réplica, migração no boot, endurecimento por variável | `docker-compose.yml`, `Dockerfile` | ADR 0006 |
+| Procedência do endereço em cada linha da trilha | `config/origem.py`, `accounts/auditoria.py` | ADR 0018 |
+| Alcance do endereço em cada linha da trilha | `config/origem.py`, `accounts/auditoria.py` | ADR 0020, emenda à 0018 |
+| Redis sob `requirepass`, com senha de origem única | `docker-compose.yml` | sem ADR |
+| Processo sem `root` no container, UID e GID 10001 | `Dockerfile` | sem ADR |
+| Superusuário criado por comando explícito, fora do `.env` | `docker/entrypoint.sh`, `.env.example` | ADR 0019 |
 
 Os nomes de arquivo das ADRs estão em `docs/arquitetura.md`, na tabela de decisões.

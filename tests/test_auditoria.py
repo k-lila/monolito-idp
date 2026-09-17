@@ -1,4 +1,5 @@
 """T-04, T-06 a T-09, T-11 e T-12 — a trilha de auditoria e o isolamento dela sob a suíte.
+T-02 (TASK-015/Fase 7) — o par `(ip, ip_src)` gravado em cada um dos cinco eventos.
 
 Demanda do quality-assurance (TASK-013), sobre `accounts/auditoria.py` e sobre
 `tests/runner.py`, que redireciona o handler `audit` durante `manage.py test` (ADR —
@@ -6,6 +7,13 @@ Architecture Decision Record — 0013). T-04 é unitário e puro; os demais atra
 trilha de verdade, lendo o arquivo real para onde o executor a redirecionou — nunca um
 handler substituído pelo teste —, porque o ponto de T-06/T-07/T-08 é provar que a escrita
 em arquivo aconteceu, e o de T-09 é provar que ela não aconteceu no lugar errado.
+
+T-02 é integração pela mesma razão: o cálculo de `origem_e_procedencia` já está coberto,
+função pura, em `tests/test_origem.py` (T-01); o que só um caminho HTTP real prova aqui é a
+costura — o receptor de sinal ligado, o par chegando ao `extra=` do `logging` e sobrevivendo
+ao `FormatadorJSON` (ADR 0018). Um receptor que esqueça `ip_src` passa em qualquer teste
+unitário sobre a função de origem e apaga, na trilha gravada, a distinção entre
+`remote_addr` e `remote_addr_fallback` que a ADR 0018 existe para criar.
 """
 
 import hashlib
@@ -15,10 +23,11 @@ import os
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from accounts.auditoria import _resumo_do_identificador
 from config.observabilidade import FiltroRequestId, FormatadorJSON
+from config.origem import origem_da_requisicao
 from tests.oauth_helpers import (
     authorize_and_get_code,
     create_public_rs256_application,
@@ -469,3 +478,146 @@ class FalhaDeLoginNaoRevelaOEmailTests(TestCase):
         ):
             self.assertNotIn(self.email, serializado, f"e-mail digitado vazou na {destino}")
             self.assertNotIn(self.senha_errada, serializado, f"senha vazou na {destino}")
+
+
+class ParDeOrigemNaTrilhaTests(TestCase):
+    """T-02 (TASK-015/Fase 7). `ip` e `ip_src` PRESENTES em cada um dos cinco eventos,
+    pelo caminho HTTP real, com o `ip_src` correspondente ao ramo de `BEHIND_TLS_PROXY`
+    vigente e o `ip` igual ao que a MESMA requisição entregaria a `origem_da_requisicao`.
+
+    A comparação nunca é contra um endereço fixo escrito no teste: é contra
+    `origem_da_requisicao(resposta.wsgi_request)`, chamada sobre o objeto de requisição
+    que o próprio Django processou. É o que prova a costura — que o receptor de sinal
+    passa adiante o MESMO `request` e não recalcula, arredonda ou lê `REMOTE_ADDR` direto
+    — sem duplicar aqui a tabela de decisão da função, que é o que T-01 já cobre.
+
+    Toda asserção sobre `ip_src` é `assertIn` sobre a chave, nunca sobre o valor: é a
+    PRESENÇA da chave que versiona a linha (ADR 0018) — uma linha gravada antes desta
+    decisão não tem `ip_src` nenhum, e o valor, quando presente, pode legitimamente ser
+    qualquer um dos três rótulos, `None` inclusive fora de uma requisição HTTP (T-01 cobre
+    esse desfecho; não é alcançável pelos cinco eventos aqui, que nascem todos de uma
+    requisição HTTP de verdade).
+    """
+
+    def setUp(self):
+        self.senha = "senha-forte-o-suficiente-t02"
+        self.user = User.objects.create_user(email="t02-ipsrc@example.com", password=self.senha)
+        self.application = create_public_rs256_application(self.user)
+
+    @override_settings(BEHIND_TLS_PROXY=False)
+    def test_quatro_eventos_por_sessao_trazem_ip_e_ip_src_coerentes_com_a_origem(self):
+        """`BEHIND_TLS_PROXY=False` explícito, e não ambiente: a segunda jornada de
+        verificação (`docs/runbook.md`) exporta essa variável como `True` por padrão, e sem
+        o override este caso mediria o ramo errado — `remote_addr_fallback`, por cabeçalho
+        ausente — dependendo de qual jornada o executasse. O ramo que este caso prova é o
+        de `BEHIND_TLS_PROXY` desligado, e ele vale sob qualquer jornada só por dizê-lo."""
+        tamanho_antes = _tamanho_da_trilha()
+
+        falha = self.client.post(
+            "/accounts/login/",
+            {"username": self.user.email, "password": "senha-errada-t02"},
+            REMOTE_ADDR="203.0.113.10",
+        )
+        ip_esperado_falha = origem_da_requisicao(falha.wsgi_request)
+
+        sucesso = self.client.post(
+            "/accounts/login/",
+            {"username": self.user.email, "password": self.senha},
+            REMOTE_ADDR="203.0.113.10",
+        )
+        self.assertEqual(sucesso.status_code, 302)
+        ip_esperado_sucesso = origem_da_requisicao(sucesso.wsgi_request)
+
+        code, verifier, _resp = authorize_and_get_code(
+            self.client, self.application, scope="openid"
+        )
+        self.assertIsNotNone(code, "consentimento não produziu code")
+        token_response = exchange_code_for_tokens(self.client, self.application, code, verifier)
+        self.assertEqual(token_response.status_code, 200)
+        ip_esperado_autorizacao = origem_da_requisicao(token_response.wsgi_request)
+
+        logout = self.client.post("/accounts/logout/", REMOTE_ADDR="203.0.113.10")
+        ip_esperado_logout = origem_da_requisicao(logout.wsgi_request)
+
+        linhas = _ler_linhas_novas_da_trilha(tamanho_antes)
+        por_evento = {linha["event"]: linha for linha in linhas}
+
+        esperado_por_evento = {
+            "user_login_failed": ip_esperado_falha,
+            "user_logged_in": ip_esperado_sucesso,
+            "app_authorized": ip_esperado_autorizacao,
+            "user_logged_out": ip_esperado_logout,
+        }
+
+        for evento, ip_esperado in esperado_por_evento.items():
+            self.assertIn(evento, por_evento, linhas)
+            linha = por_evento[evento]
+            self.assertIn("ip", linha, linha)
+            self.assertIn("ip_src", linha, linha)
+            self.assertEqual(linha["ip"], ip_esperado, linha)
+            # `BEHIND_TLS_PROXY=False` vem do override da classe (:507), não do ambiente:
+            # sem ele, este caso passaria nas duas jornadas por motivos diferentes — pelo
+            # ramo `remote_addr` na de construção, pelo `remote_addr_fallback` na de
+            # container — e a asserção abaixo deixaria de significar o que o nome promete.
+            self.assertEqual(linha["ip_src"], "remote_addr", linha)
+
+    @override_settings(BEHIND_TLS_PROXY=False)
+    def test_user_locked_out_traz_ip_e_ip_src_coerentes_com_a_origem(self):
+        """O quinto evento, que só a ADR 0016 introduziu — fora do laço de sessão acima
+        porque nasce de cinco tentativas, e não de uma sessão só. A conta não precisa
+        existir: o axes conta a falha de qualquer forma (mesma guarda do T-04 de
+        `tests/test_limite_login.py`). `BEHIND_TLS_PROXY=False` explícito pela mesma razão
+        do caso acima — a segunda jornada de verificação liga essa variável por padrão."""
+        tamanho_antes = _tamanho_da_trilha()
+
+        ultima_resposta = None
+        for _ in range(5):
+            ultima_resposta = self.client.post(
+                "/accounts/login/",
+                {"username": "bloqueio-t02@example.com", "password": "senha-errada"},
+                REMOTE_ADDR="198.51.100.20",
+            )
+        self.assertEqual(ultima_resposta.status_code, 429, "quinta falha não bloqueou")
+        ip_esperado = origem_da_requisicao(ultima_resposta.wsgi_request)
+
+        linhas = _ler_linhas_novas_da_trilha(tamanho_antes)
+        bloqueios = [linha for linha in linhas if linha["event"] == "user_locked_out"]
+
+        self.assertEqual(len(bloqueios), 1, linhas)
+        linha = bloqueios[0]
+        self.assertIn("ip", linha, linha)
+        self.assertIn("ip_src", linha, linha)
+        self.assertEqual(linha["ip"], ip_esperado, linha)
+        self.assertEqual(linha["ip_src"], "remote_addr", linha)
+
+    @override_settings(BEHIND_TLS_PROXY=True, TRUSTED_PROXY_COUNT=1)
+    def test_sob_proxy_ip_e_ip_src_mudam_juntos_de_remote_addr_para_forwarded(self):
+        """A alínea que prova que os dois campos giram JUNTOS: o mesmo evento
+        (`user_login_failed`) que grava `remote_addr` no teste acima grava `forwarded`
+        aqui, e o `ip` muda do endereço do proxy para o salto declarado — nunca um dos
+        dois campos sem o outro."""
+        tamanho_antes = _tamanho_da_trilha()
+
+        falha = self.client.post(
+            "/accounts/login/",
+            {"username": self.user.email, "password": "senha-errada-t02-proxy"},
+            REMOTE_ADDR="172.16.0.1",
+            HTTP_X_FORWARDED_FOR="203.0.113.55",
+        )
+        # Calculado ENQUANTO o override ainda vale: `origem_e_procedencia` lê as duas
+        # settings a cada chamada (nunca no import), e calcular depois de sair do bloco
+        # compararia contra `BEHIND_TLS_PROXY=False` — o valor de fora do teste — e não
+        # contra o que a própria requisição gravou.
+        ip_esperado = origem_da_requisicao(falha.wsgi_request)
+
+        linhas = _ler_linhas_novas_da_trilha(tamanho_antes)
+        falhas = [linha for linha in linhas if linha["event"] == "user_login_failed"]
+
+        self.assertEqual(len(falhas), 1, linhas)
+        linha = falhas[0]
+        self.assertIn("ip", linha, linha)
+        self.assertIn("ip_src", linha, linha)
+        self.assertEqual(linha["ip_src"], "forwarded", linha)
+        self.assertEqual(linha["ip"], ip_esperado, linha)
+        self.assertEqual(linha["ip"], "203.0.113.55", linha)
+        self.assertNotEqual(linha["ip"], "172.16.0.1", linha)

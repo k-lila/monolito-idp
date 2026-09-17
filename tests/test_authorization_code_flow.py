@@ -3,8 +3,16 @@
 Demanda do quality-assurance (TASK-006), cinco asserções contra o mesmo fluxo.
 Nível integração: é a costura onde settings, validador, Application e as views
 do DOT se encontram — nenhuma peça sozinha revela o resultado.
+
+TASK-015/T-03 revisou a asserção da claim `iss`: o valor esperado deixou de ser o literal
+`http://localhost:8000/o`, válido só sob o `BASE_URL` da jornada de construção, e passou a
+derivar de `settings.BASE_URL` — a mesma expressão independente de `tests/test_discovery.py`,
+pela mesma razão: as duas asserções provam que os dois issuers (o do documento de descoberta e
+o do `id_token`) coincidem entre si e com o que a implantação em curso publica, e não com um
+host fixo de uma única jornada.
 """
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
@@ -57,7 +65,9 @@ class AuthorizationCodePkceFlowTests(TestCase):
 
         for claim in ("sub", "name", "email"):
             self.assertIn(claim, payload)
-        self.assertEqual(payload["iss"], "http://localhost:8000/o")
+        # Derivado de settings.BASE_URL por expressão independente, e não do literal de uma
+        # única jornada nem de OAUTH2_PROVIDER["OIDC_ISS_ENDPOINT"] (T-03).
+        self.assertEqual(payload["iss"], f"{settings.BASE_URL.rstrip('/')}/o")
 
         # (iv) email_verified ausente do id_token: sem fluxo de verificação nesta fase.
         self.assertNotIn("email_verified", payload)

@@ -1,0 +1,46 @@
+# Terminação TLS do IdP (ADR 0017). Montado somente-leitura no serviço `proxy`.
+#
+# Sem literal de host: `{$PUBLIC_HOST}` é substituído pelo Caddy a partir do ambiente do
+# container, e o nome público é valor de implantação, que vive no `.env` untracked. Ausente,
+# o `${PUBLIC_HOST:?}` do compose já abortou o `up` antes de este arquivo ser lido.
+#
+# O esquema é `https://` explícito: sem ele o Caddy atenderia também em texto claro no nome,
+# e o redirecionamento para HTTPS passaria a depender só do `SECURE_SSL_REDIRECT` do Django.
+# Com ele, o Caddy responde 308 na porta 80 por conta própria.
+https://{$PUBLIC_HOST} {
+	# CA (autoridade certificadora) interna do Caddy, e nunca ACME contra a internet: o nome
+	# de exemplo é `.localhost`, reservado pela RFC 6761, e nenhuma autoridade pública o
+	# emitiria. Tirar esta diretiva não produz erro de configuração — produz um Caddy que
+	# tenta validar o domínio contra a internet, falha por desafio, e serve 502 ou nada
+	# enquanto tenta de novo. Está na seção 19 de `docs/runbook.md`.
+	#
+	# A raiz desta CA vive em `/data/caddy/pki/authorities/local/root.crt`, dentro do volume
+	# nomeado `caddydata`. É de lá que ela se extrai para confiar no navegador; sem o volume,
+	# cada `up` geraria uma CA nova e o certificado confiado ontem seria de outra autoridade.
+	tls internal
+
+	# O `reverse_proxy` do Caddy SUBSTITUI o `X-Forwarded-For` de quem não é par confiável:
+	# o valor que o cliente mandou é descartado, e o que segue para o `app` é o endereço da
+	# conexão, sozinho. Medido no `caddy:2.11.4`; anexar seria o comportamento se
+	# `trusted_proxies` declarasse confiável quem chega, e o default dessa diretiva é vazio.
+	# O `reverse_proxy` escreve também `X-Forwarded-Proto`.
+	#
+	# É por causa deste default, e não por preferência de versão, que o `docker-compose.yml`
+	# fixa a imagem em versão exata: com a tag móvel `caddy:2`, um `docker compose pull`
+	# trocaria o default medido sem ninguém editar arquivo nenhum, e a substituição do
+	# cabeçalho viraria anexação em silêncio. O comentário do serviço `proxy` traz o
+	# desfecho.
+	#
+	# É essa propriedade que `TRUSTED_PROXY_COUNT = 1` pressupõe do outro lado, em
+	# `config/origem.py`: o único salto do cabeçalho é escrito aqui e não é forjável. A
+	# contrapartida é que não existe um segundo salto a contar — `TRUSTED_PROXY_COUNT` maior
+	# que 1 cai em `remote_addr_fallback` em TODA requisição, com o endereço deste proxy no
+	# lugar do endereço do cliente, e o único sinal disso é a procedência nas linhas da
+	# trilha.
+	#
+	# `app:8000` pelo nome de serviço da rede do compose. A porta do `app` não é publicada em
+	# lugar nenhum, e este é o único caminho até ela — sem isso, qualquer cliente do host
+	# desligaria o redirecionamento para HTTPS escrevendo `X-Forwarded-Proto: https`, que o
+	# Django confia de qualquer origem.
+	reverse_proxy app:8000
+}

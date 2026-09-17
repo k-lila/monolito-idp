@@ -59,6 +59,8 @@ pura, ou o estado que ela confere já foi montado antes de o primeiro caso rodar
 
 - `tests/test_oauth_validators.py`, inteiro — `get_oidc_claims` lê só `.user` e
   `.scopes`, então um objeto de duas linhas basta, e o `User` é construído sem nunca ser salvo;
+- `tests/test_origem.py`, inteiro — `origem_da_requisicao` decide sobre duas settings e o
+  `META` de uma requisição, e `RequestFactory` mais `override_settings` dão as duas coisas;
 - a classe `HealthViewDatabaseDownUnitTests`, em `tests/test_health.py` — `RequestFactory`
   mais chamada direta a `health`, com `connection` substituída por um duplo que levanta;
 - a classe `FormatadorJSONTests`, em `tests/test_observabilidade.py` — um registro emitido por
@@ -107,7 +109,11 @@ nível fim-a-fim neste projeto.
 | Comentário de template vazando para o corpo da página | `tests/test_template_comment_leak.py` | com banco |
 | Prontidão de banco e de cache, e a isenção de HTTPS | `tests/test_health.py` | misto |
 | Esquema da linha de log, correlação por `request_id` e a linha de acesso: campos, e o `/health` fora dela | `tests/test_observabilidade.py` | misto |
-| Trilha de auditoria: os quatro sinais, a ausência de segredo e o isolamento sob a suíte | `tests/test_auditoria.py` | misto |
+| Trilha de auditoria: os cinco eventos — `user_logged_in`, `user_login_failed`, `user_logged_out` e `app_authorized`, da ADR 0013, e `user_locked_out`, da ADR 0016 —, o par `ip` e `ip_src` presente em cada um deles, a ausência de segredo e o isolamento sob a suíte | `tests/test_auditoria.py` | misto |
+| Endereço de origem do cliente: a tabela inteira de `origem_da_requisicao` e o par de `origem_e_procedencia` — endereço e rótulo de procedência — nos quatro desfechos, com e sem proxy declarado | `tests/test_origem.py` | sem banco |
+| Limite do login: o bloqueio do `django-axes` por conta, por origem e o prazo; o teto de requisição da mesma porta; o que o 429 não diz e o que distingue os dois 429; e a linha `user_locked_out` na trilha, com a origem igual à que o axes contou | `tests/test_limite_login.py` | com banco |
+| Limite de `/o/token/` e `/o/authorize/`: o teto, o corpo do 429, a linha de log, e o dicionário de produção alcançando os três caminhos | `tests/test_limite_oauth.py` | com banco |
+| Falha aberta do limitador: com o Redis inalcançável, a requisição segue e uma linha `WARNING` registra o silêncio | `tests/test_falha_aberta_limites.py` | com banco |
 
 As linhas que o nome do arquivo não explica sozinho:
 
@@ -173,8 +179,9 @@ ele, `manage.py test` escreveria na **trilha de auditoria do ambiente** — o ar
 sem separação entre desenvolvimento e produção, de modo que não há um segundo `LOGGING` a
 declarar.
 
-O que ele faz é trocar um valor só: em `setup_test_environment()`, reaplica o `dictConfig` com o
-`filename` do handler `audit` apontando para um diretório temporário, e desfaz no teardown.
+Na trilha, o que ele faz é trocar um valor só: em `setup_test_environment()`, reaplica o
+`dictConfig` com o `filename` do handler `audit` apontando para um diretório temporário, e desfaz
+no teardown.
 Formatador, filtro, handler, receptores e esquema são os mesmos objetos sob teste e em produção,
 e a escrita é real, em arquivo real — é o que permite a um teste varrer a trilha em busca de
 campo proibido. O precedente é `DATABASES`, cujo nome o mesmo executor já redireciona para
@@ -184,6 +191,19 @@ campo proibido. O precedente é `DATABASES`, cujo nome o mesmo executor já redi
 A consequência de operação: **rodar a suíte não polui a trilha, e a trilha da suíte não
 sobrevive à execução.** Quem quiser inspecionar o que um teste escreveu tem de fazê-lo de dentro
 do próprio teste.
+
+O mesmo executor troca um segundo valor, pela mesma razão e com a mesma disciplina de reposição:
+`settings.RATE_LIMIT_POR_CAMINHO` fica `{}` durante a suíte inteira, e o teto de produção é
+guardado em `tests.runner.RATE_LIMIT_DE_PRODUCAO`. O que se esvazia é o dicionário inteiro, e não
+apenas as entradas de `/o/`: o contador de cada caminho limitado vive no Redis do ambiente, não
+volta com o rollback do `TestCase`, e o `REMOTE_ADDR` default do cliente de teste — `127.0.0.1` —
+é a mesma chave que o `runserver` da jornada de construção usa. Sem o desligamento, execuções
+seguidas da suíte somariam ao contador do ambiente até um caso que não fala de limitação nenhuma
+falhar com 429. Dicionário vazio não abre ramo dormente: é o caminho que toda requisição de
+caminho não limitado já percorre em produção, e o middleware continua na cadeia. Quem precisa do
+limitador ligado o religa por `override_settings`, com `REMOTE_ADDR` forjado, e apaga as próprias
+chaves por `config.limites.chave_do_contador` — nunca por `cache.clear()`, que o `RedisCache`
+implementa como `FLUSHDB` e levaria junto a cópia quente das sessões (ADR 0005).
 
 ## `tests/oauth_helpers.py`
 
@@ -228,6 +248,13 @@ Todo teste nomeia, no docstring do módulo, a demanda que o originou. Duas forma
 Critérios de aceite entram pela mesma porta, no docstring do caso que os prova: `AC-10` em
 `tests/test_oauth_validators.py`, `AC-05` em `tests/test_logout_view.py`.
 
+Uma demanda se resolveu **por declaração**, e por isso nenhum docstring a nomeia: a `T-05` da
+TASK-015 — dois `X-Forwarded-For` distintos atrás do mesmo proxy contando separado — já estava
+provada por `DoisClientesAtrasDoMesmoProxyTests`, em `tests/test_limite_login.py`, escrita
+para a `T-04` da TASK-014. Caso novo nenhum nasceu dela. Quem procurar esse rótulo em `tests/`
+não acha nada, e é por isso que ele está registrado aqui: demanda que não virou caso de teste
+não tem docstring que a carregue.
+
 O formato dos rótulos está fixado em "Convenções compartilhadas", em
 `.claude/PROTOCOLO-AGENTES.md`: `AC-NN` e `T-NN`, dois dígitos, `TASK-NNN` com três. São
 **rótulos de contrato**, casados literalmente — não se renumeram, não se reescrevem e não
@@ -267,8 +294,23 @@ relatório de ferramenta — vale como inventário, não como percentual.
   a suíte emite e usa, nunca espera vencer nem tenta usar vencido.
 - **Verificação criptográfica da assinatura.** `decode_jwt` lê o `id_token` sem validá-lo. O que
   se prova é que o `kid` do cabeçalho é o publicado no JWKS, não que a assinatura confere.
-- **`docker/entrypoint.sh`.** A sequência de boot — `migrate`, `collectstatic`, criação
-  condicional de superusuário, `exec gunicorn` — não tem teste nenhum.
+- **`docker/entrypoint.sh`.** A sequência de boot — `migrate`, `collectstatic`,
+  `exec gunicorn` — não tem teste nenhum.
+- **O `BASE_URL` de uma implantação.** As duas asserções de issuer que existem — uma em
+  `tests/test_discovery.py`, sobre o documento de descoberta, e outra em
+  `tests/test_authorization_code_flow.py`, sobre a claim `iss` do `id_token` — comparam o valor
+  publicado com `f"{settings.BASE_URL.rstrip('/')}/o"`, derivado do `BASE_URL` vigente e não de
+  um literal. A expressão esperada repete a composição de `config/settings.py`, de modo que o
+  que ela pega é defeito de **composição**: sufixo `/o` ausente, barra dobrada, barra final
+  indevida, esquema divergente do `BASE_URL`. O que ela não pode pegar é um `BASE_URL` errado —
+  os dois lados da igualdade se movem juntos, e um issuer apontando para o host errado passa
+  nas duas. Quem o detecta é o procedimento de `docs/receita.md`, lido por uma pessoa, e é a
+  única coisa deste repositório que a suíte declaradamente entrega à verificação manual.
+- **A fronteira de transporte inteira.** O serviço `proxy`, o `docker/Caddyfile`, a ausência
+  de `ports:` no `app`, o `requirepass` do Redis e o `USER` do container são propriedades de
+  arquivos que a suíte não lê. O que ela exercita do ramo de proxy é `config/origem.py`, por
+  `override_settings`, com um `X-Forwarded-For` que os testes escrevem — nunca um que um proxy
+  tenha escrito.
 - **O `HEALTHCHECK` como o Docker o executa.** `tests/test_health.py` exercita a view e a
   isenção de redirecionamento, ambas em processo. A probe de verdade, com os tempos de
   `docs/adr/0011-dar-teto-de-tempo-ao-health-e-derivar-o-healthcheck-dele.md`, nunca roda aqui.

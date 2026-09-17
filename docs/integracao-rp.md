@@ -9,7 +9,9 @@ os tempos de vida.
 
 Não cobre operação. Subir o stack, diagnosticar falha e revogar token vivo são assunto de
 `README.md`, `docs/receita.md` e `docs/runbook.md`, e este documento aponta para eles quando o
-contrato depende de algo que só se resolve do lado do IdP.
+contrato depende de algo que só se resolve do lado do IdP. Há uma exceção, e ela está na seção
+9: a raiz da autoridade certificadora, sem a qual o cliente da RP não chega a abrir conexão.
+Apontar para fora seria apontar para fora do contrato justamente onde ele não fecha.
 
 **Aviso de estabilidade.** Enquanto o projeto for sandbox exploratório, o par `(iss, sub)` —
 a chave de identidade que a OpenID Connect (OIDC) Core §5.7 manda a RP guardar — pode ser
@@ -18,9 +20,20 @@ que dispara isso está em `docs/runbook.md`.
 
 ## 2. Coordenadas
 
-O issuer é `{BASE_URL}/o`. Com o `BASE_URL` que sai de `.env.example`, isso é
-`http://localhost:8000/o` — e é exatamente essa string que entra na claim `iss` de todo
-`id_token`.
+O issuer é `{BASE_URL}/o`, e é exatamente essa string que entra na claim `iss` de todo
+`id_token`. **A forma depende da implantação, e não há um valor que este documento possa
+declarar por ela**: na jornada de container o `BASE_URL` é `https://` mais o nome público, e na
+de construção é `http://localhost:8000`. Quem integra lê o `issuer` do documento de descoberta
+daquela implantação — é ele a fonte, e nunca um literal copiado daqui.
+
+Duas propriedades do issuer valem em qualquer implantação: ele termina em `/o`, e o esquema é
+`https` se e somente se o IdP está atrás do proxy de terminação TLS (Transport Layer Security).
+
+**A string ainda pode mudar, e é a primeira integração que a congela.** A forma é decidida; o
+nome público de que ela deriva é provisório por escolha de 2026-09-13, e vale enquanto nenhuma
+RP tiver integrado. Depois disso o issuer está cacheado dos dois lados, e trocá-lo passa a
+exigir reconfiguração de quem integrou. Quem lê o `issuer` da descoberta em vez de fixar um
+literal atravessa essa troca sem reconfigurar nada; quem copiou a string, não.
 
 O documento de descoberta responde em:
 
@@ -179,7 +192,8 @@ O que a RP verifica em todo `id_token`, sem exceção:
 
 1. a assinatura, contra a chave do JWKS cujo `kid` casa com o do cabeçalho, com `alg` igual a
    `RS256` (RSA com SHA-256);
-2. `iss` igual ao issuer da seção 2, por igualdade exata de string;
+2. `iss` igual ao `issuer` que a descoberta daquela implantação publica, por **igualdade exata
+   de string** — comparação byte a byte, sem normalizar esquema, barra final nem caixa;
 3. `aud` contendo o `client_id` da própria RP;
 4. `exp` ainda no futuro;
 5. `nonce` igual ao enviado, se enviado.
@@ -213,16 +227,50 @@ Revogar tokens já emitidos é operação do lado do IdP, e o procedimento está
 ## 9. Ambiente
 
 **RP server-side funciona hoje.** A troca em `/o/token/` e a consulta a `/o/userinfo/` partem
-do servidor da RP, e nada nelas depende de configuração adicional no IdP.
+do servidor da RP, e nada nelas depende de configuração adicional **no IdP**. Do lado da RP há
+uma, e só uma, quando o IdP atende em `https`: confiar na raiz da autoridade certificadora,
+logo abaixo.
 
 **RP que rode no navegador exige entrada em `CORS_ALLOWED_ORIGINS`**, que sai vazia no
 `.env.example`. Enquanto a allowlist estiver vazia, uma aplicação de página única que tente
 chamar `/o/token/` ou `/o/userinfo/` diretamente do navegador recebe erro de CORS (Cross-Origin
 Resource Sharing). A origem da RP precisa ser acrescentada à variável no IdP.
 
-**Não há TLS (Transport Layer Security) nesta fase**, e a porta é publicada em `127.0.0.1`:
-nada descrito aqui deve atravessar rede não confiável, pelas razões e com a lista de
-pendências de `docs/seguranca.md`.
+### 9.1 O certificado, quando o IdP atende em `https`
+
+O IdP tem TLS quando está atrás do proxy de terminação, e não tem quando roda em
+`http://localhost:8000` — é a mesma divisão da seção 2, e é o esquema do `issuer` que a
+denuncia. As duas implantações publicam em `127.0.0.1`: nada descrito neste documento deve
+atravessar rede não confiável, pelas razões e com a lista de pendências de
+`docs/seguranca.md`.
+
+**O certificado do IdP sai de uma autoridade certificadora (CA) interna, que cliente nenhum
+conhece de fábrica.** O sintoma é a troca em `/o/token/` falhar antes de haver resposta, com
+`certificate verify failed: unable to get local issuer certificate`. Recusar é o comportamento
+correto de quem não conhece a autoridade, e não defeito do IdP nem erro de integração.
+
+A raiz vive dentro do container do proxy, e quem administra o IdP a extrai com um comando:
+
+```bash
+docker compose cp proxy:/data/caddy/pki/authorities/local/root.crt ./ca-local.crt
+```
+
+O arquivo que sai daí é o que se entrega ao cliente HTTP da RP — `REQUESTS_CA_BUNDLE`,
+`SSL_CERT_FILE`, o `verify=` do `requests`, o truststore da linguagem, conforme o que a RP
+usar. Peça-o a quem opera o IdP se você não tiver acesso ao stack.
+
+**Desligar a verificação de certificado não é a alternativa barata.** O `id_token` é assinado e
+a RP o verifica de qualquer jeito, mas `access_token` e `refresh_token` chegam em texto no
+corpo da resposta de `/o/token/`, e são eles que uma conexão não verificada entrega a quem
+estiver no meio.
+
+A raiz é regerada quando o IdP é derrubado com destruição de volumes, e o certificado aceito
+ontem passa a ser de outra autoridade. O sintoma é o mesmo erro acima, voltando sem que nada
+tenha mudado na RP; o remédio é extrair a raiz de novo.
+
+Esta subseção inteira vale enquanto o certificado sair da CA interna, que é a configuração de
+hoje. Com um certificado de autoridade que o cliente já conheça, nada aqui é preciso — e o
+sinal da troca é o cliente HTTP da RP parar de exigir a raiz.
 
 ## 10. Exemplo mínimo
 

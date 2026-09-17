@@ -115,7 +115,10 @@ até a porta.
 **Suíte.** Trocar `BASE_URL` para `https://` quebra dois testes, que fixam o issuer por
 igualdade literal: `tests/test_discovery.py:20` e `tests/test_authorization_code_flow.py:60`.
 
-**Decisão.** Nenhuma ADR nova para o transporte. Mas a troca do `BASE_URL` muda a claim `iss`
+**Decisão.** ~~Nenhuma ADR nova para o transporte.~~ **Corrigido pelo Bloco C implantado:** o
+transporte rendeu três ADRs — 0017, para o proxy no compose e a publicação só por ele; 0018,
+para a procedência do endereço em cada linha da trilha; e 0019, para o superusuário fora do
+boot. A troca do `BASE_URL` muda a claim `iss`
 de todo `id_token` — `oauth2_provider/views/oidc.py` devolve `OIDC_ISS_ENDPOINT` literalmente —
 e `docs/integracao-rp.md:182` promete às relying parties (RPs) comparação por igualdade exata
 de string. É quebra de contrato público, e `docs/seguranca.md:168-169` já pede a confirmação da
@@ -427,9 +430,16 @@ seção 4 abaixo.
 ## 4. Os onze avisos de `manage.py check --deploy`
 
 Executado neste repositório em 2026-09-08, com o `.env` corrente. Quatro avisos são de
-transporte e somem quando `BEHIND_TLS_PROXY` for verdadeiro: `security.W004` (HSTS),
+transporte e somem **onde** `BEHIND_TLS_PROXY` for verdadeiro: `security.W004` (HSTS),
 `security.W008` (redirecionamento), `security.W012` e `security.W016` (cookies). São esses os
 que `docs/robustez.md` antecipa.
+
+O "onde" não é detalhe de redação. Desde a ADR 0017 essa variável é ligada num lugar só, o
+`environment:` do serviço `app` do `docker-compose.yml`, e o `.env` — inclusive o
+`.env.example`, que é o que um ambiente de integração contínua tende a copiar — a carrega como
+`False`. Os quatro avisos somem em `docker compose exec app python manage.py check --deploy` e
+continuam saindo em toda outra forma de rodar o comando. A medição acima é a da jornada de
+construção.
 
 Os outros sete são do django-oauth-toolkit, todos sobre a RFC 9700, e nenhum deles aparece em
 `docs/robustez.md`:

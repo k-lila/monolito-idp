@@ -8,7 +8,7 @@ já isola `DATABASES`: cria e destrói `test_<dbname>` sem que o código de prod
 
 O que se troca é um valor só — o `filename` do handler `audit`, redirecionado para um arquivo
 dentro de um diretório temporário — e não o mecanismo. Formatador, filtro, handler
-(`WatchedFileHandler`) e os quatro receptores de `accounts/auditoria.py` continuam sendo os
+(`WatchedFileHandler`) e os cinco receptores de `accounts/auditoria.py` continuam sendo os
 mesmos objetos sob teste e em produção; a escrita é real, em arquivo real, o que é o que permite
 a um teste futuro varrer a trilha em busca de campo proibido (AC-10) — um `NullHandler` não
 permitiria.
@@ -23,6 +23,94 @@ A ADR (Architecture Decision Record) que registra esta decisão e as alternativa
 O nome do módulo e da classe são contrato já gravado em `config/settings.py`
 (`TEST_RUNNER = "tests.runner.RunnerComTrilhaIsolada"`); não renomear nenhum dos dois sem
 atualizar aquela linha.
+
+TASK-014/T-10, revisado por T-13 — o mesmo executor passou a desligar o limitador de taxa
+(`config/limites.py`) para a suíte inteira, pela mesma razão e pelo mesmo precedente do bloco
+acima: o contador de cada caminho vive no Redis do ambiente, não volta com o rollback do
+`TestCase` e não é tocado por `DATABASES` nem por `LOGGING`. O desligamento esvazia o
+DICIONÁRIO INTEIRO — hoje as três chaves de `RATE_LIMIT_POR_CAMINHO`, `/o/token/`,
+`/o/authorize/` e `/accounts/login/` —, e não apenas as que existiam quando o T-10 foi
+escrito: o contador de login tem as mesmas três propriedades que já condenavam os de `/o/`, e
+a folga dele é pior. Medido: cinco execuções consecutivas da suíte em menos de sessenta
+segundos já somavam ao contador do `runserver` da jornada de construção com só `/o/` ligado,
+porque o `REMOTE_ADDR` default do test client (`127.0.0.1`) é a MESMA chave que ele usa —
+120 requisições em 24 execuções davam cinco de sobra antes do teto de `/o/authorize/`. Com o
+login somado, a chave `127.0.0.1` recebeu 11 das 64 requisições de uma execução completa, e a
+folga caiu: 60 em 13 dão só quatro execuções na origem `10.30.0.1`
+(`PrazoDoBloqueioTests`), e quatro execuções de 7,3 s cabem folgadamente dentro da janela de
+60 segundos configurada. O sintoma de deixar o teto de login ligado seria pior que o de
+`/o/`: não um teste de fluxo OIDC caindo, mas um caso do `django-axes` devolvendo 429 do
+middleware onde o teste espera 200 (ou o contrário) — falha que aponta para o mecanismo
+errado.
+
+TASK-015/T-04 — o mesmo executor passou a guardar e zerar `settings.SECURE_SSL_REDIRECT` no
+setup e a repô-lo no teardown, terceiro valor a seguir o precedente do `filename` do handler
+`audit` e do `RATE_LIMIT_POR_CAMINHO`: `docker-compose.yml` (Bloco C, ADR 0018) passou a
+sobrescrever `BEHIND_TLS_PROXY=True` no serviço `app`, e `SECURE_SSL_REDIRECT = BEHIND_TLS_PROXY`
+(`config/settings.py`) segue essa variável — a jornada de container liga o redirecionamento
+para HTTPS (Hypertext Transfer Protocol Secure) e o `Client` de teste do Django fala HTTP
+simples, sem TLS (Transport Layer Security) nenhum. Sem esta troca todo `self.client.get(...)`
+contra uma rota não isenta devolveria 301 antes de a view sob teste rodar, e é isso que produzia
+49 das 51 falhas medidas pelo QA (`quality-assurance`) na simulação da jornada de container — o
+301 engole a asserção de conteúdo, e o diagnóstico aponta para o endurecimento em vez de para
+qualquer defeito real.
+
+A escolha, e por que não é "cliente seguro por default": zerar `SECURE_SSL_REDIRECT` para a
+aplicação sob teste, e não desligar `BEHIND_TLS_PROXY`. As duas settings são independentes em
+`config/settings.py` — a segunda não deriva da primeira —, e é `BEHIND_TLS_PROXY` que decide qual
+procedência `config.origem.origem_e_procedencia` lê (ADR 0018) e qual esquema `OIDC_ISS_ENDPOINT`
+carrega (T-03, `tests/test_issuer.py`): neutralizá-la apagaria o próprio Bloco C da cobertura da
+suíte na jornada que existe para exercitá-lo. `SECURE_SSL_REDIRECT`, ao contrário, é mecanismo
+de transporte que este projeto não implementa (o TLS é do proxy reverso, fora do escopo do
+sandbox — ver `CLAUDE.md`) e que a suíte nunca teve como testar em HTTP puro; zerá-lo tira do
+caminho um redirecionamento que nenhum teste desta suíte quer provar, sem tocar em nada que o
+Bloco C acrescentou. `override_settings(SECURE_SSL_REDIRECT=True)` continua funcionando por cima
+do zeramento — é o que `tests/test_health.py` (`HealthRedirectExemptionTests`) exercita, porque
+o `Client` que o `_pre_setup` do `TestCase` cria a cada teste lê a settings no momento da
+requisição, e não no import deste módulo.
+
+Por que não preservar o teto de login ligado na suíte: preservá-lo não verificaria nada — o
+número 60 não é assertado por teste nenhum, deliberadamente (T-16 assere a RELAÇÃO entre os
+dois tetos, não o literal) — e importaria a fragilidade inteira descrita acima. O preço de
+desligar é o mesmo que já se pagava para `/o/`, e quem o paga agora é `T-17`, que prova que o
+dicionário de produção — as três chaves — ainda alcança o middleware.
+
+Por que aqui, e por que `RATE_LIMIT_POR_CAMINHO = {}` em vez de limpeza de chave caso a caso:
+a limpeza protegeria só os módulos que se lembrassem dela, e nada faria contra o tráfego do
+próprio ambiente escrevendo na mesma chave enquanto a suíte roda. Com o dicionário vazio,
+nenhum teste que não se importe com limitação PODE ser afetado — por construção, e não por
+disciplina de quem escreve teste depois —, e a suíte volta a poder passar em qualquer ordem
+e em qualquer frequência. `RATE_LIMIT_POR_CAMINHO={}` não abre ramo dormente: é o caminho que
+toda requisição fora dos três caminhos limitados já percorre em produção
+(`config/limites.py`, `.get(request.path)` devolvendo `None`); o middleware continua na
+cadeia e continua executando.
+
+Por que não isolar o `CACHES` inteiro num banco Redis à parte: alcançaria também a sessão e a
+sonda do `/health`, que este bloco não tem mandato para tocar, e ainda assim deixaria as
+requisições de uma única execução se acumulando dentro dela — escopo maior, problema menor
+resolvido. O contador do limitador de taxa é o único ponto com este defeito (o QA
+(`quality-assurance`) varreu a superfície e não achou um segundo).
+
+O valor de produção é guardado num atributo de módulo, não perdido: `T-17` o lê de volta por
+`tests.runner.RATE_LIMIT_DE_PRODUCAO` para provar que o caminho até o middleware continua
+existindo para os três caminhos. Os casos que testam o limitador com um teto próprio (`T-07`,
+`T-09`, `T-14`) o reativam por `override_settings`, sempre com `REMOTE_ADDR` forjado, apagando
+as próprias chaves ao fim.
+
+TASK-015/T-18 (gate adversarial do `senso-critico`, sobre o próprio T-04 acima) — o zeramento de
+`SECURE_SSL_REDIRECT` guardava o valor da jornada num atributo de INSTÂNCIA
+(`self._secure_ssl_redirect_da_jornada`), e não de módulo. Funcionava para o teardown — a mesma
+instância que zerou é a que repõe —, mas não sobrava nada legível de fora: nenhum teste podia
+provar que o valor zerado era mesmo `BEHIND_TLS_PROXY`, e não outra coisa qualquer. Era exatamente
+o defeito que a justificativa do T-17 (acima) nomeia: "sem ele, `RATE_LIMIT_POR_CAMINHO = {}`
+deixado por engano passaria com tudo verde" — aqui, apagar ou inverter
+`SECURE_SSL_REDIRECT = BEHIND_TLS_PROXY` em `config/settings.py:333` também passaria com tudo
+verde, porque o único teste que a jornada de container tinha para a igualdade era o 301 em massa
+que a PRÓPRIA neutralização apaga da suíte. O atributo virou `SECURE_SSL_REDIRECT_DE_PRODUCAO`,
+de módulo, pelo mesmo mecanismo de `RATE_LIMIT_DE_PRODUCAO`: `T-18`
+(`tests/test_endurecimento_transporte.py`) o lê de fora para provar a igualdade contra o valor
+de produção — nunca contra `settings.SECURE_SSL_REDIRECT`, que é sempre `False` durante a
+suíte inteira, por construção deste mesmo runner.
 """
 
 import copy
@@ -34,9 +122,25 @@ from pathlib import Path
 from django.conf import settings
 from django.test.runner import DiscoverRunner
 
+# Guarda o teto de produção (as três chaves) enquanto a suíte roda com o limitador desligado
+# (ver docstring do módulo). Atributo de módulo, e não de instância: é o que permite a
+# `tests/test_limite_oauth.py` lê-lo de fora, sem precisar segurar uma referência ao runner em
+# execução.
+RATE_LIMIT_DE_PRODUCAO = None
+
+# Guarda `SECURE_SSL_REDIRECT` da jornada em curso (produção, para quem chama `manage.py test`
+# sem variável nenhuma) enquanto a suíte roda com a chave zerada (TASK-015/T-18, ver docstring
+# do módulo). Atributo de módulo, e não de instância, pela mesma razão de `RATE_LIMIT_DE_PRODUCAO`
+# logo acima: é o que permite a `tests/test_endurecimento_transporte.py` lê-lo de fora, sem
+# depender de uma referência à instância do runner em execução — o defeito que a versão anterior
+# desta guarda tinha, e que o gate adversarial do `senso-critico` apontou.
+SECURE_SSL_REDIRECT_DE_PRODUCAO = None
+
 
 class RunnerComTrilhaIsolada(DiscoverRunner):
-    """`DiscoverRunner` padrão, com o handler `audit` redirecionado durante a suíte.
+    """`DiscoverRunner` padrão, com o handler `audit` redirecionado durante a suíte, o teto de
+    requisição desligado e `SECURE_SSL_REDIRECT` neutralizado — três valores da jornada em
+    curso que a suíte não pode herdar sem se tornar dependente dela.
 
     `DiscoverRunner.run_tests` chama `setup_test_environment()` antes de `build_suite()`, que é
     quem descobre e importa os módulos de teste (`django/test/runner.py`, método `run_tests`).
@@ -66,6 +170,31 @@ class RunnerComTrilhaIsolada(DiscoverRunner):
         # segue False aqui — os loggers abertos por `django.setup()` continuam vivos.
         logging.config.dictConfig(configuracao)
 
+        # TASK-014/T-10, revisado por T-13 — guarda o teto de produção e desliga o limitador
+        # para a suíte inteira, ESVAZIANDO O DICIONÁRIO INTEIRO (as três chaves, e não só as
+        # duas de `/o/`). A razão completa está no docstring do módulo; aqui, só a mecânica:
+        # `global`, e não um atributo de instância, porque o valor guardado precisa ser
+        # legível de fora do runner (T-17, em `tests/test_limite_oauth.py`) sem depender de
+        # uma referência à instância em execução.
+        global RATE_LIMIT_DE_PRODUCAO
+        RATE_LIMIT_DE_PRODUCAO = settings.RATE_LIMIT_POR_CAMINHO
+        settings.RATE_LIMIT_POR_CAMINHO = {}
+
+        # TASK-015/T-04, corrigido por T-18 (gate adversarial do `senso-critico`) — guarda o
+        # valor da jornada em curso e zera `SECURE_SSL_REDIRECT` para a suíte inteira. `global`,
+        # e não atributo de instância, pelo MESMO argumento de `RATE_LIMIT_DE_PRODUCAO` duas
+        # linhas acima: o valor guardado precisa ser legível de fora do runner (T-18, em
+        # `tests/test_endurecimento_transporte.py`), sem depender de uma referência à instância
+        # em execução. A versão original desta guarda (T-04) usava atributo de instância porque,
+        # à época, nenhum teste precisava lê-lo — mas isso deixava o zeramento sem nenhum teste
+        # que provasse a igualdade `SECURE_SSL_REDIRECT == BEHIND_TLS_PROXY` contra o valor de
+        # produção, o mesmo defeito que o comentário de `RATE_LIMIT_DE_PRODUCAO` acima já nomeia.
+        # A razão completa de zerar este valor, e não `BEHIND_TLS_PROXY`, está no docstring do
+        # módulo.
+        global SECURE_SSL_REDIRECT_DE_PRODUCAO
+        SECURE_SSL_REDIRECT_DE_PRODUCAO = settings.SECURE_SSL_REDIRECT
+        settings.SECURE_SSL_REDIRECT = False
+
     def teardown_test_environment(self, **kwargs):
         # O diretório é removido ANTES do super(): teardown_test_environment() do DiscoverRunner
         # não toca em LOGGING, então a ordem entre as duas linhas não afeta o handler — mas
@@ -94,5 +223,16 @@ class RunnerComTrilhaIsolada(DiscoverRunner):
         # cujo diretório sumiu fecha sem erro. A ordem inversa também funcionaria, mas
         # enfraqueceria a garantia comentada acima.
         logging.config.dictConfig(settings.LOGGING)
+
+        # TASK-014/T-10, revisado por T-13 — repõe o teto de produção (as três chaves), com a
+        # mesma disciplina do dictConfig acima: nenhuma configuração fica trocada além da
+        # duração da suíte, nem para quem chame `run_tests()` de dentro de um processo que
+        # continua vivo.
+        settings.RATE_LIMIT_POR_CAMINHO = RATE_LIMIT_DE_PRODUCAO
+
+        # TASK-015/T-04, corrigido por T-18 — repõe `SECURE_SSL_REDIRECT` da jornada em curso,
+        # pela mesma disciplina das duas linhas acima. Lida do `global`, e não de um atributo de
+        # instância (ver razão completa em `setup_test_environment`).
+        settings.SECURE_SSL_REDIRECT = SECURE_SSL_REDIRECT_DE_PRODUCAO
 
         super().teardown_test_environment(**kwargs)

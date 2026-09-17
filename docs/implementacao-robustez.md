@@ -1,10 +1,14 @@
 # Implementação dos reforços — blocos e sequência
 
-> **Estado: guia, não procedimento.** Nada aqui foi exercitado. Cada bloco descreve o que entra
-> junto, por que junto, o que quebra e como se sabe que terminou; o comando exato e o sinal de
-> que deu certo são de `docs/receita.md` e de `docs/runbook.md`, e nenhum dos dois cobre estes
-> reforços ainda. Os fatos que sustentam cada agrupamento estão levantados em
-> `docs/robustez-info.md`, e é lá que estão os `arquivo:linha`.
+> **Estado: guia, não procedimento.** Os Blocos A e B estão implantados; o C, menos um item — a
+> **confirmação da string do issuer** continua aberta, e seu prazo é a primeira relying party
+> integrada. Para o que está implantado, `docs/receita.md` e `docs/runbook.md` já trazem o
+> comando exato e o sinal de que deu certo. Do
+> Bloco D em diante nada foi exercitado, e nenhum dos dois documentos cobre esses reforços. Cada
+> bloco descreve o que entra junto, por que junto, o que quebra e como se sabe que terminou. Os
+> fatos que sustentam cada agrupamento estão levantados em `docs/robustez-info.md`, e é lá que
+> estão os `arquivo:linha` — com a ressalva da ficha 2.2, cuja linha "nenhuma ADR nova para o
+> transporte" o Bloco C desmentiu com três.
 
 `docs/robustez.md` diz **o que** reforçar. `docs/robustez-info.md` diz **o que é preciso saber
 antes** de encostar em cada reforço. Este documento diz **com o que cada um vai junto e em que
@@ -101,16 +105,18 @@ ordem.
 de contagem e backend do contador. Mais a primeira declaração de `AUTHENTICATION_BACKENDS` na
 história do projeto, que precisa manter o backend padrão do Django ao lado do novo.
 
-**Pronto quando.** Tentativas em excesso são barradas por conta e por origem; `manage.py check`
-passa, porque a biblioteca verifica a própria instalação; e a suíte está verde com os testes
-ajustados.
+**Pronto quando.** Tentativas em excesso são barradas por conta e por origem, e a suíte está
+verde com os testes ajustados. `manage.py check` não serve de critério: os checks do axes são
+`Warning`, e o comando os imprime saindo com código zero — só reprovam com
+`--fail-level WARNING`.
 
 ### Bloco C — A fronteira
 
 **Entra.** Terminação TLS (Transport Layer Security) com proxy à frente e a confirmação da
-string do issuer (ficha 2.2); `requirepass` no Redis, com o healthcheck corrigido; criação de
-superusuário fora do `.env`; `USER` dedicado no container, com posse de `/app/staticfiles`
-(metade da ficha 2.13); e a publicação da porta só pelo proxy.
+string do issuer (ficha 2.2) — desta, só a **forma** do issuer foi decidida, e a string segue
+aberta; `requirepass` no Redis, com o healthcheck corrigido; criação de superusuário fora do
+`.env`; `USER` dedicado no container, com posse de `/app/staticfiles` (metade da ficha 2.13); e
+a publicação da porta só pelo proxy.
 
 **Por que junto.** É a fronteira que `docs/seguranca.md` já nomeia: o conjunto do que muda
 quando o bind em loopback deixa de ser a barreira. Cada item de fora dessa lista é inofensivo
@@ -125,12 +131,22 @@ igualdade exata de string.
 
 **Exige antes.** O bloco B, pela primeira regra da seção 1. E uma decisão de qual será a string
 definitiva do issuer, que `docs/seguranca.md` já pede que seja tomada antes de a primeira RP
-integrar.
+integrar. E mais uma, que a ADR 0015 impõe a este bloco: ligar `BEHIND_TLS_PROXY` muda, na
+mesma tecla, a semântica do campo `ip` da trilha de auditoria e a chave do limitador de taxa. A
+trilha é um arquivo append-only, e nada na linha distingue as duas populações, porque o
+instante da troca não fica gravado — **este bloco não pode ligar a variável sem antes decidir o
+versionamento da linha da trilha**.
 
 **Pronto quando.** O IdP (Identity Provider) responde pelo proxy em HTTPS e o container
 continua `healthy`, com `127.0.0.1` ainda em `ALLOWED_HOSTS`; a descoberta publica o issuer
 novo; o healthcheck do Redis compara a saída com `PONG` em vez de confiar no código de saída; e
 o processo dentro do container não é `root`.
+
+**O que este bloco não fechou.** A forma do issuer é `https://<nome público>/o` e está fixada
+pela ADR 0017; a **string** não, porque o nome público é valor de implantação e o de hoje é de
+exemplo. `docs/seguranca.md` mantém, com razão, "confirmação da string do issuer antes da
+primeira RP integrar" na lista do que muda antes de expor — a decisão de 2026-09-13 é explícita
+em valer por enquanto, e a janela fecha na primeira RP integrada.
 
 ### Bloco D — Conformidade do servidor de autorização
 
@@ -228,8 +244,16 @@ embarca (ficha 2.12); e o `manage.py check --deploy` como gate (ficha 2.14).
 lugar é o pipeline — mas os dois **não** são o mesmo passo, e é isso que a tabela de
 `docs/robustez.md` esconde ao pôr um em 🟡 e o outro em ⚪. O pipeline pode existir desde cedo e
 só ganha valor quanto mais cedo existir. O gate, não: ligado hoje, ele reprova por onze avisos,
-sete dos quais só o bloco D resolve e quatro dos quais só o bloco C resolve. Gate vermelho no
-primeiro dia é gate desligado no segundo.
+sete dos quais só o bloco D resolve e quatro dos quais o bloco C resolve **apenas onde
+`BEHIND_TLS_PROXY` é verdadeira**. Gate vermelho no primeiro dia é gate desligado no segundo.
+
+**Onde o gate roda é parte do gate.** `BEHIND_TLS_PROXY=True` é ligada num lugar só — o
+`environment:` do serviço `app`, no `docker-compose.yml` (ADR 0017) —, de modo que os quatro
+avisos de transporte somem em `docker compose exec app`, e só ali. Rodado na jornada de
+construção, ou por um ambiente de integração contínua que leia um `.env` no formato do
+`.env.example` (que sai com `BEHIND_TLS_PROXY=False`), o comando continua emitindo
+`security.W004`, `W008`, `W012` e `W016` depois de o bloco C ter fechado. Quem montar o gate
+sobre a premissa de que o C os resolveu descobre isso no primeiro vermelho.
 
 **Quebra.** Nada.
 
@@ -237,28 +261,30 @@ primeiro dia é gate desligado no segundo.
 
 **Pronto quando.** O pipeline roda a suíte com Postgres e Redis de pé a cada push; a varredura
 mira a imagem construída, e não só o arquivo de requisitos; e `manage.py check --deploy
---fail-level WARNING` sai com código zero.
+--fail-level WARNING` sai com código zero **dentro do container**, que é o único ambiente em
+que a fronteira de transporte está ligada.
 
 ---
 
 ## 3. A sequência
 
 ```
-A ──> B ──> C ──┬──> D ──> H(gate)
+A ──> B ──> C ──┬──> D ──> H(gate)     A, B e C implantados
                 └──> G
 
 E ──> F                      a partir de A, sem esperar por B nem por C
 H(pipeline)                  a partir de A
 ```
 
-O caminho crítico é `A → B → C`, e as três razões estão na seção 1. Fora dele, o que sobra são
-frentes que não dependem umas das outras:
+O caminho crítico era `A → B → C`, e as três razões estão na seção 1. Com os três implantados,
+o que resta são frentes que não dependem umas das outras — e `G` perdeu a única restrição que
+tinha, porque o compose e o `Dockerfile` que ele disputava com `C` já foram editados:
 
 | Frente | Pode andar em paralelo com | Não pode, e por quê |
 | --- | --- | --- |
 | D — Conformidade | E, F, G | — |
-| E → F — Chave e durabilidade | tudo, desde A | F depende de E: o que se copia muda com a custódia. E evita coincidir com C, que edita o mesmo compose |
-| G — Boot e imagem | D, E, F | Não com C: os dois editam o compose e o `Dockerfile` |
+| E → F — Chave e durabilidade | tudo, desde A | F depende de E: o que se copia muda com a custódia |
+| G — Boot e imagem | D, E, F | — (a colisão era com C, já implantado) |
 | H — pipeline | tudo, desde A | O **gate** espera C e D |
 
 Uma observação sobre D e E, que são os dois blocos que alcançam terceiro. Se houver RP
@@ -314,7 +340,7 @@ por decisão de pessoa, e é isso que os tira da sequência em vez de pô-los no
 | Seção 3 — superusuário fora do `.env` | C |
 | Seção 3 — pin das transitivas | H, primeiro tempo |
 | Seção 3 — restrição do registro de Application | D |
-| Seção 3 — confirmação do issuer | C |
+| Seção 3 — confirmação do issuer | C, e é a única linha do bloco que não fechou |
 | Seção 3 — `email_verified` e revogação | nenhum: é contrato, e não robustez |
 | Seção 3 — posição do `CorsMiddleware` | B, que acrescenta middleware à mesma lista |
 | Seção 4 — os sete avisos da RFC 9700 | D |

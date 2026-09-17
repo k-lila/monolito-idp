@@ -23,13 +23,33 @@ services:
 
   redis:
     image: redis:7
+    # A senha entra por linha de comando do servidor porque a imagem não a lê de lugar
+    # nenhum sem um redis.conf montado, e um arquivo a mais só para uma diretiva não paga.
+    # `${REDIS_PASSWORD:?}` aborta o `up` nomeando a variável — precedente da ADR 0004
+    # aplicado ao compose. A guarda segue a convenção do shell e alcança a variável ausente
+    # E a definida e vazia, de modo que não há como este servidor subir sem senha:
+    # `PUBLIC_HOST=x REDIS_PASSWORD= docker compose up --dry-run redis` para com
+    # `required variable REDIS_PASSWORD is missing a value`. O que continua sem mecanismo é
+    # a coerência com a REDIS_URL do `.env`, que vale só para a jornada de construção: ali a
+    # senha é escrita de novo à mão, e divergir dela está na seção 20 de `docs/runbook.md`.
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?defina REDIS_PASSWORD no .env}"]
+    environment:
+      # REDISCLI_AUTH, e não `-a` na linha do healthcheck: o `-a` imprime aviso de senha em
+      # linha de comando a cada probe e deixa a senha visível no `test` que `docker inspect`
+      # mostra a quem puder inspecionar o container.
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?defina REDIS_PASSWORD no .env}
     ports:
-      # Bind em 127.0.0.1 pelo mesmo motivo, agravado: o Redis sobe sem requirepass.
+      # Bind em 127.0.0.1 pelo mesmo motivo das demais publicações. O agravante de o Redis
+      # subir sem requirepass saiu com a linha de `command` acima.
       - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     volumes:
       - redisdata:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      # Comparação com a SAÍDA, nunca com o código de saída: `redis-cli ping` sai com ZERO
+      # sob NOAUTH e sob WRONGPASS, imprimindo o erro no stdout. O healthcheck antigo ficava
+      # verde com o Redis recusando toda operação, e o `app` subia atrás de um
+      # `depends_on: service_healthy` que não significava nada.
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -49,23 +69,88 @@ services:
       # endereços da jornada de construção, em que localhost é o próprio container, e o
       # migrate do entrypoint falha com erro que parece de credencial ou de rede.
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      REDIS_URL: redis://redis:6379/0
+      # A senha do servidor e a da URL saem do MESMO valor, e é isso que torna a
+      # divergência entre as duas impossível de configurar — o código não distingue
+      # AuthenticationError de ConnectionError, e não precisa. Caractere que quebre a URL
+      # quebra os dois lados junto: a regra de geração está no `.env.example`.
+      REDIS_URL: redis://:${REDIS_PASSWORD:?defina REDIS_PASSWORD no .env}@redis:6379/0
       # Mesmo mecanismo, mesma precedência sobre o env_file: o .env carrega o caminho da
       # jornada de construção, relativo ao repositório, que dentro do container gravaria na
       # camada de escrita e sumiria no primeiro `down`. Aqui a trilha aponta para o volume
       # nomeado e sobrevive a `docker compose down` (ADR 0013).
       AUDIT_LOG_PATH: /var/log/nova_api/audit.log
+      # A fronteira de transporte, e o único lugar em que ela é ligada (ADR 0017). As três
+      # saem de `PUBLIC_HOST`, que aparece uma vez só: o nome público é valor de
+      # implantação, e nenhum arquivo versionado o aprende — exceto o exemplo.
+      #
+      # Ficam aqui e não no `.env` porque só fazem sentido atrás do proxy: no `runserver` da
+      # jornada de construção, que fala texto claro, `BASE_URL` em `https` faria o Django
+      # devolver 301 para um nome servido pelo container, e o desenvolvedor veria em pé o
+      # código que não editou.
+      BASE_URL: https://${PUBLIC_HOST:?defina PUBLIC_HOST no .env}
+      # `127.0.0.1` ao lado do nome público, e não como conselho de README: é o que mantém
+      # a sonda do HEALTHCHECK respondendo 200 em vez de 400 — ela bate em
+      # `http://127.0.0.1:8000/health`, de dentro do container, sem passar pelo proxy. A
+      # ADR 0006 registrou essa condição como coisa que "não tem mecanismo nenhum"; o
+      # mecanismo é esta linha.
+      ALLOWED_HOSTS: ${PUBLIC_HOST:?defina PUBLIC_HOST no .env},127.0.0.1
+      # Aspas obrigatórias: sem elas o YAML entrega o booleano `true`, e o compose recusa
+      # valor não textual em `environment`. O que `config/settings.py` lê é a string.
+      #
+      # Ligá-la muda, na mesma tecla, o significado do campo `ip` da trilha e a chave do
+      # limitador de taxa. A ADR 0015 proibiu ligá-la antes de `ip_src` existir; ele existe
+      # desde o primeiro passo deste bloco, e toda linha SEM o campo é, por construção,
+      # `REMOTE_ADDR` (ADR 0018).
+      BEHIND_TLS_PROXY: "True"
     volumes:
       - auditlog:/var/log/nova_api
-    ports:
-      # Divergência deliberada com o passo 11, que prescreve "8000:8000": publicação sem
-      # endereço instala DNAT à frente do firewall do host, e o que fica exposto é um
-      # formulário de senha em HTTP claro. Mesmo precedente de postgres e redis acima.
-      - "127.0.0.1:8000:8000"
+    # SEM `ports:`, e isto é o controle, não vigilância (ADR 0017): quem publica é o `proxy`,
+    # e a porta 8000 só é alcançável pela rede interna do compose. Enquanto ela estiver
+    # publicada, `SECURE_PROXY_SSL_HEADER` faz o Django confiar em `X-Forwarded-Proto` de
+    # QUALQUER origem, e um cliente do host desliga o redirecionamento para HTTPS escrevendo
+    # um cabeçalho. Publicar aqui "só para depurar" reabre exatamente essa porta.
     # Uma réplica só, e isso é premissa da migração no entrypoint: duas instâncias migram
     # concorrentemente no boot.
+
+  proxy:
+    # Pin de versão exata, e não a tag móvel `caddy:2`, porque uma PROPRIEDADE DE SEGURANÇA
+    # repousa num default medido nesta versão: o `reverse_proxy` com `trusted_proxies` vazio
+    # SUBSTITUI o `X-Forwarded-For` de quem chega, em vez de anexar. É disso que
+    # `TRUSTED_PROXY_COUNT = 1` depende do outro lado, em `config/origem.py` (ADR 0015). Uma
+    # versão futura que passasse a confiar em quem chega de faixa privada faria do gateway da
+    # bridge um par confiável, e o `X-Forwarded-For` forjado pelo cliente atravessaria até a
+    # trilha de auditoria e até a chave do limitador de taxa — sem erro, sem log e sem teste
+    # vermelho. Com a tag móvel, um `docker compose pull` bastaria para produzir isso sem
+    # ninguém editar linha nenhuma. Subir o pin é, portanto, remedir o default do
+    # `reverse_proxy`, e não ler a nota de versão.
+    image: caddy:2.11.4
+    depends_on:
+      - app
+    environment:
+      # O nome que o Caddyfile atende, pelo placeholder `{$PUBLIC_HOST}`. Mesma variável e
+      # mesmo valor das três sobrescritas do `app`: um nome divergente aqui produz um
+      # certificado para um host e um `ALLOWED_HOSTS` para outro, e o sintoma é 400.
+      PUBLIC_HOST: ${PUBLIC_HOST:?defina PUBLIC_HOST no .env}
+    ports:
+      # Bind em 127.0.0.1 pelo mesmo motivo das demais publicações: publicação sem endereço
+      # vira DNAT à frente do firewall do host. Estas duas são as ÚNICAS portas da aplicação.
+      #
+      # Expor de verdade é editar estes dois endereços à mão e trocar a diretiva `tls
+      # internal` do Caddyfile. Deliberadamente não é variável: exposição é decisão, e uma
+      # variável convida a invertê-la sem decidir (ADR 0017).
+      - "127.0.0.1:80:80"
+      - "127.0.0.1:443:443"
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      # `caddydata` guarda a autoridade certificadora local. Sem ele, cada `up` gera uma CA
+      # nova e o certificado confiado no navegador passa a ser de outra autoridade — e
+      # `docker compose down -v` tem o mesmo efeito, de propósito.
+      - caddydata:/data
+      - caddyconfig:/config
 
 volumes:
   pgdata:
   redisdata:
   auditlog:
+  caddydata:
+  caddyconfig:

@@ -2,6 +2,7 @@
 # patch da série 5.2, não na 5.2.0. Não baixar deste piso.
 Django==5.2.17
 django-oauth-toolkit==3.4.1
+django-axes==8.3.1
 psycopg[binary]==3.3.4
 argon2-cffi==25.1.0
 django-environ==0.14.0
