@@ -521,12 +521,12 @@ documento.
 
 ### Passo 2 — `.env` de desenvolvimento
 
-- [ ] Backup do `.env` feito antes de editar
-- [ ] `PUBLIC_HOST`, `REDIS_PASSWORD` presentes; `REDIS_URL` com a mesma senha
-- [ ] `CORS_ALLOWED_ORIGINS=http://localhost:5173`
-- [ ] Comentário obsoleto de `DJANGO_SUPERUSER_*` retirado
-- [ ] `docker compose up postgres redis` sobe e `manage.py test` passa
-- [ ] `curl -i -H "Origin: http://localhost:5173"` nos quatro caminhos devolve
+- [x] Backup do `.env` feito antes de editar
+- [x] `PUBLIC_HOST`, `REDIS_PASSWORD` presentes; `REDIS_URL` com a mesma senha
+- [x] `CORS_ALLOWED_ORIGINS=http://localhost:5173`
+- [x] Comentário obsoleto de `DJANGO_SUPERUSER_*` retirado
+- [x] `docker compose up postgres redis` sobe e `manage.py test` passa
+- [x] `curl -i -H "Origin: http://localhost:5173"` nos quatro caminhos devolve
       `Access-Control-Allow-Origin`
 
 ### Passo 3 — ADRs cruzadas

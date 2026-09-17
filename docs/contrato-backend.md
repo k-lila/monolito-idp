@@ -288,12 +288,12 @@ documento.
 
 ### Desenvolvimento
 
-- [ ] `.env` corrigido (`PUBLIC_HOST`, `REDIS_PASSWORD`, `REDIS_URL` com senha), com
+- [x] `.env` corrigido (`PUBLIC_HOST`, `REDIS_PASSWORD`, `REDIS_URL` com senha), com
       `SECRET_KEY` e `OIDC_RSA_PRIVATE_KEY` preservados e backup feito
-- [ ] `docker compose up postgres redis` sobe e `manage.py test` passa
-- [ ] `runserver` em `http://localhost:8000`; descoberta publica `"issuer":
+- [x] `docker compose up postgres redis` sobe e `manage.py test` passa
+- [x] `runserver` em `http://localhost:8000`; descoberta publica `"issuer":
       "http://localhost:8000/o"`
-- [ ] `CORS_ALLOWED_ORIGINS=http://localhost:5173` e os quatro caminhos respondem com
+- [x] `CORS_ALLOWED_ORIGINS=http://localhost:5173` e os quatro caminhos respondem com
       `Access-Control-Allow-Origin` (seção 5.2)
 - [ ] `Application` de dev registrada: `public`, `authorization-code`, `RS256`,
       `http://localhost:5173/callback`, `skip_authorization=True`

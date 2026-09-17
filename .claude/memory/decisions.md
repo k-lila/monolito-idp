@@ -177,3 +177,56 @@ BLOCK-003 fechou hoje. Cinquenta e três apontamentos ao todo, todos com disposi
   [0020](../../docs/adr/0020-marcar-na-linha-o-endereco-colapsado-pelo-docker-proxy.md). Ver o
   índice no topo.
 - **Tipo:** decisão e tech-debt.
+
+---
+## [2026-09-17] TASK-017 · Passo 2 do plano do contrato: o `.env` de desenvolvimento em dia com o compose
+
+Aqui o plano estava certo: o `.env` desta máquina não tinha `PUBLIC_HOST` nem `REDIS_PASSWORD`,
+a `REDIS_URL` não carregava senha e `CORS_ALLOWED_ORIGINS` estava vazia — e por isso
+`docker compose up postgres redis` abortava nomeando a variável, o que deixava a suíte sem rodar
+por nenhuma das duas jornadas. Rota `/chore`: um `writer` para o `.env.example`, outro para
+os checklists, um `quality-assurance` em conformidade (`REGRESSAO: não`).
+
+- **Decisão: o `.env` foi editado pelo orquestrador, por `Bash`, e não pelo `writer`.** O
+  arquivo guarda os únicos `SECRET_KEY` e `OIDC_RSA_PRIVATE_KEY` do projeto, e um agente que o
+  edita precisa lê-lo inteiro — os segredos iriam para o contexto de um subagente. O
+  orquestrador substituiu e acrescentou linhas sem imprimir valor nenhum, com a senha do Redis
+  gerada e escrita nos dois pontos (`REDIS_PASSWORD` e `REDIS_URL`) pelo mesmo script, a partir
+  da mesma variável. Cópia de segurança em `../.env.nova_api.bak-2026-09-17`, fora do
+  repositório e do alcance de `git clean`. Vale como precedente: agente não abre o `.env`.
+- **Feito no `.env`:** `PUBLIC_HOST=idp.localhost`; `REDIS_PASSWORD` de 64 hexadecimais e a
+  mesma senha na `REDIS_URL`; `CORS_ALLOWED_ORIGINS=http://localhost:5173`; bloco comentado de
+  `DJANGO_SUPERUSER_*` retirado (obsoleto desde a ADR 0019). `POSTGRES_PORT=5433` e a
+  `DATABASE_URL` correspondente ficaram como estavam: escolha desta máquina, coerente consigo.
+- **Feito no `.env.example`:** as três linhas que a TASK-015 deixou pendentes — o comentário de
+  `PUBLIC_HOST` agora diz que o nome é provisório até a primeira RP integrada, porque com ele
+  muda o `issuer` cacheado (ADR 0007) e o HSTS marca o navegador. O arquivo já estava completo
+  contra os consumidores: as onze variáveis que `config/settings.py` lê e as sete que o
+  `docker-compose.yml` interpola, dezoito ao todo, nem uma a mais.
+- **Feito nos documentos:** dez caixas de checklist marcadas — quatro na seção "Desenvolvimento"
+  de `docs/contrato-backend.md` e as seis do passo 2 em `docs/plano-contrato-backend.md` —,
+  cada uma contra evidência do ambiente, como o contrato manda.
+- **Prova:** `docker compose config --quiet` passa; Postgres e Redis `healthy`; o Redis recusa
+  cliente sem senha e aceita a `REDIS_URL` do `.env`; `manage.py test` em 102 OK, duas vezes;
+  o `runserver` publica `"issuer": "http://localhost:8000/o"`; `curl -X OPTIONS -H "Origin:
+  http://localhost:5173"` em descoberta, `jwks.json`, `/o/token/` e `/o/userinfo/` devolve
+  `access-control-allow-origin: http://localhost:5173`; origem estranha não recebe nada em
+  `/o/token/` nem em `/o/userinfo/`.
+- **Observação, para a ADR de CORS por origem exata que o plano prevê (0022):** descoberta e
+  `jwks.json` devolvem `Access-Control-Allow-Origin: *` para qualquer origem. Não é o
+  `CorsMiddleware`: é o próprio `django-oauth-toolkit` (`oauth2_provider/views/oidc.py:107,129`
+  e `views/metadata.py`), que trata os dois como metadados públicos, como a especificação
+  OIDC espera. A allowlist vazia escondia isso; a "origem exata" da ADR vale para `/o/token/` e
+  `/o/userinfo/`, e o texto dela precisa dizer que os dois metadados ficam fora por decisão da
+  biblioteca.
+- **Erro do orquestrador, registrado para a próxima:** a verificação prévia dos dois arquivos e a
+  pré-alteração cobriram três dos quatro itens do passo 2 e omitiram `CORS_ALLOWED_ORIGINS`;
+  quem pegou foi o `quality-assurance`. Varrer o passo do plano item a item antes de anunciar a
+  rota, não só o arquivo.
+- **Apontamento adiado:** `IdP`, `ADR` e `RFC` aparecem no `.env.example` sem expansão na
+  primeira ocorrência (pré-existente, apontado pelo `writer`). Prosa em arquivo de exemplo, sem
+  efeito; fica para a próxima tarefa que abrir o arquivo com escopo de prosa.
+- **Apontamentos aceitos:** os dois do `quality-assurance` (checklists desmarcados;
+  `CORS_ALLOWED_ORIGINS` faltando) e o do `writer` (caixa de CORS do contrato coberta pela mesma
+  evidência) — todos os três resolvidos dentro da tarefa.
+- **Tipo:** decisão, observação e tech-debt.
