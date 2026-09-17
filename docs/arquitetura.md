@@ -33,9 +33,10 @@ default no código e sem separação entre desenvolvimento e produção), o URLC
 de `LOGOUT_REDIRECT_URL`, e `health`, a sonda de prontidão. Também três arquivos que
 decidem uma coisa cada: `config/observabilidade.py`, o formato de uma linha de log, o
 identificador que correlaciona as linhas de um mesmo pedido e a linha de acesso;
-`config/origem.py`, de que endereço veio uma requisição e de onde esse valor saiu — resposta
-única do sistema, consumida pela trilha de auditoria, pelo limitador de taxa e pelo
-`django-axes` (ADRs 0015 e 0018); e `config/limites.py`, o teto de requisições por origem em
+`config/origem.py`, de que endereço veio uma requisição, de onde esse valor saiu e o que esse
+endereço é para o próprio processo, o seu gateway padrão ou não — resposta única do sistema,
+consumida pela trilha de auditoria, pelo limitador de taxa e pelo `django-axes` (ADRs 0015,
+0018 e 0020); e `config/limites.py`, o teto de requisições por origem em
 `/o/token/`, em `/o/authorize/` e em `/accounts/login/`. Nenhum deles afirma nada sobre identidade: o limitador não conhece pessoa
 nem conta.
 
@@ -52,9 +53,10 @@ falha ruidosa.
   do servidor de autorização é customizado. Decide claims (`sub`, `name`, `email`); não toca
   em fluxo;
 - `accounts/auditoria.py` — os cinco receptores de sinal e o que a trilha de auditoria afirma
-  sobre quem autenticou: `sub`, origem, a procedência dessa origem e o desfecho, nunca e-mail
-  nem valor de token. Ligados em `AccountsConfig.ready()`. É o único ponto em que `accounts`
-  importa de `config`: a função de origem, e nada mais (ADRs 0015 e 0018);
+  sobre quem autenticou: `sub`, origem, a procedência dessa origem, o que ela é para o
+  processo que a gravou (`ip_edge`) e o desfecho, nunca e-mail nem valor de token. Ligados em
+  `AccountsConfig.ready()`. É o único ponto em que `accounts` importa de `config`: a função de
+  origem, e nada mais (ADRs 0015, 0018 e 0020);
 - `accounts/admin.py` — `UserAdmin` ajustado a um modelo sem `username`.
 
 **`oauth2_provider` — o protocolo.** É dependência de terceiro, montada sob o prefixo `o/` pelo
@@ -219,6 +221,7 @@ As decisões de arquitetura, uma por arquivo em `docs/adr/`:
 | O proxy de terminação TLS no compose, e só ele publicado — emenda a **0006** | `0017-terminar-o-tls-num-proxy-declarado-no-compose.md` |
 | A procedência do endereço em cada linha da trilha — estende a **0013** | `0018-declarar-a-procedencia-do-endereco-em-cada-linha-da-trilha.md` |
 | O superusuário criado por comando explícito — emenda a **0006** | `0019-criar-o-superusuario-por-comando-explicito-fora-do-boot.md` |
+| O endereço colapsado pelo `docker-proxy` marcado em cada linha da trilha — emenda a **0018** | `0020-marcar-na-linha-o-endereco-colapsado-pelo-docker-proxy.md` |
 
 ADR aceita é imutável: decisão que mudou vira ADR nova. O formato está em
 `docs/adr/template-adr.md`.

@@ -481,9 +481,11 @@ class FalhaDeLoginNaoRevelaOEmailTests(TestCase):
 
 
 class ParDeOrigemNaTrilhaTests(TestCase):
-    """T-02 (TASK-015/Fase 7). `ip` e `ip_src` PRESENTES em cada um dos cinco eventos,
-    pelo caminho HTTP real, com o `ip_src` correspondente ao ramo de `BEHIND_TLS_PROXY`
-    vigente e o `ip` igual ao que a MESMA requisição entregaria a `origem_da_requisicao`.
+    """T-02 (TASK-015/Fase 7). `ip`, `ip_src` e `ip_edge` PRESENTES em cada um dos cinco
+    eventos, pelo caminho HTTP real, com o `ip_src` correspondente ao ramo de
+    `BEHIND_TLS_PROXY` vigente e o `ip` igual ao que a MESMA requisição entregaria a
+    `origem_da_requisicao`. Agora é a TRIPLA que a linha carrega (ADR 0020), e não mais o
+    par.
 
     A comparação nunca é contra um endereço fixo escrito no teste: é contra
     `origem_da_requisicao(resposta.wsgi_request)`, chamada sobre o objeto de requisição
@@ -496,7 +498,13 @@ class ParDeOrigemNaTrilhaTests(TestCase):
     decisão não tem `ip_src` nenhum, e o valor, quando presente, pode legitimamente ser
     qualquer um dos três rótulos, `None` inclusive fora de uma requisição HTTP (T-01 cobre
     esse desfecho; não é alcançável pelos cinco eventos aqui, que nascem todos de uma
-    requisição HTTP de verdade).
+    requisição HTTP de verdade). `ip_edge` entra pela mesma porta e pelo mesmo argumento,
+    com uma razão adicional: o valor depende de o processo que roda a suíte conseguir ler
+    `/proc/net/route`, algo que este arquivo não controla e não deveria fixar — quem prova
+    `gateway` e `peer` de verdade é `OrigemCompletaTests`, em `tests/test_origem.py`, sobre
+    uma tabela que ela mesma escreve. Afirmar aqui um valor de `ip_edge` amarraria este
+    caso ao ambiente de quem o executa, e faria a suíte ficar verde ou vermelha por um
+    motivo que não tem nada a ver com a costura sob prova.
     """
 
     def setUp(self):
@@ -554,6 +562,7 @@ class ParDeOrigemNaTrilhaTests(TestCase):
             linha = por_evento[evento]
             self.assertIn("ip", linha, linha)
             self.assertIn("ip_src", linha, linha)
+            self.assertIn("ip_edge", linha, linha)
             self.assertEqual(linha["ip"], ip_esperado, linha)
             # `BEHIND_TLS_PROXY=False` vem do override da classe (:507), não do ambiente:
             # sem ele, este caso passaria nas duas jornadas por motivos diferentes — pelo
@@ -587,6 +596,7 @@ class ParDeOrigemNaTrilhaTests(TestCase):
         linha = bloqueios[0]
         self.assertIn("ip", linha, linha)
         self.assertIn("ip_src", linha, linha)
+        self.assertIn("ip_edge", linha, linha)
         self.assertEqual(linha["ip"], ip_esperado, linha)
         self.assertEqual(linha["ip_src"], "remote_addr", linha)
 
@@ -617,6 +627,7 @@ class ParDeOrigemNaTrilhaTests(TestCase):
         linha = falhas[0]
         self.assertIn("ip", linha, linha)
         self.assertIn("ip_src", linha, linha)
+        self.assertIn("ip_edge", linha, linha)
         self.assertEqual(linha["ip_src"], "forwarded", linha)
         self.assertEqual(linha["ip"], ip_esperado, linha)
         self.assertEqual(linha["ip"], "203.0.113.55", linha)

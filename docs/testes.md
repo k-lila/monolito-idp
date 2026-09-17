@@ -59,8 +59,11 @@ pura, ou o estado que ela confere já foi montado antes de o primeiro caso rodar
 
 - `tests/test_oauth_validators.py`, inteiro — `get_oidc_claims` lê só `.user` e
   `.scopes`, então um objeto de duas linhas basta, e o `User` é construído sem nunca ser salvo;
-- `tests/test_origem.py`, inteiro — `origem_da_requisicao` decide sobre duas settings e o
-  `META` de uma requisição, e `RequestFactory` mais `override_settings` dão as duas coisas;
+- `tests/test_origem.py`, inteiro — `origem_da_requisicao` e `origem_e_procedencia` decidem
+  sobre duas settings e o `META` de uma requisição, e `RequestFactory` mais `override_settings`
+  dão as duas coisas; `origem_completa` lê ainda a tabela de rotas, e o que substitui o mundo
+  é um arquivo temporário para o qual o teste aponta `config.origem._TABELA_DE_ROTAS`, em vez
+  de `/proc/net/route`;
 - a classe `HealthViewDatabaseDownUnitTests`, em `tests/test_health.py` — `RequestFactory`
   mais chamada direta a `health`, com `connection` substituída por um duplo que levanta;
 - a classe `FormatadorJSONTests`, em `tests/test_observabilidade.py` — um registro emitido por
@@ -109,8 +112,8 @@ nível fim-a-fim neste projeto.
 | Comentário de template vazando para o corpo da página | `tests/test_template_comment_leak.py` | com banco |
 | Prontidão de banco e de cache, e a isenção de HTTPS | `tests/test_health.py` | misto |
 | Esquema da linha de log, correlação por `request_id` e a linha de acesso: campos, e o `/health` fora dela | `tests/test_observabilidade.py` | misto |
-| Trilha de auditoria: os cinco eventos — `user_logged_in`, `user_login_failed`, `user_logged_out` e `app_authorized`, da ADR 0013, e `user_locked_out`, da ADR 0016 —, o par `ip` e `ip_src` presente em cada um deles, a ausência de segredo e o isolamento sob a suíte | `tests/test_auditoria.py` | misto |
-| Endereço de origem do cliente: a tabela inteira de `origem_da_requisicao` e o par de `origem_e_procedencia` — endereço e rótulo de procedência — nos quatro desfechos, com e sem proxy declarado | `tests/test_origem.py` | sem banco |
+| Trilha de auditoria: os cinco eventos — `user_logged_in`, `user_login_failed`, `user_logged_out` e `app_authorized`, da ADR 0013, e `user_locked_out`, da ADR 0016 —, a tripla `ip`, `ip_src` e `ip_edge` presente em cada um deles, a ausência de segredo e o isolamento sob a suíte | `tests/test_auditoria.py` | misto |
+| Endereço de origem do cliente: a tabela inteira de `origem_da_requisicao`, o par de `origem_e_procedencia` — endereço e rótulo de procedência — nos quatro desfechos, com e sem proxy declarado, e a tripla de `origem_completa`, com `ip_edge` nos três valores contra uma tabela de rotas de fixture, mais `_alcance_do_endereco` | `tests/test_origem.py` | sem banco |
 | Limite do login: o bloqueio do `django-axes` por conta, por origem e o prazo; o teto de requisição da mesma porta; o que o 429 não diz e o que distingue os dois 429; e a linha `user_locked_out` na trilha, com a origem igual à que o axes contou | `tests/test_limite_login.py` | com banco |
 | Limite de `/o/token/` e `/o/authorize/`: o teto, o corpo do 429, a linha de log, e o dicionário de produção alcançando os três caminhos | `tests/test_limite_oauth.py` | com banco |
 | Falha aberta do limitador: com o Redis inalcançável, a requisição segue e uma linha `WARNING` registra o silêncio | `tests/test_falha_aberta_limites.py` | com banco |

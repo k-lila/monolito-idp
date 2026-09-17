@@ -32,7 +32,12 @@ services:
     # `required variable REDIS_PASSWORD is missing a value`. O que continua sem mecanismo é
     # a coerência com a REDIS_URL do `.env`, que vale só para a jornada de construção: ali a
     # senha é escrita de novo à mão, e divergir dela está na seção 20 de `docs/runbook.md`.
-    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?defina REDIS_PASSWORD no .env}"]
+    command:
+      [
+        "redis-server",
+        "--requirepass",
+        "${REDIS_PASSWORD:?defina REDIS_PASSWORD no .env}",
+      ]
     environment:
       # REDISCLI_AUTH, e não `-a` na linha do healthcheck: o `-a` imprime aviso de senha em
       # linha de comando a cada probe e deixa a senha visível no `test` que `docker inspect`

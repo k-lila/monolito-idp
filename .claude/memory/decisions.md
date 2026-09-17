@@ -42,6 +42,7 @@
 | 2026-09-13 | Terminar o TLS num proxy declarado no compose e publicar só ele; emenda à 0006 | [0017](../../docs/adr/0017-terminar-o-tls-num-proxy-declarado-no-compose.md) |
 | 2026-09-13 | Declarar a procedência do endereço em cada linha da trilha; estende a 0013 | [0018](../../docs/adr/0018-declarar-a-procedencia-do-endereco-em-cada-linha-da-trilha.md) |
 | 2026-09-13 | Criar o superusuário por comando explícito, fora do boot; emenda à 0006 | [0019](../../docs/adr/0019-criar-o-superusuario-por-comando-explicito-fora-do-boot.md) |
+| 2026-09-14 | Marcar na linha da trilha o endereço colapsado pelo `docker-proxy`; emenda à 0018 | [0020](../../docs/adr/0020-marcar-na-linha-o-endereco-colapsado-pelo-docker-proxy.md) |
 
 ---
 
@@ -53,147 +54,101 @@ memória — é sedimento.
 
 ---
 
-## [2026-09-13] TASK-014 · Bloco B: o teto nas três portas, e o preço de desenhar contra documento
+## [2026-09-17] TASK-015 · Bloco C: o proxy no compose, a procedência do endereço e as duas decisões sem ADR
 
-O limitador entrou nas três portas e a chave de contagem foi decidida antes do proxy, que era a
-única ordem que o repositório já tinha por escrito. O que o guia não previa está aqui.
+O TLS (Transport Layer Security) passou a terminar num proxy declarado no compose, só ele
+publicado, em `127.0.0.1:443`; a trilha de auditoria ganhou dois campos que dizem, linha a
+linha, de onde saiu o `ip` e o que ele é para o processo que o gravou; a credencial
+administrativa saiu do boot. Três ADRs (Architecture Decision Records) novas e uma quarta que
+emenda a segunda — ver o índice no topo. O que sobrou fora delas está aqui.
 
-**A ficha 2.1 estava errada, e ninguém tinha como saber antes de instalar.** O desenho inteiro do
-`architect` repousou em `docs/robustez-info.md`, e a dependência que ela descreve não estava no
-`.venv` nem no `requirements.txt`. Três afirmações caíram assim que o `writer` instalou:
-`AXES_USERNAME_FORM_FIELD` tem por default `USERNAME_FIELD`, isto é `email` — campo que o
-formulário não tem —, e sem a linha explícita o AC-01 **nunca dispararia**, em silêncio; os checks
-do axes são `Warning` e `manage.py check` sai com código zero, não reprova; e
-`AXES_RESET_COOL_OFF_ON_FAILURE_DURING_LOCKOUT` é `True`, de modo que o prazo é móvel. As duas
-últimas nem estavam na ficha — foram omissões, e omissão não aparece em revisão nenhuma.
+**Duas decisões sem ADR, tomadas no Bloco C e atribuídas por engano à ADR 0017 até a segunda
+passagem do `quality-assurance`:**
 
-**O critério que sobrou disso vale para os blocos que faltam**, e é mais estreito que "desconfiar
-das fichas": tudo que a ficha 2.1 cita como **valor** com `arquivo:linha` continua verdadeiro; o
-que caiu foi o único ponto em que ela usa **verbo** sobre comportamento. Valor citado com
-`arquivo:linha` conta como levantamento; verbo sobre o que a biblioteca faz conta como hipótese. A
-ficha 2.2, que governa o Bloco C, tem a mesma forma — e o verbo sem citação dela
-(`SECURE_PROXY_SSL_HEADER` "faz o Django confiar em `X-Forwarded-Proto` de qualquer origem")
-sustenta um item inteiro daquele bloco.
+- **O Redis exige senha (`requirepass`), e a senha tem origem única.** `REDIS_PASSWORD` no
+  `.env` alimenta o `command` do servidor, o `REDISCLI_AUTH` do healthcheck e a `REDIS_URL` do
+  container — um valor, três leitores, para que servidor e cliente não possam divergir.
+  `${REDIS_PASSWORD:?}` aborta o `up` com a variável ausente **e** com a vazia: é a convenção do
+  shell, e a afirmação contrária esteve escrita em seis pontos até o QA medi-la. O que não tem
+  mecanismo é a `REDIS_URL` da jornada de construção, copiada à mão no mesmo `.env`; a
+  divergência aparece na primeira operação de cache, e o sintoma medido está na seção 20 do
+  `docs/runbook.md`.
+- **O processo do container não é `root`: `USER` dedicado com UID e GID 10001.** Literal em
+  arquivo versionado, deliberado: o volume nomeado `auditlog` guarda posse numérica, e um UID
+  que mudasse entre builds deixaria a trilha sem dono. O volume que já existia era de `root`;
+  o `chown -R 10001:10001 /var/log/nova_api` roda **uma vez**, por `run --rm --user root`, e
+  está fora do entrypoint de propósito (`docs/receita.md`, passo 3; `docs/runbook.md`).
 
-**A ADR 0016 nasceu com quatro afirmações falsas, e a imutabilidade foi suspensa três vezes.** Duas
-vinham da ficha (os checks, e a forma de `AXES_LOCKOUT_PARAMETERS`); uma era do desenho ("uma
-escrita a mais no Postgres a cada tentativa falha", quando são quatro a cinco consultas); e a
-quarta nem era culpa dela — uma decisão posterior do `quality-assurance` a superou. O usuário
-autorizou as três correções in loco, com a mesma justificativa a cada vez: untracked, nunca
-revisada, carimbada "Aceito" pelo próprio autor. **A regra do `CLAUDE.md` continua valendo para
-todas as outras ADRs.** O que este caso ensina é anterior à regra: ADR redigida sobre documento não
-conferido não é decisão registrada, é hipótese com carimbo.
+**Provisório por escolha, e escrito onde a escolha se propaga:** o issuer é
+`https://$PUBLIC_HOST/o`, e as quatro derivações — `BASE_URL`, `ALLOWED_HOSTS`, o nome que o
+Caddy atende e a claim `iss` — saem da mesma variável. Um erro de digitação em `PUBLIC_HOST` é
+autoconsistente: nada no sistema pode discordar dele. A provisoriedade acaba na primeira
+relying party (RP) integrada, e depois dela custa um ano de HSTS (HTTP Strict Transport
+Security) no navegador de quem visitou o nome errado. BLOCK-001 resolveu-se assim, e o que
+resta é obrigação, não impedimento: **confirmar o host real antes da primeira RP integrar.**
 
-**A mutação achou o que a leitura não achava, de novo — e desta vez contra um comentário.** O
-comentário de `AXES_LOCKOUT_PARAMETERS` existia para nomear uma falha silenciosa e nomeava a
-mutação **inócua**: dizia que `["username", "ip_address"]`, sem os colchetes internos, faria o axes
-contar pelo par. Não faz — a suíte fica inteira verde com ela. Em `axes/helpers.py:285-293` cada
-**elemento** da lista vira um filtro independente, e elemento string produz o mesmo filtro que
-elemento lista de um item. A forma cara, que derruba AC-01 e AC-02 de uma vez, é
-`[["username", "ip_address"]]`: um elemento só, com as duas chaves dentro. O comentário estava em
-três lugares e os três foram corrigidos.
+**O que foi aceito e ficou como está, com a razão:**
 
-**O AC-12 reprovou por um defeito que a suíte verde escondia.** Seis execuções consecutivas em
-menos de sessenta segundos: as cinco primeiras `OK`, a sexta `FAILED (failures=15)`, com
-diagnóstico que não mencionava limitação em lugar nenhum — `consentimento nao produziu code`. O
-contador vivia no Redis do ambiente, na mesma chave que o `runserver` da jornada de construção
-enche, e `tests/runner.py` isolava `DATABASES` e `LOGGING` e não `CACHES`. Fechado desligando o
-dicionário inteiro na suíte (T-10, revisto pelo T-13), e o preço disso é pago pelo T-17, que prova
-que o dicionário de produção ainda alcança o middleware — sem ele, `RATE_LIMIT_POR_CAMINHO = {}`
-deixado por engano passaria com tudo verde.
+- **A ADR 0017 diz `caddy:2` e o compose declara `caddy:2.11.4`.** O pin entrou no gate
+  adversarial, porque a propriedade antiforja do `reverse_proxy` — substituir, e não anexar,
+  o `X-Forwarded-For` de par não confiável — foi **medida** numa versão, e tag móvel apostava
+  que ela se mantém. A decisão da ADR está intacta; o pin é detalhe abaixo dela, e a ADR é
+  imutável. Subir o pin exige remedir, e essa exigência vive só em comentário no
+  `docker/Caddyfile`.
+- **`TRUSTED_PROXY_COUNT` maior que 1 produz `remote_addr_fallback` em toda requisição**, pela
+  mesma propriedade: o cabeçalho chega sempre com um salto. Catalogado no runbook.
+- **`ip_edge` é constante em toda linha vinda do host enquanto a publicação ficar em loopback**
+  — peso morto até o dia em que a porta sair de `127.0.0.1`, e é para esse dia que existe. O
+  caso `gateway` real não é alcançável pela suíte, que constrói requisições sintéticas contra
+  uma tabela de rotas de fixture; a única verificação é manual, e está na seção do runbook
+  sobre o dia D. A regra de leitura da população do meio (com `ip_src`, sem `ip_edge`)
+  apoia-se em o compose nunca ter publicado fora de loopback — é a última vez que esse
+  argumento pode ser usado.
+- **AC-05 e AC-07 valem para o host, não para outro contêiner na rede do compose:** a porta
+  da aplicação continua alcançável por quem estiver na bridge, e é por ali que o proxy fala.
+  AC-07 não é verificável por dois `curl` do host — o `docker-proxy` colapsa a origem no
+  gateway da bridge —, e é exatamente o que a ADR 0020 marca.
 
-**Dois comportamentos nasceram de decisão do usuário depois dos treze critérios**, e por isso a
-tarefa voltou ao `product-manager` para cunhar AC-14 e AC-15. O gate adversarial mostrou que o
-prazo móvel, que já estava decidido, é **também** o caminho de escrita caro: com ele, o retorno
-curto de `axes/handlers/database.py:150-162` nunca dispara, e cada tentativa bloqueada roda um
-DELETE, um `select_for_update`, um UPDATE com dois `Concat` e dois SELECT, reescrevendo
-`attempt_time` e escapando da limpeza automática. `/accounts/login/` ganhou teto de requisição de
-60 por minuto por origem — **acima** do teto do axes de propósito, porque a semântica de segurança
-continua sendo dele e este teto existe só para limitar custo. E o limitador passou a **falhar
-aberto**: antes desta tarefa `/o/token/` não tocava o Redis, e o middleware novo o tinha tornado
-500 durante uma queda.
+**Tech-debt aceito, adiado:**
 
-**O `product-manager` recusou-se a prometer o que não daria para verificar.** O gate adversarial
-afirmou que "o axes continua de pé durante a queda do Redis, porque conta no Postgres"; ele foi ao
-código e achou a metade falsa — `cached_db.py` captura `Exception` em `load` e em `save` e **não**
-em `exists`, usado na criação de chave de sessão. O `writer` confirmou rodando
-`SessionStore()._get_new_session_key()` com o cache fora do ar. Senha errada continua contada e
-bloqueada; senha certa tende a 500, por caminho alheio ao limitador. Isso ficou fora do AC-15 e
-dentro do runbook.
+- **`_gateway_padrao` não tem caso para tabela de rotas corrompida** — campo `Gateway` que não é
+  hexadecimal, ou linha com menos de três campos. A captura larga do código nomeia os dois
+  ramos; a T-19 cobre só a ausência do arquivo. Apontado pelo tester, sem demanda.
 
-**Onze documentos afirmavam sobre este código coisa que o código desmentia.** O pior deles só foi
-aberto na passagem final: `docs/seguranca.md` listava "**Sem limitação de taxa**" como controle
-ausente e mantinha a limitação de taxa como item 1 do que precisa mudar antes de expor o IdP — e
-ninguém o abrira porque o `architect` não o listou. O método que os achou foi sempre o mesmo, e é o
-que o `CLAUDE.md` já manda: varrer a superfície no código, não reler o texto que a descreve. Foi
-assim que o `writer` achou sozinho uma terceira linha falsa em `docs/arquitetura.md` e que o
-`quality-assurance` achou a contradição interna do runbook — a seção 14 dando por hipotético um
-colapso de origem que a seção seguinte, 270 linhas adiante, já registrava como presente.
+- **`config/settings.py:247-254`** afirma que remover `AXES_CLIENT_IP_CALLABLE` "hoje não muda
+  um único valor". Deixou de valer na jornada de container, onde `BEHIND_TLS_PROXY` é
+  verdadeira. O arquivo não foi tocado por proibição nominal do `architect`; é uma frase de
+  comentário a corrigir na próxima tarefa que abrir o arquivo.
+- **`CLAUDE.md:9` declara o escopo "sem TLS próprio"**, contra as ADRs 0017 e 0020. É arquivo
+  do usuário; nenhum agente o toca. Cabe ao usuário decidir a frase.
+- **As duas linhas de WARNING de `config/limites.py` gravam `ip` sem procedência.** Fluxo
+  efêmero, sem dano de evidência: log operacional, não trilha.
+- **Os quatro avisos de transporte do `check --deploy` só somem dentro do container**, porque
+  `BEHIND_TLS_PROXY` foi ligada no `environment` do serviço `app`, não no `.env`. O gate do
+  Bloco H pressupõe que o C os resolveu; resolveu no container, e é lá que o gate deve rodar.
+- **O comentário de `PUBLIC_HOST` no `.env.example` não diz que a escolha é provisória**, e ele
+  acompanha a variável até o `.env` de cada implantação. A provisoriedade está em
+  `docs/receita.md`; levá-la ao exemplo é uma linha, na próxima tarefa que o abrir.
 
-- **Tech-debt e apontamentos que sobrevivem, com a disposição de cada um.** Mais de quarenta
-  apontamentos entraram na lista ao longo da tarefa. Os corrigidos dentro dela não têm linha aqui:
-  estão no código.
+**Obrigação do ambiente, não do repositório:** o `.env` desta máquina não tem `PUBLIC_HOST` nem
+`REDIS_PASSWORD`, e o `REDIS_URL` dele não carrega senha. `docker compose config`, `up` e
+`exec` abortam nomeando a variável — a jornada clonar-e-rodar não roda aqui até o usuário
+completar o arquivo, e o `.env` não tem cópia nem agente que o escreva. As verificações desta
+tarefa que dependiam da jornada de container foram feitas em 2026-09-14 com o ambiente
+completo; o fechamento, em 2026-09-17, provou-se só pela jornada de construção.
 
-  **Aceitos e já corrigidos na tarefa** — sem linha própria: as três falsidades da ficha 2.1 (na
-  ADR e nos comentários), a contradição do runbook, o comentário de `AXES_LOCKOUT_PARAMETERS`, o de
-  `AXES_CLIENT_IP_CALLABLE`, o de `TRUSTED_PROXY_COUNT`, o AC-12, a guarda vazia do T-04, a
-  obrigação do Bloco C no guia, `docs/seguranca.md`, `docs/testes.md`, os dois procedimentos de
-  desbloqueio e as duas contaminações da trilha (truncadas por decisão do usuário).
+**O que esta tarefa custou em rodadas, para a próxima:** um `product-manager` com BLOQUEIO e dois
+BLOCK resolvidos na Fase 2; dois `writer`, dois `quality-assurance`, dois `tester`; um gate
+adversarial com quatro CRITICO, todos aceitos; uma emenda do `architect` (ADR 0020) cuja
+gravação caiu por limite de sessão (BLOCK-003) e fechou três dias depois, com `T-19` (sete casos
+unitários de `origem_completa` contra tabela de rotas de fixture) e `T-20` (a chave `ip_edge`
+nos cinco eventos): 102 testes verdes na jornada de construção. Os três BLOCKs da tarefa saíram
+de `blockers.md`: BLOCK-001 virou `PUBLIC_HOST` e a obrigação acima; BLOCK-002 virou a ADR 0018;
+BLOCK-003 fechou hoje. Cinquenta e três apontamentos ao todo, todos com disposição.
 
-  **Adiados, com o gatilho de cada um:**
-  - **Sem política de senha.** `AUTH_PASSWORD_VALIDATORS` não é declarado, e o default é lista
-    vazia. Enfraquece a aritmética do teto de cinco tentativas: contra senha de seis caracteres,
-    cinco por quinze minutos ainda é muito. Candidato a bloco próprio, fora do B.
-  - **`/admin/login/` sem teto de requisição.** Protegido só pelo axes; `RATE_LIMIT_POR_CAMINHO`
-    não o nomeia. Registrado em `docs/seguranca.md`.
-  - **O T-16 guarda invariante mais fraca do que a necessária.** Ele assere
-    `teto > AXES_FAILURE_LIMIT`; como cada tentativa pela tela custa **duas** requisições contadas
-    (o GET do formulário e o POST), a alcançabilidade da tela de bloqueio exige
-    `teto > 2 × AXES_FAILURE_LIMIT`. Um valor entre 6 e 10 passaria no teste e tornaria a página
-    "Tentativas em excesso" inalcançável. Hoje são 60 contra 5, folga de seis vezes. Apertar a
-    asserção exige o AC pedir — não se legisla por cima do `product-manager`.
-  - **A alínea (b) do T-14 é vazia sob GET.** `authenticate()` não é chamado em hipótese nenhuma
-    ali, e `AccessAttempt.objects.count() == 0` valeria com o middleware ausente. A perna do AC-14
-    está atendida pela estrutura e por constatação com POST, não por aquela linha.
-  - **`tests/runner.py` não isola `CACHES`.** Além do contador, a suíte escreve no mesmo Redis do
-    ambiente a cópia quente das sessões e a chave da sonda do `/health`. Anterior a esta tarefa; o
-    T-13 resolve o contador, não o cache.
-  - **Concorrência entre jornadas.** Os três módulos que reativam o limitador por
-    `override_settings` fixam origem e apagam a chave à mão, no Redis compartilhado. Rodar as duas
-    jornadas ao mesmo tempo, ou passar `--parallel`, faz o `setUp` de uma apagar a chave enquanto a
-    outra conta.
-  - **`config/origem.py` subdeclara quem depende dele.** O docstring diz "o limitador de taxa de
-    `/o/`", e o limitador cobre três caminhos desde este bloco. O módulo existe justamente para ser
-    a única leitura de origem.
-  - **`docs/seguranca.md`, seção 2** ("O que o IdP protege hoje") não tem linha para o limitador
-    nem para o axes. Não é falsidade — a seção não se declara exaustiva —, mas quem ler só ela
-    conclui que o IdP não tem teto.
-  - **`docs/robustez.md:11` e `docs/robustez-info.md:67`** ainda descrevem a superfície como
-    "throttle nos endpoints de token". São documentos de levantamento anteriores à ADR 0016.
-  - **Uma linha de WARNING por requisição sob queda do Redis**, sem supressão. O único aviso da
-    ausência de teto é também o que mais cresce durante o incidente que o gerou.
-  - **A trilha emite uma linha `user_locked_out` por tentativa bloqueada**, não uma por bloqueio:
-    oito falhas produzem oito `user_login_failed` e quatro `user_locked_out`. Catalogado no
-    runbook; sob ataque sustentado a trilha cresce duas linhas por tentativa, em arquivo
-    append-only sem retenção.
-
-  **O que o Bloco C herda, e que encarece se for adiado:**
-  - **Ligar `BEHIND_TLS_PROXY` troca a população do campo `ip` da trilha e a chave do limitador na
-    mesma tecla**, num arquivo append-only onde nada distingue as duas populações. A ADR 0015
-    proíbe ligá-la antes de decidir o versionamento da linha, e o campo "Exige antes" do Bloco C
-    passou a registrar isso.
-  - **`TRUSTED_PROXY_COUNT = 0`** faria `saltos[-0]` devolver o primeiro salto, o escrito pelo
-    cliente; com o cabeçalho ausente e a variável de proxy ligada, é `IndexError` — 500 nas três
-    portas de autenticação, e não na sonda.
-  - **Uma função, três sumidouros, três domínios de validade.** Um proxy configurado para
-    repassar em vez de anexar deixa o cliente escrever `X-Forwarded-For: nao-e-um-ip`; o limitador
-    aceita como pedaço de chave, a trilha grava como string, e o axes o entrega a
-    `AccessAttempt.ip_address`, que é `GenericIPAddressField` sobre coluna `inet` — `DataError` e
-    500 em toda tentativa de login. Proxy que anexa `ip:porta` não dá erro nenhum: cada requisição
-    ganha chave própria e os dois limitadores param de contar, em silêncio.
-  - **O `requirepass` do Redis, que o Bloco C liga, é exatamente a janela da falha aberta** — só
-    que sustentada. Durante ela não há teto em nenhum dos três caminhos.
-
-- **ADR:** [0015](../../docs/adr/0015-resolver-a-origem-do-cliente-num-ponto-unico.md) e
-  [0016](../../docs/adr/0016-limitar-a-taxa-na-superficie-de-autenticacao.md). Ver o índice no topo.
+- **ADR:** [0017](../../docs/adr/0017-terminar-o-tls-num-proxy-declarado-no-compose.md),
+  [0018](../../docs/adr/0018-declarar-a-procedencia-do-endereco-em-cada-linha-da-trilha.md),
+  [0019](../../docs/adr/0019-criar-o-superusuario-por-comando-explicito-fora-do-boot.md) e
+  [0020](../../docs/adr/0020-marcar-na-linha-o-endereco-colapsado-pelo-docker-proxy.md). Ver o
+  índice no topo.
 - **Tipo:** decisão e tech-debt.
