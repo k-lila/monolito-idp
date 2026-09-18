@@ -26,6 +26,11 @@ decisões já tomadas são compromissos.
 - O `.env` é untracked e não tem cópia. Ele guarda a única `OIDC_RSA_PRIVATE_KEY` e a única
   `SECRET_KEY` do projeto: `git clean -xd` apaga a identidade do IdP, e nenhum `reset` a
   restaura.
+- A primeira RP é a `nova_api_SPA`, e a integração em desenvolvimento está fechada contra
+  este IdP real (passos 1 a 4 de `docs/plano-contrato-backend.md`). O que a SPA consome e o
+  que este projeto lhe deve estão em `docs/contrato-backend.md`; o caminho até a exposição na
+  AWS (Amazon Web Services) são os passos 5 a 9 do plano, e nenhum começou. A premissa de sandbox acima só cai
+  quando a ADR que o passo 6 prevê for aceita — até lá, ela vale.
 
 ## Como se escreve código aqui
 
@@ -78,5 +83,8 @@ teste no `requirements.txt`. O que cada arquivo de teste cobre é de `docs/teste
   fluxos em si estão em `.claude/commands/`.
 - `README.md` — o mapa dos documentos e o arranque mínimo.
 - `docs/arquitetura.md` — os módulos, a fronteira entre eles e o índice das ADRs.
+- `docs/contrato-backend.md` — o contrato com a `nova_api_SPA`: o que não pode mudar, o que
+  falta configurar e a checklist por ambiente. `docs/plano-contrato-backend.md` — a ordem de
+  cumpri-lo, passo a passo. `../pre-deploy.md` — os dois lados consolidados antes do deploy.
 - `.claude/settings.json` — exige confirmação para `Edit` e `Write` em `.claude/**` e
   `docs/adr/**`. Escrita por `Bash` passa por baixo: é compromisso, não barreira.

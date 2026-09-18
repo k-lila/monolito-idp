@@ -7,6 +7,7 @@
 | Origem | levantamento de 2026-09-16 (`contrato-geral.md`, `desavencas-parciais.md`, `desavencas.md`, na raiz `idp/`) |
 | Ambientes | produção: IdP na AWS, SPA na Vercel (prioritário) · desenvolvimento: tudo em `localhost` |
 | Critério de pronto | a checklist da seção 9 inteira marcada |
+| Conferido | contra o código e o ambiente em 2026-09-18 |
 
 Este documento diz **o que** o IdP precisa oferecer, configurar e decidir para que a SPA feche o
 fluxo OpenID Connect (OIDC) contra ele. **Como** fazer cada item é decisão do projeto, dentro das
@@ -34,8 +35,8 @@ desenvolvimento. Ela:
   ela conta com a sessão do IdP (cookie) para voltar sem senha;
 - chama `GET /o/userinfo/` com `Authorization: Bearer` a cada entrada na área autenticada, e
   trata **401** como "token recusado, re-autenticar";
-- vai passar a verificar a assinatura do `id_token` com a chave do `jwks_uri`, e a comparar
-  `iss` com o issuer configurado e `aud` com o `client_id`;
+- verifica a assinatura do `id_token` com a chave do `jwks_uri` (`jose`, em
+  `src/auth/idToken.ts`), e compara `iss` com o issuer configurado e `aud` com o `client_id`;
 - faz logout **só local** e avisa a pessoa que a sessão no IdP continua; não usa iframe algum
   (sem check-session, sem silent renew);
 - **não** terá cadastro nem edição de perfil, nem link para páginas assim no IdP (decisão da
@@ -64,7 +65,7 @@ público**: mudar qualquer linha é quebrar a RP, não refatorar.
 | `userinfo` | mesmas claims sob os mesmos scopes; token inválido → **401** (RFC 6750) | oauthlib |
 | Logout pela RP | desligado; `end_session_endpoint` ausente da descoberta | `OIDC_RP_INITIATED_LOGOUT_ENABLED=False` |
 | `redirect_uri` | igualdade exata | `tests/test_authorize_guards.py` |
-| Tempos de vida | `code` 60 s; `access_token` e `id_token` 10 h; `refresh_token` sem expiração, rotacionado a cada uso | defaults do DOT 3.4.1 |
+| Tempos de vida | `code` 60 s; `access_token` e `id_token` 10 h; `refresh_token` sem expiração, rotacionado a cada uso | defaults do django-oauth-toolkit (DOT) 3.4.1 |
 | `CorsMiddleware` | no topo do `MIDDLEWARE`, acima de tudo que emite resposta (limitador, segurança) | `config/settings.py` |
 | Token endpoint | aceita cliente público sem secret; `csrf_exempt` | DOT |
 
@@ -235,10 +236,10 @@ O DOT fica em `REQUEST_APPROVAL_PROMPT="force"`: tela de consentimento em toda i
 
 A regra da raiz: a SPA só está integrada quando fecha contra o IdP real, não contra o fake.
 
-1. **Corrigir o `.env` atual**, que está atrás do `docker-compose.yml` e impede até `docker
-   compose up postgres redis`: faltam `PUBLIC_HOST` (`idp.localhost`) e `REDIS_PASSWORD`
-   (`openssl rand -hex 32`); `REDIS_URL` está sem a senha. **Preservar `SECRET_KEY` e
-   `OIDC_RSA_PRIVATE_KEY`** — o `.env` é untracked e sem cópia; fazer backup antes de editar.
+1. **O `.env` em dia com o `docker-compose.yml`**: `PUBLIC_HOST` (`idp.localhost`),
+   `REDIS_PASSWORD` (`openssl rand -hex 32`) e `REDIS_URL` com a mesma senha. Sem os dois
+   primeiros, nem `docker compose up postgres redis` sobe. Em qualquer edição, **preservar
+   `SECRET_KEY` e `OIDC_RSA_PRIVATE_KEY`** — o `.env` é untracked e sem cópia; backup antes.
 2. A jornada de integração em dev é a **de construção**: `runserver` em
    `http://localhost:8000`, `BEHIND_TLS_PROXY=False`. Issuer `http://localhost:8000/o`. Texto
    claro em loopback é aceitável em dev e evita instalar a CA do Caddy no navegador. A jornada
@@ -298,12 +299,13 @@ documento.
 - [x] `docker compose up postgres redis` sobe e `manage.py test` passa
 - [x] `runserver` em `http://localhost:8000`; descoberta publica `"issuer":
       "http://localhost:8000/o"`
-- [x] `CORS_ALLOWED_ORIGINS=http://localhost:5173` e os quatro caminhos respondem com
-      `Access-Control-Allow-Origin` (seção 5.2)
-- [ ] `Application` de dev registrada: `public`, `authorization-code`, `RS256`,
+- [x] `CORS_ALLOWED_ORIGINS=http://localhost:5173`; `/o/token/` e `/o/userinfo/` respondem
+      com `Access-Control-Allow-Origin` só para essa origem; descoberta e `jwks_uri`, para
+      qualquer origem (seção 7, item 3)
+- [x] `Application` de dev registrada: `public`, `authorization-code`, `RS256`,
       `http://localhost:5173/callback`, `skip_authorization=True`
-- [ ] Contas de teste: uma com nome, uma sem nome
-- [ ] Entregue à SPA: issuer de dev e `client_id` de dev
+- [x] Contas de teste: uma com nome, uma sem nome
+- [x] Entregue à SPA: issuer de dev e `client_id` de dev
 
 ### Produção
 
@@ -315,8 +317,9 @@ documento.
       `ip_edge` = `peer` após acesso externo
 - [ ] `https://<host>/o/.well-known/openid-configuration` responde com `"issuer":
       "https://<host>/o"`, sem `end_session_endpoint`, com `S256`
-- [ ] `CORS_ALLOWED_ORIGINS=https://<spa>` (origem exata); os quatro caminhos respondem com
-      o cabeçalho; posição do `CorsMiddleware` e do limitador conferida com a lista preenchida
+- [ ] `CORS_ALLOWED_ORIGINS=https://<spa>` (origem exata); `/o/token/` e `/o/userinfo/`
+      respondem com o cabeçalho só para ela, descoberta e `jwks_uri` para qualquer origem;
+      posição do `CorsMiddleware` e do limitador conferida com a lista preenchida
 - [ ] `Application` de produção registrada: `public`, `authorization-code`, `RS256`,
       `https://<spa>/callback`, `skip_authorization=True`; `client_id` entregue à SPA
 - [ ] `ALLOWED_REDIRECT_URI_SCHEMES = ["https"]` avaliado e decidido

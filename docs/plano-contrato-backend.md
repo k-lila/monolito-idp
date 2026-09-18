@@ -2,7 +2,7 @@
 
 | Campo | Valor |
 | --- | --- |
-| Origem | `docs/contrato-backend.md`, conferido contra o código em 2026-09-17 |
+| Origem | `docs/contrato-backend.md`, conferido contra o código em 2026-09-17; referências a linha reconferidas em 2026-09-18 |
 | Escopo | só o que precisa mudar — o que já cumpre o contrato não aparece aqui |
 | Ordem | a de implementação: cada passo supõe os anteriores fechados |
 | Critério de pronto | a checklist do fim inteira marcada, cada item verificado contra o código ou contra o ambiente |
@@ -80,7 +80,7 @@ levaria a implantação para dentro do contrato público.
 ### B) Informações relevantes
 
 - Sem `PUBLIC_HOST` e `REDIS_PASSWORD`, o `docker-compose.yml` aborta o `up` pelo `${VAR:?}`
-  (linhas 35, 40, 76, 90, 96, 133): nem `docker compose up postgres redis` sobe, e sem os
+  (linhas 39, 45, 81, 95, 101, 138): nem `docker compose up postgres redis` sobe, e sem os
   dois a suíte não roda. É o primeiro passo de código porque tudo o mais depende da suíte.
 - A senha do Redis aparece em dois lugares do `.env` (`REDIS_PASSWORD` e `REDIS_URL`) e nada
   verifica que coincidem; a divergência aparece na primeira operação de cache, com erro que
@@ -125,7 +125,10 @@ há razão para trocar a chave quando o problema são três variáveis ausentes.
 3. ADR 0023: sem páginas de cadastro ou edição de perfil nesta fase.
 4. `docs/arquitetura.md`: índice das ADRs atualizado. `docs/integracao-rp.md`: orientação de
    `skip_authorization` para RP de primeira parte.
-5. Cada ADR aponta para a correspondente na SPA (`nova_api_SPA/docs/adr/`), e vice-versa.
+5. Cada ADR aponta para a correspondente na SPA (`nova_api_SPA/docs/adr/`). No sentido
+   inverso, as ADRs 0014, 0016 e 0012 da SPA foram aceitas antes destas existirem e apontam
+   para "a ADR do IdP, devida": a descrição já resolve, e emendar ADR aceita seria ADR nova
+   (TASK-018). Não se fará.
 
 ### B) Informações relevantes
 
@@ -258,7 +261,7 @@ verifica-se no passo 8, uma vez, antes de abrir a porta.
   `["http", "https"]`). Fixá-la em `["https"]` sem condição quebraria a `Application` de dev,
   cuja `redirect_uri` é `http://localhost:5173/callback`. Condicionar a `BEHIND_TLS_PROXY` é o
   precedente da ADR 0006: o endurecimento segue a variável de transporte, nunca `DEBUG`. Em
-  produção, `BEHIND_TLS_PROXY` é `True` pelo compose (`docker-compose.yml:104`).
+  produção, `BEHIND_TLS_PROXY` é `True` pelo compose (`docker-compose.yml:109`).
 - `CORS_URLS_REGEX = r"^/o/"` faz o `django-cors-headers` emitir cabeçalho só na superfície de
   protocolo: `/admin/` e `/accounts/login/` nunca são chamados cross-origin. A descoberta
   (`/o/.well-known/…`), o JWKS, `/o/token/` e `/o/userinfo/` estão todos sob `/o/`.
@@ -376,7 +379,8 @@ inteira de origem (ADRs 0015, 0018, 0020) contra uma topologia que não se vai u
   de container local, ou o `Caddyfile` passa a condicionar a diretiva. Este plano recomenda
   condicionar por variável de ambiente lida pelo Caddy — `{$CADDY_TLS}` com valor `internal`
   no `.env` de dev e ausente no de produção — porque é o mesmo mecanismo do `{$PUBLIC_HOST}`
-  que o arquivo já usa. Isso acrescenta um item ao `.env.example` e ao passo 2.
+  que o arquivo já usa. Isso acrescenta uma variável ao `.env.example` e ao `.env` de dev
+  (o passo 2 está fechado; a variável entra neste passo, e o `.env` de produção não a tem).
 - A suíte na jornada de container continua neutralizando `SECURE_SSL_REDIRECT`
   (`tests/runner.py`); nada muda para ela.
 - `tests/test_endurecimento_transporte.py` cobre o Django atrás do proxy, não o Caddy. O
@@ -432,7 +436,7 @@ sob placeholder mantém um arquivo só, com uma diferença só.
   proxy de userland do Docker (ADR 0017:112, ADR 0020) — a porta continua em loopback, ou o
   acesso veio do próprio host. Enquanto disser `gateway`, a exposição não tomou efeito.
 - O `docker-compose.yml` deriva `BASE_URL`, `ALLOWED_HOSTS` e `BEHIND_TLS_PROXY=True` de
-  `PUBLIC_HOST` (linhas 90-104); nenhum deles entra no `.env` de produção.
+  `PUBLIC_HOST` (linhas 95-109); nenhum deles entra no `.env` de produção.
 - O primeiro `up` com ACME demora o tempo do desafio HTTP-01; `--wait` espera pelo healthcheck
   do `app`, que não passa pelo proxy (`ALLOWED_HOSTS` inclui `127.0.0.1` por isso).
 - Nenhum arquivo do repositório muda neste passo; é operação. O que se versiona é o `README.md`
@@ -540,13 +544,14 @@ documento.
 
 ### Passo 4 — integração em `localhost`
 
-- [ ] `Application` de dev: `public`, `authorization-code`, `RS256`,
+- [x] `Application` de dev: `public`, `authorization-code`, `RS256`,
       `http://localhost:5173/callback`, `skip_authorization`
-- [ ] Conta de teste com nome e conta sem nome
-- [ ] `issuer` `http://localhost:8000/o` e `client_id` entregues à SPA
-- [ ] Fluxo PKCE à mão fecha; segunda autorização sem consentimento
-- [ ] `/o/userinfo/` com token inválido → 401 com cabeçalho de CORS
-- [ ] SPA faz login em `/app` contra o IdP real
+- [x] Conta de teste com nome e conta sem nome
+- [x] `issuer` `http://localhost:8000/o` e `client_id` entregues à SPA
+- [x] Fluxo PKCE à mão fecha; segunda autorização sem consentimento
+- [x] `/o/userinfo/` com token inválido → 401 com cabeçalho de CORS
+- [x] SPA faz login em `/app` contra o IdP real (verificação manual do usuário, registrada
+      na TASK-012 da SPA)
 
 ### Passo 5 — endurecimento
 
@@ -567,6 +572,8 @@ documento.
 ### Passo 7 — transporte e publicação
 
 - [ ] `docker/Caddyfile` com `tls` condicionado por placeholder; `.env.example` com a variável
+- [ ] `.env` de dev com `CADDY_TLS=internal` (backup antes; `SECRET_KEY` e
+      `OIDC_RSA_PRIVATE_KEY` preservados)
 - [ ] `docker-compose.yml` com 80/443 publicadas sem endereço; Postgres e Redis em `127.0.0.1`
 - [ ] `docs/runbook.md` §19 e `docs/receita.md` atualizados
 - [ ] Jornada de container em `idp.localhost` ainda sobe com certificado da CA local
@@ -593,3 +600,23 @@ documento.
 - [ ] Fluxo PKCE à mão fecha em produção com `id_token` completo, sem consentimento repetido
 - [ ] `/o/userinfo/` com token inválido → 401 com cabeçalho de CORS
 - [ ] SPA faz login em produção e chega a `/app` com as claims
+
+---
+
+## Pendências fora do plano
+
+Duas dívidas que a ADR 0021 nomeou sem dono nem prazo (TASK-018). Não pertencem ao contrato — a
+SPA fecha sem elas — mas a exposição as torna sensíveis, e é aqui, ao lado dos passos que
+expõem o IdP, que precisam estar à vista; até agora só a ADR 0021 e
+`.claude/memory/decisions.md` as nomeavam.
+
+- `SESSION_COOKIE_SAMESITE`, `SESSION_COOKIE_AGE` e `SESSION_EXPIRE_AT_BROWSER_CLOSE` não
+  estão declarados em `config/settings.py`. O pulo do consentimento e a volta sem senha no
+  reload dependem do `Lax` default; declarar e testar é o que impede que uma atualização do
+  Django os troque em silêncio.
+- `REFRESH_TOKEN_EXPIRE_SECONDS` sem valor finito. Cada reload da SPA grava três tokens novos
+  sem clique, e o `refresh_token` não expira; `docs/robustez-info.md` §2.8 reservou o valor
+  para ADR.
+
+Nenhuma das duas entra nos passos acima. Cada uma é tarefa própria, com ADR quando o valor
+for decidido.
