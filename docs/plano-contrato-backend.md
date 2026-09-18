@@ -515,9 +515,10 @@ documento.
 
 ### Passo 1 — contrato e ponteiros
 
-- [ ] `docs/contrato-backend.md` §6 e §9 sem a afirmação sobre `POSTGRES_PORT`
-- [ ] `docs/contrato-backend.md` §8 e §9 com o mesmo conjunto de decisões
-- [ ] `README.md` e `../CLAUDE.md` apontando para `docs/contrato-backend.md` e para este plano
+- [x] `docs/contrato-backend.md` §6 e §9 sem a afirmação sobre `POSTGRES_PORT`
+- [x] `docs/contrato-backend.md` §8 e §9 com o mesmo conjunto de decisões
+- [x] `README.md` e `../CLAUDE.md` apontando para `docs/contrato-backend.md` e para este plano
+      (`../CLAUDE.md` aponta só para o contrato, por decisão — TASK-016)
 
 ### Passo 2 — `.env` de desenvolvimento
 
@@ -531,11 +532,11 @@ documento.
 
 ### Passo 3 — ADRs cruzadas
 
-- [ ] ADR 0021 `skip_authorization` aceita, apontando para a ADR da SPA
-- [ ] ADR 0022 CORS por origem exata, previews fora, aceita, apontando para a ADR da SPA
-- [ ] ADR 0023 sem páginas de conta nesta fase, aceita, apontando para a ADR da SPA
-- [ ] `docs/arquitetura.md` com as três no índice
-- [ ] `docs/integracao-rp.md` com a orientação de `skip_authorization`
+- [x] ADR 0021 `skip_authorization` aceita, apontando para a ADR da SPA
+- [x] ADR 0022 CORS por origem exata, previews fora, aceita, apontando para a ADR da SPA
+- [x] ADR 0023 sem páginas de conta nesta fase, aceita, apontando para a ADR da SPA
+- [x] `docs/arquitetura.md` com as três no índice
+- [x] `docs/integracao-rp.md` com a orientação de `skip_authorization`
 
 ### Passo 4 — integração em `localhost`
 

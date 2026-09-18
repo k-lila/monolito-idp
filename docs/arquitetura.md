@@ -81,7 +81,8 @@ errado falha ali; chave ausente não dá erro nenhum e o `id_token` sai só com 
 3. Autenticada a pessoa, abre-se a sessão de login (SSO), no backend `cached_db`: grava no
    Postgres, lê do Redis.
 4. A tela de consentimento lista os scopes concedidos, com as descrições declaradas em
-   `SCOPES`.
+   `SCOPES` — salvo na `Application` de primeira parte, com `skip_authorization` marcado: a
+   tela não aparece e o passo 5 vem direto (ADR 0021).
 5. O consentimento redireciona de volta à `redirect_uri` registrada, com o código de
    autorização na query string.
 6. A RP troca o código em `POST /o/token/`, apresentando o `code_verifier`, e recebe
@@ -150,7 +151,7 @@ Dockerfile             a imagem e o HEALTHCHECK
 docker-compose.yml     os quatro serviços, a ordem de subida e o que é publicado no host
 requirements.txt       as versões fixadas, e o piso de compatibilidade do Django
 .env.example           o contrato de variáveis de ambiente
-docs/adr/              as dezenove decisões de arquitetura, uma por arquivo, mais o template
+docs/adr/              as decisões de arquitetura, uma por arquivo, mais o template
 .claude/               sistema de agentes; não participa da execução do IdP
 ```
 
@@ -222,6 +223,9 @@ As decisões de arquitetura, uma por arquivo em `docs/adr/`:
 | A procedência do endereço em cada linha da trilha — estende a **0013** | `0018-declarar-a-procedencia-do-endereco-em-cada-linha-da-trilha.md` |
 | O superusuário criado por comando explícito — emenda a **0006** | `0019-criar-o-superusuario-por-comando-explicito-fora-do-boot.md` |
 | O endereço colapsado pelo `docker-proxy` marcado em cada linha da trilha — emenda a **0018** | `0020-marcar-na-linha-o-endereco-colapsado-pelo-docker-proxy.md` |
+| O consentimento pulado na `Application` de primeira parte, por `skip_authorization` | `0021-pular-o-consentimento-na-application-de-primeira-parte-por-skip-authorization.md` |
+| O CORS por origem exata, uma por ambiente; previews da Vercel fora | `0022-liberar-o-cors-por-origem-exata-e-deixar-os-previews-da-vercel-fora.md` |
+| Sem cadastro nem edição de perfil nesta fase; contas criadas no admin | `0023-nao-oferecer-cadastro-nem-perfil-nesta-fase-e-manter-a-criacao-de-contas-no-admin.md` |
 
 ADR aceita é imutável: decisão que mudou vira ADR nova. O formato está em
 `docs/adr/template-adr.md`.

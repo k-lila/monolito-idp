@@ -182,9 +182,12 @@ Entregar o `client_id` de cada `Application` à SPA.
 - `CORS_ALLOWED_ORIGINS` com a origem **exata** da SPA daquele ambiente: `https://<spa>` em
   produção, `http://localhost:5173` em dev. Sem curinga, sem regex, sem `CORS_ALLOW_ALL_ORIGINS`.
   `CORS_ALLOW_CREDENTIALS` fica no default `False` (a SPA não manda cookie).
-- A liberação vale para **quatro** caminhos que a SPA chama por `fetch`: descoberta, `jwks_uri`,
-  `/o/token/`, `/o/userinfo/`. O IdP fake que a SPA usou em dev ecoava qualquer origem em
-  descoberta e JWKS, então esses dois nunca foram testados contra uma allowlist real.
+- A SPA chama quatro caminhos por `fetch`, e a allowlist não governa os quatro. Descoberta e
+  `jwks_uri` são públicos pelo próprio `django-oauth-toolkit`: saem com
+  `Access-Control-Allow-Origin: *` para qualquer origem, como a especificação OIDC espera, com
+  ou sem allowlist — o `CorsMiddleware` só troca o `*` pela origem exata quando ela está na
+  lista. A allowlist governa `/o/token/` e `/o/userinfo/`, os dois que carregam token
+  (ADR 0022).
 - Preflight: `django-cors-headers` 4.9.0 já inclui `authorization` e `content-type` em
   `CORS_ALLOW_HEADERS` por default; nada a acrescentar.
 - Recomendado: `CORS_URLS_REGEX = r"^/o/"`, para que cabeçalhos de CORS saiam só na superfície
@@ -256,8 +259,10 @@ Sem a SPA, com `curl` e um navegador, em cada ambiente:
    valor entregue à SPA, `code_challenge_methods_supported: ["S256"]`, sem
    `end_session_endpoint`.
 2. `jwks_uri` responde com uma chave RSA com `kid`.
-3. Os dois acima, e `/o/token/` e `/o/userinfo/`, respondem com `Access-Control-Allow-Origin`
-   igual à origem da SPA quando chamados com `Origin` (seção 5.2).
+3. `/o/token/` e `/o/userinfo/` respondem com `Access-Control-Allow-Origin` igual à origem da
+   SPA quando chamados com o `Origin` dela, e **sem** o cabeçalho quando chamados com uma origem
+   estranha. Descoberta e `jwks_uri` respondem a qualquer origem: `*`, ou a origem exata se ela
+   estiver na lista (seção 5.2).
 4. O fluxo PKCE à mão de `docs/receita.md` fecha com a `Application` da SPA: `id_token` com
    `iss`, `aud` = `client_id`, `sub`, `name`, `email`; sem tela de consentimento na segunda
    autorização.
@@ -328,8 +333,8 @@ documento.
 
 - [ ] ADR: issuer congelado (confirmação da ADR 0007), com referência à ADR da SPA
 - [ ] ADR: premissa de sandbox rompida (exposição na AWS, um salto, ACME)
-- [ ] ADR: `skip_authorization` para RP de primeira parte
-- [ ] ADR: CORS por origem exata, previews fora
-- [ ] ADR: sem páginas de conta nesta fase
+- [x] ADR: `skip_authorization` para RP de primeira parte
+- [x] ADR: CORS por origem exata, previews fora
+- [x] ADR: sem páginas de conta nesta fase
 - [ ] `docs/integracao-rp.md` atualizado com o issuer de produção e a orientação de
       `skip_authorization`

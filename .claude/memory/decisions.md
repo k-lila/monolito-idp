@@ -43,6 +43,9 @@
 | 2026-09-13 | Declarar a procedência do endereço em cada linha da trilha; estende a 0013 | [0018](../../docs/adr/0018-declarar-a-procedencia-do-endereco-em-cada-linha-da-trilha.md) |
 | 2026-09-13 | Criar o superusuário por comando explícito, fora do boot; emenda à 0006 | [0019](../../docs/adr/0019-criar-o-superusuario-por-comando-explicito-fora-do-boot.md) |
 | 2026-09-14 | Marcar na linha da trilha o endereço colapsado pelo `docker-proxy`; emenda à 0018 | [0020](../../docs/adr/0020-marcar-na-linha-o-endereco-colapsado-pelo-docker-proxy.md) |
+| 2026-09-17 | Pular o consentimento na `Application` de primeira parte por `skip_authorization`; default global intocado — contraparte: SPA 0014 | [0021](../../docs/adr/0021-pular-o-consentimento-na-application-de-primeira-parte-por-skip-authorization.md) |
+| 2026-09-17 | Liberar o CORS por origem exata, uma por ambiente; previews da Vercel fora — contraparte: SPA 0016 | [0022](../../docs/adr/0022-liberar-o-cors-por-origem-exata-e-deixar-os-previews-da-vercel-fora.md) |
+| 2026-09-17 | Não oferecer cadastro nem perfil nesta fase; contas criadas no admin — contraparte: SPA 0012 | [0023](../../docs/adr/0023-nao-oferecer-cadastro-nem-perfil-nesta-fase-e-manter-a-criacao-de-contas-no-admin.md) |
 
 ---
 
@@ -230,3 +233,50 @@ os checklists, um `quality-assurance` em conformidade (`REGRESSAO: não`).
   `CORS_ALLOWED_ORIGINS` faltando) e o do `writer` (caixa de CORS do contrato coberta pela mesma
   evidência) — todos os três resolvidos dentro da tarefa.
 - **Tipo:** decisão, observação e tech-debt.
+
+---
+
+## [2026-09-17] TASK-018 · Passo 3 do plano do contrato: as três ADRs cruzadas, feitas antes do passo 4
+
+O pedido original era o passo 4 (a `Application` de dev e o fluxo em `localhost`); o usuário
+escolheu fechar o 3 antes, para que `skip_authorization` fosse marcado com ADR aceita. Rota
+`/chore`, com uma **fase de `architect` inserida** entre a pré-alteração e o `writer`: o
+`PROTOCOLO-AGENTES.md` manda o `architect` redigir toda ADR em qualquer rota, e o `/chore` não
+tem essa fase. Ratificado pelo usuário; vale como precedente para chore que grava ADR.
+
+- **ADRs 0021, 0022 e 0023** gravadas, no índice acima. Cada uma aponta para a contraparte da
+  SPA (0014, 0016, 0012). O "vice-versa" do plano fica por descrição: as três da SPA foram
+  aceitas antes destas existirem e apontam para "a ADR do IdP, devida"; emendar ADR aceita é
+  ADR nova, e a descrição já resolve. Não se fará.
+- **Decisão: as três ADRs registram disciplina de operação, não mecanismo.** `skip_authorization`
+  num terceiro, um regex em CORS e um cadastro improvisado são possíveis sem que teste ou
+  `check` acuse. Cada ADR registra o silêncio nas consequências negativas; nenhuma pede código.
+  Junta-se à posição do `CorsMiddleware` e ao `AXES_CLIENT_IP_CALLABLE` como regra que só a
+  leitura protege.
+- **Edições de coerência autorizadas fora do escopo inicial:** `docs/arquitetura.md` (árvore sem
+  contagem de ADRs, porque a numerada já estava defasada; passo 4 do "caminho de um pedido" com
+  a exceção da 0021); `docs/contrato-backend.md` §5.2 e §7 item 3 (a allowlist de CORS governa
+  `/o/token/` e `/o/userinfo/`; descoberta e JWKS saem com `*` pelo próprio DOT, com ou sem
+  lista — a observação da TASK-017, agora no contrato e na 0022); `README.md:134` (mesma
+  contagem defasada); prosa das 0022 e 0023 corrigida antes do commit.
+- **Pendências nomeadas pela ADR 0021, sem dono nem prazo** — a ADR 0014 da SPA as pede à "ADR
+  de `skip_authorization`", e a 0021 as registra em vez de decidir: (1) declarar e testar
+  `SESSION_COOKIE_SAMESITE`, `SESSION_COOKIE_AGE` e `SESSION_EXPIRE_AT_BROWSER_CLOSE` — o pulo
+  do consentimento depende do `Lax` default, não declarado; (2) dar valor finito a
+  `REFRESH_TOKEN_EXPIRE_SECONDS` — cada F5 da SPA grava três tokens novos sem clique, e o
+  refresh não expira (`docs/robustez-info.md` §2.8 já reservou para ADR). Tech-debt.
+- **Observação sem ação:** qualquer cliente pode enviar `approval_prompt=auto` em
+  `/o/authorize/` e obter o comportamento `"auto"` por requisição (`oauth2_provider/views/base.py:257`),
+  independentemente do default global. A 0021 o registra na alternativa descartada; nenhum outro
+  documento menciona — "tela em toda autorização" vale para clientes que não conhecem o parâmetro.
+- **Apontamentos adiados** (prosa, para a próxima tarefa que abrir o arquivo com esse escopo):
+  `DOT` nunca expandido em `docs/contrato-backend.md` (primeira ocorrência numa tabela, linha
+  67); §9 do contrato ainda diz "os quatro caminhos respondem com o cabeçalho" — verdadeiro,
+  mas prova menos do que o §7 item 3 passou a exigir.
+- **Checklists:** passo 1 e passo 3 do plano marcados contra os arquivos (a terceira caixa do
+  passo 1 com nota: `../CLAUDE.md` aponta só para o contrato, decisão da TASK-016); três caixas
+  de "Registro" do contrato §9 marcadas. A caixa do `integracao-rp.md` com issuer de produção
+  fica para o passo 6.
+- **Prova:** `manage.py test` 102 OK (`quality-assurance`), sem código tocado; `git diff --stat`
+  sem ADR 0001–0020.
+- **Tipo:** decisão, tech-debt, observação e apontamento adiado.

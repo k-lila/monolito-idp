@@ -60,7 +60,8 @@ O registro é manual, feito por uma pessoa com acesso administrativo ao IdP, em
 responde 404 enquanto `DCR_ENABLED` mantiver o default `False` do
 `django-oauth-toolkit`: não há como uma RP se auto-registrar nesta fase.
 
-Quatro campos decidem se a integração funciona:
+Quatro campos decidem se a integração funciona; um quinto decide se a pessoa vê a tela de
+consentimento:
 
 | Campo | Valor | Por quê |
 | --- | --- | --- |
@@ -68,6 +69,7 @@ Quatro campos decidem se a integração funciona:
 | `authorization_grant_type` | `authorization-code` | é o único fluxo suportado aqui |
 | `algorithm` | `RS256` | sem ele não há `id_token` |
 | `redirect_uris` | a URL de retorno da RP | comparada por igualdade exata |
+| `skip_authorization` | `True` só para RP de primeira parte; `False` (default) para qualquer terceiro | pula a tela de consentimento; `docs/adr/0021-pular-o-consentimento-na-application-de-primeira-parte-por-skip-authorization.md` |
 
 **A comparação de `redirect_uri` é por igualdade exata, nunca por prefixo.** Uma barra final a
 mais na URL enviada em `/o/authorize/` já basta para o servidor recusar antes de emitir
@@ -81,6 +83,13 @@ falha só aparece na troca, sem `id_token` nenhum. O sintoma e o diagnóstico es
 `docs/runbook.md`.
 
 Do registro sai o `client_id`, que é o que a RP guarda. Não há `client_secret`.
+
+**`skip_authorization` separa primeira parte de terceiro.** Marcado, o servidor emite o código
+sem mostrar a tela de consentimento, inclusive na primeira autorização. É o que a `Application`
+da `nova_api_SPA` recebe: ela volta a `/o/authorize/` a cada recarga da página, e uma pergunta
+cuja resposta já se conhece não informa nada. Numa `Application` de terceiro o campo fica
+desmarcado, sempre — nada no IdP impede marcá-lo, e a regra vive em
+`docs/adr/0021-pular-o-consentimento-na-application-de-primeira-parte-por-skip-authorization.md`.
 
 ## 4. O fluxo que a RP implementa
 

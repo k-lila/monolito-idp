@@ -131,4 +131,4 @@ justamente o que a ADR 0019 tirou do caminho.
 | `CLAUDE.md` | as regras de trabalho deste repositório |
 
 As decisões de arquitetura vivem em `docs/adr/`, uma por arquivo e imutáveis depois de aceitas.
-O índice das dezenove está em `docs/arquitetura.md`; o formato, em `docs/adr/template-adr.md`.
+O índice está em `docs/arquitetura.md`; o formato, em `docs/adr/template-adr.md`.
