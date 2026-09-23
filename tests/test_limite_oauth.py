@@ -1,12 +1,14 @@
-"""T-07, T-09, T-11/T-17 — a limitação de taxa de `/o/token/`, de `/o/authorize/` e (a partir
-de T-17) de `/accounts/login/` (`config/limites.py`), e o preço que o T-10/T-13 cobram por
-desligá-la durante a suíte.
+"""T-07, T-09, T-11/T-17, T-14 — a limitação de taxa de `/o/token/`, de `/o/authorize/`, de
+`/accounts/login/` (a partir de T-17) e de `/o/device-authorization/` (a partir de T-14,
+TASK-019) (`config/limites.py`), e o preço que o T-10/T-13 cobram por desligá-la durante a
+suíte.
 
-Demanda do quality-assurance (TASK-014, bloco B). Nível integração em T-07 e T-09: o teto é
-um middleware sobre o cache real e sobre a posição dele na cadeia, e a costura entre
-`LimiteDeTaxaMiddleware` e `ObservabilidadeMiddleware` só se prova pela resposta HTTP e pelo
-log de verdade. T-11/T-17 é unitário — uma única decisão: o dicionário de produção, com as
-TRÊS chaves declaradas hoje, alcança o middleware.
+Demanda do quality-assurance (TASK-014, bloco B; T-14 em TASK-019). Nível integração em T-07,
+T-09 e T-14: o teto é um middleware sobre o cache real e sobre a posição dele na cadeia, e a
+costura entre `LimiteDeTaxaMiddleware`, `ObservabilidadeMiddleware` e (em T-14) a gravação do
+`DeviceGrant` só se prova pela resposta HTTP, pelo log e pela linha no banco de verdade.
+T-11/T-17 é unitário — uma única decisão: o dicionário de produção, com as QUATRO chaves
+declaradas hoje, alcança o middleware.
 
 REGRA DO BLOCO: todo teste aqui passa `REMOTE_ADDR` explícito e forjado (`10.x.y.z`). O
 default do test client é `127.0.0.1`, a MESMA chave de contador que o `runserver` da jornada
@@ -19,10 +21,12 @@ e levaria junto a cópia quente das sessões (ADR 0005).
 
 import json
 import logging
+from urllib.parse import urlencode
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.test import TestCase, override_settings
+from oauth2_provider.models import get_device_grant_model
 
 import tests.runner as runner
 from config.limites import chave_do_contador
@@ -190,29 +194,116 @@ class ObservabilidadeDoLimiteDeOAuthTests(TestCase):
         self.assertEqual(linha["request_id"], linhas_de_acesso[0]["request_id"])
 
 
+def _post_form_urlencoded(client, path, dados, **extra):
+    """POST com `Content-Type: application/x-www-form-urlencoded` explícito.
+
+    `Client.post` do Django, quando recebe um `dict` como corpo, monta a requisição como
+    multipart por padrão (`MULTIPART_CONTENT`). O DOT (`django-oauth-toolkit`) confere o
+    Content-Type antes de processar `/o/device-authorization/` e devolve 400 ("Content-Type
+    must be application/x-www-form-urlencoded") antes de gravar nada — sem esta função o
+    teste do teto (T-14) ficaria cego ao próprio limitador, porque toda requisição pararia no
+    400 do DOT antes de chegar à gravação que o teste precisa contar.
+    """
+    return client.post(
+        path, urlencode(dados), content_type="application/x-www-form-urlencoded", **extra
+    )
+
+
+ORIGEM_T14 = "10.50.0.6"
+
+
+@override_settings(
+    RATE_LIMIT_POR_CAMINHO={"/o/device-authorization/": 2},
+    RATE_LIMIT_JANELA_SEGUNDOS=60,
+)
+class LimiteDeDeviceAuthorizationTests(TestCase):
+    """T-14, TASK-019 — o teto de `/o/device-authorization/` (`config/settings.py`). Mesmo
+    padrão de `override_settings` e de origem forjada que T-07 já usa para `/o/token/` e
+    `/o/authorize/` (ver regra do bloco, no topo deste arquivo) — a diferença é que aqui cada
+    POST aceito grava uma linha de `DeviceGrant`, e é essa gravação, não só o código HTTP, que
+    o teto existe para limitar (razão completa ao lado do número 30, em
+    `config/settings.py`)."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="t14-device@exemplo.com", password="senha-forte-o-suficiente"
+        )
+        self.application = create_public_rs256_application(self.user)
+        self.DeviceGrant = get_device_grant_model()
+        cache.delete(chave_do_contador("/o/device-authorization/", ORIGEM_T14))
+
+    def tearDown(self):
+        cache.delete(chave_do_contador("/o/device-authorization/", ORIGEM_T14))
+
+    def _linhas_gravadas(self):
+        return self.DeviceGrant.objects.filter(client_id=self.application.client_id).count()
+
+    def test_abaixo_do_teto_200_e_uma_linha_por_post(self):
+        for numero_do_post in range(1, 3):
+            resposta = _post_form_urlencoded(
+                self.client,
+                "/o/device-authorization/",
+                {"client_id": self.application.client_id},
+                REMOTE_ADDR=ORIGEM_T14,
+            )
+            self.assertEqual(resposta.status_code, 200)
+            self.assertEqual(self._linhas_gravadas(), numero_do_post)
+
+    def test_acima_do_teto_e_429_sem_gravar_devicegrant_a_mais(self):
+        for _ in range(2):
+            _post_form_urlencoded(
+                self.client,
+                "/o/device-authorization/",
+                {"client_id": self.application.client_id},
+                REMOTE_ADDR=ORIGEM_T14,
+            )
+        linhas_antes_do_excesso = self._linhas_gravadas()
+
+        terceira = _post_form_urlencoded(
+            self.client,
+            "/o/device-authorization/",
+            {"client_id": self.application.client_id},
+            REMOTE_ADDR=ORIGEM_T14,
+        )
+
+        self.assertEqual(terceira.status_code, 429)
+        corpo = terceira.json()
+        self.assertEqual(corpo["error"], "temporarily_unavailable")
+        self.assertEqual(self._linhas_gravadas(), linhas_antes_do_excesso)
+
+
 ORIGEM_T11_TOKEN = "10.50.0.3"
 ORIGEM_T11_AUTHORIZE = "10.50.0.4"
 ORIGEM_T17_LOGIN = "10.50.0.5"
+ORIGEM_T11_DEVICE = "10.50.0.7"
 
 
 class OAuthRateLimitDeProducaoAlcancaOMiddlewareTests(TestCase):
-    """T-11, ampliado por T-17 — o preço do T-10/T-13. Prova que `RATE_LIMIT_POR_CAMINHO` de
-    produção, e não um dicionário qualquer, alcança de fato o middleware para os TRÊS
-    caminhos declarados e faz o contador de cada um subir — sem asserir o teto numérico,
-    porque isso reescreveria a política dentro do teste.
+    """T-11, ampliado por T-17 e por T-14 (TASK-019) — o preço do T-10/T-13. Prova que
+    `RATE_LIMIT_POR_CAMINHO` de produção, e não um dicionário qualquer, alcança de fato o
+    middleware para os QUATRO caminhos declarados e faz o contador de cada um subir — sem
+    asserir o teto numérico, porque isso reescreveria a política dentro do teste.
 
     A terceira chave (`/accounts/login/`) é o preço específico do T-13: com o dicionário
     inteiro esvaziado pelo runner durante a suíte (e não só as duas de `/o/`, como antes),
     nada mais prova que a entrada de login declarada em `config/settings.py` chega ao
     middleware. Sem este caso, apagar `"/accounts/login/"` daquele dicionário deixaria a tela
-    de login sem teto e a suíte inteira verde."""
+    de login sem teto e a suíte inteira verde.
+
+    A quarta (`/o/device-authorization/`) é o preço específico do T-14: sem este caso, apagar
+    aquela linha do dicionário de produção deixaria a rota que grava `DeviceGrant` sem teto e
+    a suíte inteira verde, o mesmo silêncio que o parágrafo acima já nomeia para a terceira
+    chave. POST anônimo, e sem `client_id`: o objeto deste caso é só o contador do middleware
+    — que roda antes da view e não olha o corpo —, e não a gravação de `DeviceGrant`, que
+    `LimiteDeDeviceAuthorizationTests` (T-14, acima) já cobre com uma Application real."""
 
     def tearDown(self):
         cache.delete(chave_do_contador("/o/token/", ORIGEM_T11_TOKEN))
         cache.delete(chave_do_contador("/o/authorize/", ORIGEM_T11_AUTHORIZE))
         cache.delete(chave_do_contador("/accounts/login/", ORIGEM_T17_LOGIN))
+        cache.delete(chave_do_contador("/o/device-authorization/", ORIGEM_T11_DEVICE))
 
-    def test_contador_sobe_para_os_tres_caminhos_com_o_dicionario_de_producao(self):
+    def test_contador_sobe_para_os_quatro_caminhos_com_o_dicionario_de_producao(self):
         # `tests.runner.RunnerComTrilhaIsolada.setup_test_environment` (T-10/T-13) guardou o
         # valor de produção aqui antes de zerar `settings.RATE_LIMIT_POR_CAMINHO` para a suíte.
         self.assertIsNotNone(
@@ -227,6 +318,11 @@ class OAuthRateLimitDeProducaoAlcancaOMiddlewareTests(TestCase):
             # um GET não convoca o `django-axes` (que só age no caminho de `authenticate()`,
             # ou seja, sobre POST) — a mesma separação de papéis que T-14 usa.
             self.client.get("/accounts/login/", REMOTE_ADDR=ORIGEM_T17_LOGIN)
+            # POST multipart, sem `client_id`: o DOT devolve 400 antes de gravar
+            # `DeviceGrant` (ver `_post_form_urlencoded`, acima), mas o middleware já
+            # incrementou o contador antes de a requisição chegar à view — é só isso que
+            # este caso prova.
+            self.client.post("/o/device-authorization/", {}, REMOTE_ADDR=ORIGEM_T11_DEVICE)
 
         self.assertEqual(cache.get(chave_do_contador("/o/token/", ORIGEM_T11_TOKEN)), 1)
         self.assertEqual(
@@ -234,4 +330,7 @@ class OAuthRateLimitDeProducaoAlcancaOMiddlewareTests(TestCase):
         )
         self.assertEqual(
             cache.get(chave_do_contador("/accounts/login/", ORIGEM_T17_LOGIN)), 1
+        )
+        self.assertEqual(
+            cache.get(chave_do_contador("/o/device-authorization/", ORIGEM_T11_DEVICE)), 1
         )

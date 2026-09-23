@@ -34,6 +34,7 @@ mensagem de falha do `assertEqual` isolado já nomeia o par (esperado, obtido) d
 
 from django.conf import settings
 from django.test import SimpleTestCase
+from oauth2_provider.settings import oauth2_settings
 
 import tests.runner as runner
 
@@ -70,3 +71,50 @@ class EndurecimentoDeTransporteSegueBehindTlsProxyTests(SimpleTestCase):
             ("HTTP_X_FORWARDED_PROTO", "https") if settings.BEHIND_TLS_PROXY else None
         )
         self.assertEqual(settings.SECURE_PROXY_SSL_HEADER, esperado)
+
+
+class AllowedRedirectUriSchemesDeProducaoSegueBehindTlsProxyTests(SimpleTestCase):
+    """TASK-019/T-01 — `ALLOWED_REDIRECT_URI_SCHEMES` (`config/settings.py:360`) é o QUINTO
+    valor governado por `BEHIND_TLS_PROXY`, e o único, entre os cinco, que
+    `tests.runner.RunnerComTrilhaIsolada` neutraliza — pela mesma razão de
+    `SECURE_SSL_REDIRECT`: as fixtures de `tests/oauth_helpers.py` registram `redirect_uri`
+    em `http://`, e `["https"]` de produção, sob `BEHIND_TLS_PROXY` ligado, rejeitaria o
+    redirecionamento de todo teste de fluxo com `DisallowedRedirect` (400).
+
+    TASK-019/T-02 — único teste capaz de ver a derivação de produção, que a neutralização do
+    runner apaga do resto da suíte: os dois ramos de `settings.OAUTH2_PROVIDER` durante a
+    suíte valem sempre `["http", "https"]`, por construção do próprio runner, e comparar
+    contra ele provaria só que o runner neutralizou — nunca o que
+    `config/settings.py:360` declara. Por isso a comparação é contra
+    `tests.runner.OAUTH2_PROVIDER_DE_PRODUCAO`, o dicionário que o setup guardou ANTES de
+    substituir `settings.OAUTH2_PROVIDER` pela cópia neutra — nunca contra
+    `settings.OAUTH2_PROVIDER`."""
+
+    def test_allowed_redirect_uri_schemes_de_producao_segue_behind_tls_proxy(self):
+        self.assertIsNotNone(
+            runner.OAUTH2_PROVIDER_DE_PRODUCAO,
+            "tests/runner.py não guardou OAUTH2_PROVIDER de produção — a suíte rodou sem "
+            "passar por setup_test_environment?",
+        )
+        esperado = ["https"] if settings.BEHIND_TLS_PROXY else ["http", "https"]
+        self.assertEqual(
+            runner.OAUTH2_PROVIDER_DE_PRODUCAO["ALLOWED_REDIRECT_URI_SCHEMES"], esperado
+        )
+
+
+class OAuth2SettingsRecebeOSinalDeNeutralizacaoTests(SimpleTestCase):
+    """TASK-019/T-03 — prova que o sinal `setting_changed` do runner chegou de fato ao CACHE
+    do toolkit (`oauth2_provider.settings.oauth2_settings`), e não só que
+    `settings.OAUTH2_PROVIDER` mudou de valor. `oauth2_settings` lê o dicionário sob demanda,
+    por `__getattr__`, e só essa leitura acrescenta o atributo a `_cached_attrs`
+    (`oauth2_provider/settings.py`) — quando este runner roda, `ALLOWED_REDIRECT_URI_SCHEMES`
+    ainda não foi lido por ninguém. Sem o sinal — ou com um `setattr` direto em
+    `oauth2_settings` no lugar dele, ANTES de qualquer leitura real —, o atributo nunca
+    passaria por `__getattr__`, nunca entraria em `_cached_attrs`, e nenhum `reload()` futuro
+    (nem o do primeiro `override_settings(OAUTH2_PROVIDER=...)` legítimo de outro teste)
+    encontraria o que apagar: o `setattr` sobreviveria à suíte inteira (razão completa no
+    docstring de `tests/runner.py`) — este teste é o único capaz de distinguir
+    "settings.OAUTH2_PROVIDER trocou" de "o toolkit recarregou"."""
+
+    def test_oauth2_settings_alcanca_as_duas_letras_durante_a_suite(self):
+        self.assertEqual(oauth2_settings.ALLOWED_REDIRECT_URI_SCHEMES, ["http", "https"])

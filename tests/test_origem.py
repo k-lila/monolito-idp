@@ -251,14 +251,26 @@ class OrigemCompletaTests(SimpleTestCase):
         `(None, None, None)` — não só o endereço e a procedência."""
         self.assertEqual(origem_completa(None), (None, None, None))
 
+    @override_settings(BEHIND_TLS_PROXY=False)
     def test_b_endereco_igual_ao_gateway_tem_alcance_gateway(self):
+        """TASK-019/T-13 — fixa `BEHIND_TLS_PROXY=False`, como os casos equivalentes das
+        outras classes deste arquivo (`OrigemDaRequisicaoTests.test_b`,
+        `OrigemEProcedenciaTests.test_b`). Sem o `override_settings`, este caso lia o
+        `BEHIND_TLS_PROXY` real da jornada — verdadeiro na de container — e a
+        requisição sem `X-Forwarded-For` caía no ramo `remote_addr_fallback` de
+        `origem_e_procedencia`, e não no `remote_addr` que a asserção espera: a
+        procedência do par, e por extensão o primeiro elemento da tripla, passava a
+        depender de qual jornada rodou o teste, e não da regra sob prova aqui, que é
+        só o alcance (`gateway`/`peer`/`unknown`)."""
         gateway = "172.18.0.1"
         self._apontar_tabela_para(_tabela_com_rota_default(gateway))
         request = self.factory.get("/qualquer", REMOTE_ADDR=gateway)
 
         self.assertEqual(origem_completa(request), (gateway, "remote_addr", "gateway"))
 
+    @override_settings(BEHIND_TLS_PROXY=False)
     def test_c_endereco_diferente_do_gateway_tem_alcance_peer(self):
+        """TASK-019/T-13 — mesma razão do `test_b` acima."""
         self._apontar_tabela_para(_tabela_com_rota_default("172.18.0.1"))
         request = self.factory.get("/qualquer", REMOTE_ADDR="172.18.0.5")
 

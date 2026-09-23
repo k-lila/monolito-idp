@@ -31,6 +31,14 @@ OIDC_RSA_PRIVATE_KEY = env.str("OIDC_RSA_PRIVATE_KEY", multiline=True)
 BEHIND_TLS_PROXY = env.bool("BEHIND_TLS_PROXY")
 LOG_LEVEL = env.str("LOG_LEVEL")
 CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS")
+# O django-cors-headers só age sob `/o/`: `/admin/` e `/accounts/login/` nunca são chamados
+# por `fetch` de outra origem, e ali uma origem da allowlist não recebe cabeçalho nenhum. O
+# acoplamento é com o prefixo `o/` de config/urls.py, e é silencioso: mudar o prefixo sem
+# mudar esta linha tira o CORS de /o/token/ e de /o/userinfo/ sem erro. Descoberta, JWKS e
+# metadados das RFCs 8414 e 9728 não dependem desta linha nem do middleware: a view do DOT
+# põe `Access-Control-Allow-Origin: *` à mão. Literal no código, e não no `.env`, pela razão
+# escrita em RATE_LIMIT_POR_CAMINHO.
+CORS_URLS_REGEX = r"^/o/"
 
 # Sem default, deliberadamente: um default faria a trilha de auditoria gravar dentro da
 # camada de escrita do container e desaparecer no primeiro `docker compose down` —
@@ -186,6 +194,24 @@ PASSWORD_HASHERS = [
     "django.contrib.auth.hashers.ScryptPasswordHasher",
 ]
 
+# Os quatro validadores prontos do Django, nos defaults: mínimo de 8 caracteres, e a
+# semelhança medida contra `email`, `first_name` e `last_name` — `username` é None no
+# accounts.User, e o validador o pula. É esta lista que sustenta a aritmética do teto de cinco
+# tentativas do axes, que supõe um espaço de busca inviável.
+#
+# Os silêncios: a validação roda só onde uma senha é ESCOLHIDA pela tela ou pelo comando — os
+# formulários do admin de adicionar conta e de alterar senha, `changepassword` e
+# `createsuperuser` interativo. Não roda no login, de modo que conta com senha antiga fraca
+# continua entrando; não roda em `create_user` nem em `set_password`, de modo que a suíte e o
+# `shell` passam por baixo; `createsuperuser` interativo oferece "Bypass password validation"
+# depois da recusa; e `createsuperuser --noinput` não valida nada.
+AUTH_PASSWORD_VALIDATORS = [
+    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
+    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
+    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
+]
+
 # A PRIMEIRA declaração de AUTHENTICATION_BACKENDS na história deste projeto, e o silêncio
 # mais caro do arquivo: declarar a lista SUBSTITUI o default do Django. Sem a segunda linha,
 # `ModelBackend`, ninguém autentica — todas as contas trancadas de uma vez, e o sintoma é uma
@@ -281,6 +307,16 @@ AXES_VERBOSE = False
 # alcançar aquela linha. A linha cresce cerca de 130 bytes por tentativa, e cada UPDATE a
 # reescreve inteira. Sem teto de requisição, um laço de `curl` paga isso indefinidamente.
 #
+# Trinta por minuto em `/o/device-authorization/`, abaixo dos demais porque ali não há uso
+# legítimo: este projeto não usa o device grant, e a rota só está publicada porque vem na mesma
+# lista do toolkit que `/o/authorize/` e `/o/token/` (ADR 0024). Mesmo assim, é a única
+# superfície anônima que grava no banco: o oauthlib só confere que o `client_id` existe, a view
+# é `csrf_exempt` e `login_not_required`, e cada POST com o `client_id` público da SPA grava uma
+# linha de `DeviceGrant` e responde 200. Token nenhum sai dali — `/o/token/` recusa o grant pelo
+# tipo da Application —, mas a linha fica. O teto só limita o custo POR ORIGEM, e é dívida
+# registrada: `clear_expired()` não apaga `DeviceGrant`, de modo que as linhas continuam
+# acumulando a partir de origens distintas, sem nada que as recolha.
+#
 # Literais no código versionado, NUNCA variáveis de ambiente: não são segredo, não variam por
 # ambiente, e uma variável nova sem default derrubaria o boot e a suíte de todo ambiente já
 # montado — o `.env` é untracked e não tem cópia, como `AUDIT_LOG_PATH` mostrou. Política vive
@@ -289,6 +325,7 @@ RATE_LIMIT_POR_CAMINHO = {
     "/o/token/": 120,
     "/o/authorize/": 120,
     "/accounts/login/": 60,
+    "/o/device-authorization/": 30,
 }
 RATE_LIMIT_JANELA_SEGUNDOS = 60
 
@@ -323,6 +360,15 @@ OAUTH2_PROVIDER = {
     # Contrato por string resolvido no boot: sem esta chave não há erro nenhum, o fluxo
     # fecha e o id_token chega só com `sub`.
     "OAUTH2_VALIDATOR_CLASS": "accounts.oauth_validators.IdPOAuth2Validator",
+    # Governa o transporte do `code` pelo canal de frente, e por isso segue BEHIND_TLS_PROXY e
+    # nunca DEBUG (ADR 0006): atrás do proxy TLS, só `https`. Alcança dois pontos: o formulário
+    # de Application no admin, que recusa `http://` no campo, e o 302 de /o/authorize/ — numa
+    # Application já gravada com `http://`, o redirecionamento vira DisallowedRedirect, isto é,
+    # 400 depois do login, sem `code`. Na suíte vale sempre ["http", "https"], por
+    # tests/runner.py. Declarada mesmo quando coincide com o default da 3.4.1: a biblioteca
+    # anuncia defaults que mudam na 4.0 (ver OIDC_RP_INITIATED_LOGOUT_ENABLED), e um teste
+    # indexa esta chave.
+    "ALLOWED_REDIRECT_URI_SCHEMES": ["https"] if BEHIND_TLS_PROXY else ["http", "https"],
 }
 
 # Endurecimento de transporte governado por BEHIND_TLS_PROXY, nunca por DEBUG (ADR 0006):

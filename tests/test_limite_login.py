@@ -499,7 +499,7 @@ class InvarianteEntreOTetoDoLoginEOAxesTests(TestCase):
 
     A leitura é `tests.runner.RATE_LIMIT_DE_PRODUCAO`, e não `settings.RATE_LIMIT_POR_CAMINHO`
     direto: T-13 esvazia o dicionário inteiro em `settings` para a suíte inteira (docstring
-    de `tests/runner.py`), e o valor de produção — as TRÊS chaves — só continua acessível
+    de `tests/runner.py`), e o valor de produção — hoje as QUATRO chaves — só continua acessível
     pelo atributo de módulo que o runner guardou antes de zerar. Ler `settings` direto aqui
     devolveria `KeyError`, não a política de produção. `AXES_FAILURE_LIMIT` não sofre essa
     troca — não há runner nenhum guardando-o —, e por isso é lido de `settings` normalmente."""
