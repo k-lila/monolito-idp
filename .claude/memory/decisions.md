@@ -39,7 +39,7 @@
 | 2026-09-08 | Manter o identificador de requisição até a requisição seguinte; emenda à 0012 | [0014](../../docs/adr/0014-manter-o-identificador-de-requisicao-ate-a-requisicao-seguinte.md) |
 | 2026-09-10 | Resolver a origem do cliente num ponto único — a chave de contagem | [0015](../../docs/adr/0015-resolver-a-origem-do-cliente-num-ponto-unico.md) |
 | 2026-09-10 | Limitar a taxa na superfície de autenticação: axes no login, middleware próprio nos três caminhos | [0016](../../docs/adr/0016-limitar-a-taxa-na-superficie-de-autenticacao.md) |
-| 2026-09-13 | Terminar o TLS num proxy declarado no compose e publicar só ele; emenda à 0006 | [0017](../../docs/adr/0017-terminar-o-tls-num-proxy-declarado-no-compose.md) |
+| 2026-09-13 | Terminar o TLS num proxy declarado no compose e publicar só ele; emenda à 0006 — **emendada pela 0026** | [0017](../../docs/adr/0017-terminar-o-tls-num-proxy-declarado-no-compose.md) |
 | 2026-09-13 | Declarar a procedência do endereço em cada linha da trilha; estende a 0013 | [0018](../../docs/adr/0018-declarar-a-procedencia-do-endereco-em-cada-linha-da-trilha.md) |
 | 2026-09-13 | Criar o superusuário por comando explícito, fora do boot; emenda à 0006 | [0019](../../docs/adr/0019-criar-o-superusuario-por-comando-explicito-fora-do-boot.md) |
 | 2026-09-14 | Marcar na linha da trilha o endereço colapsado pelo `docker-proxy`; emenda à 0018 | [0020](../../docs/adr/0020-marcar-na-linha-o-endereco-colapsado-pelo-docker-proxy.md) |
@@ -47,6 +47,8 @@
 | 2026-09-17 | Liberar o CORS por origem exata, uma por ambiente; previews da Vercel fora — contraparte: SPA 0016 | [0022](../../docs/adr/0022-liberar-o-cors-por-origem-exata-e-deixar-os-previews-da-vercel-fora.md) |
 | 2026-09-17 | Não oferecer cadastro nem perfil nesta fase; contas criadas no admin — contraparte: SPA 0012 | [0023](../../docs/adr/0023-nao-oferecer-cadastro-nem-perfil-nesta-fase-e-manter-a-criacao-de-contas-no-admin.md) |
 | 2026-09-22 | Montar sob `/o/` só as listas de protocolo do toolkit (metadata, base, oidc); emenda à 0002 | [0024](../../docs/adr/0024-montar-sob-o-so-as-listas-de-protocolo-do-django-oauth-toolkit.md) |
+| 2026-09-23 | Congelar a forma do issuer de produção em `https://<PUBLIC_HOST>/o`, sem literal de domínio versionado; cumpre a condição da 0007 — contraparte: SPA 0017 | [0025](../../docs/adr/0025-congelar-o-issuer-de-producao-na-forma-https-public-host-barra-o.md) |
+| 2026-09-23 | Expor na AWS por um salto de proxy só, ACME, 80/443 fora de loopback por override invocado com `-f`; emenda à 0017 — contraparte: SPA 0016 | [0026](../../docs/adr/0026-expor-o-idp-na-aws-por-um-salto-de-proxy-so-com-acme-e-80-443-fora-de-loopback.md) |
 
 ---
 
@@ -110,4 +112,55 @@ condicionada a `BEHIND_TLS_PROXY`; `CORS_URLS_REGEX = r"^/o/"`. Doze AC, T-01 a 
 - **Prova:** 138 testes OK na jornada de construção, com `BEHIND_TLS_PROXY=True` no host e na
   jornada de container real (imagem reconstruída); `manage.py check` sem issues. T-14 e o caso
   de CORS da RFC 8414 provados por mutação pelo `quality-assurance`.
+- **Tipo:** decisão, tech-debt e apontamento adiado.
+
+---
+
+## [2026-09-23] TASK-020 · Passo 6 do plano do contrato: o issuer congelado e a premissa de sandbox rompida
+
+Rota `/chore` com fase de `architect` inserida, aberta em 2026-09-22. Só documentação: ADRs 0025
+e 0026 (no índice acima) e a premissa reescrita em CLAUDE.md, README.md, arquitetura.md,
+seguranca.md, integracao-rp.md, contrato-backend.md, implementacao-robustez.md, receita.md, plano
+e `../pre-deploy.md` (fora do git). O architect redigiu três versões da 0026; o usuário aprovou o
+texto final antes da gravação.
+
+- **Decisão (usuário): o domínio de produção nunca é literal versionado.** Vive só no `.env` da
+  instância e no painel da Vercel; é escolhido no passo 8 pelas regras da 0025. `docs/integracao-rp.md`
+  diz a forma, não o nome.
+- **Decisão (usuário): override `docker-compose.prod.yml` invocado à mão com `-f`.** O compose base
+  fica em `127.0.0.1` (dev e jornada de container em loopback). Descartados: script versionado,
+  link `docker-compose.override.yml`, `COMPOSE_FILE`, publicar no base, editar à mão, dois arquivos
+  completos. O esquecimento do `-f` falha fechado; a conferência é `docker compose ps` no passo 8.
+  **Gatilho de revisão:** segundo operador ou deploy automatizado.
+- **Decisão (usuário): renumeração 0024/0025 → 0025/0026** no plano e no `../pre-deploy.md`, feita.
+- **Dívidas aceitas:** (1) revisão das ADRs 0006 (linhas 86-87, "precisará ser substituído se o
+  projeto sair do sandbox") e 0008 (linhas 70-72, "terá de ser revista"): a exposição aciona os
+  gatilhos na letra, e a 0026 não as revisa. (2) `refresh_token` sem expiração e cookies com a
+  política do default: riscos aceitos nas Consequências da 0026; cada correção é tarefa com ADR.
+- **Antes do passo 8 (para o usuário decidir):** os itens abertos da §6 de `docs/seguranca.md`
+  (rotação de chave RSA, coleta externa de log, pin transitivo, agendamento de `cleartokens` e
+  `clearsessions`, posição do `CorsMiddleware`, `email_verified` e revogação) viram dívida vencida
+  no dia da exposição; a 0026 só aceita os dois riscos acima.
+- **Para o passo 7:** medir o Compose da instância (a máquina de dev tem 2.27.0, que suporta
+  `!override`) e a fusão de `ports:` com `config`; decidir IPv6 (publicação sem endereço abre
+  `[::]`, que cai no colapso de origem da 0020 — `0.0.0.0:` no override ou DNS só com registro A);
+  varrer `runbook.md` e `receita.md` para citar o comando com `-f` na instância; seguranca.md:98,
+  :174 e a linha da 0017 na tabela descrevem o disco de hoje.
+- **Para o passo 8:** o cabeçalho de `scripts/gen_dev_key.sh` diz que a chave de produção não sai
+  dali, e o plano (passo 8, A.3) e o `contrato-backend.md` §4.4 mandam gerá-la com ele; o
+  `CLAUDE.md` diz "a única `OIDC_RSA_PRIVATE_KEY`", e haverá duas; o HSTS marca o nome já na
+  primeira visita, então o domínio precisa estar decidido antes da verificação.
+- **Para uma tarefa da SPA:** `nova_api_SPA/docs/contrato-frontend.md:283` aponta a ADR 0007 como
+  a que congela o issuer; agora é a 0025.
+- **Apontamentos adiados:** o teto de 120/min por origem foi dimensionado para sandbox, e
+  pessoas usuárias atrás do mesmo NAT compartilham a chave; "ADR" sem expansão no primeiro uso em
+  README, integracao-rp e arquitetura (anterior à tarefa); "forma" em dois sentidos seguidos em
+  integracao-rp §2; linhas antigas acima de 100 colunas.
+- **Rejeitados:** editar `docs/robustez-info.md:425` (levantamento datado de 2026-09-08); trocar o
+  `<dominio-do-idp>` de `../pre-deploy.md:148` (reproduz a ADR 0017 da SPA); reescrever plano:338
+  (justificativa histórica); arquitetura.md:190 e :21 (o QA constatou que não são erro); as
+  menções a `*.amazonaws.com` (só como nome descartado).
+- **Prova:** 138 testes OK na jornada de construção nas duas passagens do `quality-assurance`;
+  só `.md` mudou. Verificação final do orquestrador: nenhuma frase antiga restante, nenhum literal
+  de domínio, nenhuma linha acrescentada acima de 100 colunas, citação da 0017 literal na 0026.
 - **Tipo:** decisão, tech-debt e apontamento adiado.

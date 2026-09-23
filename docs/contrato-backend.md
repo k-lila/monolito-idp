@@ -80,7 +80,7 @@ Quatro valores, por ambiente. Sem eles a SPA não sobe (o boot dela falha sem va
 
 | Valor | Produção | Desenvolvimento | Quem gera |
 | --- | --- | --- | --- |
-| `issuer` | `https://<dominio-do-idp>/o` | `http://localhost:8000/o` | este projeto (seção 4.1) |
+| `issuer` | `https://<PUBLIC_HOST>/o` | `http://localhost:8000/o` | este projeto (seção 4.1) |
 | `client_id` | o da `Application` de produção | o da `Application` de dev | este projeto (seção 5.1) |
 | Origem liberada no CORS | `https://<spa>` | `http://localhost:5173` | este projeto configura; valor vem da SPA |
 | `redirect_uri` registrada | `https://<spa>/callback` | `http://localhost:5173/callback` | este projeto registra; valor vem da SPA |
@@ -93,26 +93,31 @@ entregue.
 
 ## 4. Produção: expor o IdP na AWS
 
-Hoje o IdP é sandbox em `127.0.0.1` com certificado de autoridade certificadora (CA) local. Para
-a SPA na Vercel alcançá-lo, ele precisa ter nome público, HTTPS que o navegador aceite e a
-topologia que o código já mediu.
+A exposição está decidida pelas ADRs 0025 (a forma do issuer) e 0026 (um salto de proxy só, ACME
+(Automatic Certificate Management Environment), e 80/443 fora de loopback por um override de
+compose invocado com `-f` na instância). O `docker-compose.yml` base continua publicando o proxy
+em `127.0.0.1`, com certificado de autoridade certificadora (CA) local; o override e o certificado
+público entram no passo 7 de `docs/plano-contrato-backend.md`. Para a SPA na Vercel alcançá-lo, ele
+precisa ter nome público, HTTPS que o navegador aceite e a topologia que o código já mediu.
 
 ### 4.1 Issuer com domínio próprio
 
-- Fixar o nome público num **domínio seu** (ex.: `idp.<seu-dominio>`), apontado por DNS para a
-  instância. `PUBLIC_HOST=idp.<seu-dominio>` no `.env` de produção; o compose deriva
-  `BASE_URL`, `ALLOWED_HOSTS` e `BEHIND_TLS_PROXY=True`.
-- O issuer resultante, `https://idp.<seu-dominio>/o`, é o valor que vai para a SPA e que **congela
-  na primeira integração** (ADR 0007 pede confirmação explícita antes disso — é agora).
+- Fixar o nome público num **domínio seu**, apontado por DNS para a instância.
+  `PUBLIC_HOST=<domínio próprio>` no `.env` de produção; o compose deriva `BASE_URL`,
+  `ALLOWED_HOSTS` e `BEHIND_TLS_PROXY=True`.
+- O issuer resultante, `https://<PUBLIC_HOST>/o`, é o valor que vai para a SPA e que **congela
+  na primeira integração** (a confirmação que a ADR 0007 pedia está na ADR 0025).
 - Não usar nome atribuído pela AWS (`*.amazonaws.com`): é reciclável para outro cliente e não
   recebe certificado público.
 
 ### 4.2 HTTPS público
 
-- Trocar `tls internal` do `docker/Caddyfile` por emissão automática (ACME — Automatic
-  Certificate Management Environment, Let's Encrypt), que é o default do Caddy sem a diretiva.
-- Publicar 80/443 em `0.0.0.0` no `docker-compose.yml` (edição deliberada, prevista na ADR
-  0017). Security group: só 80/443 da internet; SSH restrito.
+- Trocar `tls internal` do `docker/Caddyfile` por emissão automática (ACME, Let's Encrypt), que é
+  o default do Caddy sem a diretiva.
+- Publicar 80/443 fora de loopback só na instância, pelo override `docker-compose.prod.yml`,
+  invocado por quem opera com `docker compose -f docker-compose.yml -f docker-compose.prod.yml`
+  (ADR 0026); o `docker-compose.yml` base continua em `127.0.0.1`. Security group: só 80/443 da
+  internet; SSH restrito.
 - Manter o volume `caddydata`: certificado e conta ACME vivem nele; recriá-lo esgota o limite de
   emissão.
 - Verificação: `GET http://<host>/` responde 308 para `https`; a descoberta responde em
@@ -283,7 +288,7 @@ Depois disso, a etapa final é da SPA: login em produção chega a `/app` com as
 
 | Decisão | Referência na SPA |
 | --- | --- |
-| Issuer congelado em `https://<dominio>/o` (confirmação pedida pela ADR 0007) | ADR da SPA fixando `VITE_OIDC_ISSUER` |
+| Issuer congelado em `https://<PUBLIC_HOST>/o` (confirmação pedida pela ADR 0007) | ADR da SPA fixando `VITE_OIDC_ISSUER` |
 | Premissa de sandbox rompida: IdP exposto na AWS, um salto, ACME | ADR da SPA de deploy na Vercel |
 | `skip_authorization` para a `Application` de primeira parte | ADR da SPA fechando "sessão no reload" (§7.2 do plano dela) |
 | CORS por origem exata; previews da Vercel fora | ADR da SPA sobre previews |
@@ -316,7 +321,9 @@ documento.
 - [ ] Domínio próprio apontando para a instância; `PUBLIC_HOST` definido com ele
 - [ ] `.env` de produção gerado na instância (chaves e senhas novas), com backup
 - [ ] Caddy com certificado público (ACME), `tls internal` removido; volume `caddydata` mantido
-- [ ] Portas 80/443 publicadas em `0.0.0.0`; security group só 80/443 (+ SSH restrito)
+- [ ] Portas 80/443 publicadas fora de loopback pelo override de produção, invocado com `-f`;
+      `docker compose ps` mostra o `proxy` em `0.0.0.0:80` e `0.0.0.0:443`; security group só
+      80/443 (+ SSH restrito)
 - [ ] Nenhum proxy entre a internet e o Caddy; `TRUSTED_PROXY_COUNT = 1`; trilha mostra
       `ip_edge` = `peer` após acesso externo
 - [ ] `https://<host>/o/.well-known/openid-configuration` responde com `"issuer":
@@ -338,10 +345,10 @@ documento.
 
 ### Registro
 
-- [ ] ADR: issuer congelado (confirmação da ADR 0007), com referência à ADR da SPA
-- [ ] ADR: premissa de sandbox rompida (exposição na AWS, um salto, ACME)
+- [x] ADR: issuer congelado (confirmação da ADR 0007), com referência à ADR da SPA
+- [x] ADR: premissa de sandbox rompida (exposição na AWS, um salto, ACME)
 - [x] ADR: `skip_authorization` para RP de primeira parte
 - [x] ADR: CORS por origem exata, previews fora
 - [x] ADR: sem páginas de conta nesta fase
-- [ ] `docs/integracao-rp.md` atualizado com o issuer de produção e a orientação de
-      `skip_authorization`
+- [x] `docs/integracao-rp.md` atualizado com a forma do issuer de produção (ADR 0025), sem o
+      nome, e a orientação de `skip_authorization`

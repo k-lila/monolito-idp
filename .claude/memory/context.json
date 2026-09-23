@@ -40,38 +40,5 @@
     "proxima_acao": "a próxima invocação ou a pergunta ao usuário, em uma linha"
   },
   "atualizado_em": "2026-09-23",
-  "tarefas_ativas": [
-    {
-      "task_id": "TASK-020",
-      "demanda": "implemente o passo 6 do plano do contrato conforme a definição refeita em 2026-09-22 — congelar o issuer (ADR 0025) e romper a premissa de sandbox (ADR 0026, emenda à 0017)",
-      "rota": "/chore",
-      "aberta_em": "2026-09-22",
-      "fase_atual": {
-        "numero": "1",
-        "responsavel": "orquestrador",
-        "estado": "aguardando-agente"
-      },
-      "fases_concluidas": [],
-      "autorizacao_pre_alteracao": "pendente",
-      "artefatos": {
-        "ac": [],
-        "t": [],
-        "adrs_pendentes": [
-          "docs/adr/0025-<slug>.md — congelar o issuer de produção na forma https://<PUBLIC_HOST>/o, sem literal do domínio (usuário, 2026-09-22); a redigir pelo architect",
-          "docs/adr/0026-<slug>.md — expor o IdP na AWS com um salto de proxy só, ACME e 80/443 fora de loopback; emenda à 0017; a redigir pelo architect"
-        ],
-        "arquivos_tocados": []
-      },
-      "pendencias_de_fechamento": {
-        "apontamentos_sem_disposicao": [
-          "[CRITICO] ordem com a TASK-019 — decidido pelo usuário em 2026-09-22: passo 5 antes; TASK-020 espera a TASK-019 fechar — orquestrador",
-          "[CRITICO] domínio — decidido e confirmado pelo usuário em 2026-09-22: sem literal versionado; a 0025 congela a forma https://<PUBLIC_HOST>/o e as regras (domínio próprio, nunca *.amazonaws.com, permanente após o primeiro login, conferência byte a byte descoberta × VITE_OIDC_ISSUER); o valor vive só no .env de produção (gerado na instância, passo 8) e no painel da Vercel; o .env de dev fica com idp.localhost; a escolha do domínio sai da checklist do passo 6 e vai para a do passo 8; integracao-rp.md diz onde ler o issuer, não qual é — orquestrador",
-          "[OBSERVACAO] refresh_token e cookies de sessão — decidido pelo usuário em 2026-09-22: risco nomeado nas Consequências da 0026 — orquestrador",
-          "[OBSERVACAO] ../pre-deploy.md — decidido pelo usuário em 2026-09-22: corrigir junto com o plano — orquestrador"
-        ],
-        "bloqueios_abertos": []
-      },
-      "proxima_acao": "TASK-019 fechada em 2026-09-23: apresentar a pré-alteração ajustada do passo 6 (inclui a renumeração 0024/0025 → 0025/0026 no plano e no ../pre-deploy.md) e pedir autorização"
-    }
-  ]
+  "tarefas_ativas": []
 }

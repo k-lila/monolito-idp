@@ -65,12 +65,11 @@ HSTS (HTTP Strict Transport Security) de um ano em cada navegador que visitou, e
 cacheado em cada relying party (RP) que já integrou. O custo completo está no fim deste
 documento, em "Produção — o que ainda não existe".
 
-**A escolha de `https://<nome público>/o` como issuer vale por enquanto.** É de 2026-09-13, e
-a janela para revê-la fecha na primeira RP integrada: enquanto não houver nenhuma, trocar a
-string custa zero; dali em diante o issuer está cacheado do outro lado e a troca deixa de ser
-edição deste arquivo para virar reconfiguração de terceiro
-(`docs/adr/0007-fixar-o-issuer-do-idp-em-base-url-barra-o.md`). A forma está decidida; a string
-definitiva, não — é o que `docs/seguranca.md` lista como pendente antes de expor.
+**A forma do issuer de produção está congelada pela ADR 0025: `https://<PUBLIC_HOST>/o`.** O nome
+não entra no repositório: vive só no `.env` da instância e no painel da Vercel, e é escolhido no
+passo 8 de `docs/plano-contrato-backend.md`. A partir do primeiro login de produção ele é
+permanente, porque o issuer fica cacheado do outro lado
+(`docs/adr/0007-fixar-o-issuer-do-idp-em-base-url-barra-o.md`).
 
 **Nada confere o nome que você escrever.** As quatro derivações — o certificado,
 `ALLOWED_HOSTS`, `BASE_URL` e a linha de `/etc/hosts` — saem todas desta mesma variável, de
@@ -492,12 +491,11 @@ Quatro itens desta lista saíram dela com o proxy: `BASE_URL`, `BEHIND_TLS_PROXY
 - **O certificado.** Sai da CA interna do Caddy, que nenhum cliente de fora conhece. Trocar
   por um de verdade é trocar a diretiva `tls internal` de `docker/Caddyfile`; deixar de trocá-la
   ao expor faz o Caddy tentar ACME contra a internet (`docs/runbook.md`).
-- **O nome em `PUBLIC_HOST`.** Com ele muda o `issuer`, que é `{BASE_URL}/o` e fica cacheado em
-  cada RP (`docs/adr/0007-fixar-o-issuer-do-idp-em-base-url-barra-o.md`). E o HSTS de um ano
-  marca o navegador de quem visitar: trocar de nome depois exige
-  limpar esse estado em cada navegador. É a decisão com prazo desta lista: o nome de hoje é
-  provisório por escolha, e a provisoriedade acaba na primeira RP integrada — depois dela, o
-  issuer é permanente na prática.
+- **O nome em `PUBLIC_HOST`.** Com ele muda o `issuer`, que é `{BASE_URL}/o` e fica cacheado em cada
+  RP (`docs/adr/0007-fixar-o-issuer-do-idp-em-base-url-barra-o.md`). E o HSTS de um ano marca o
+  navegador de quem visitar: trocar de nome depois exige limpar esse estado em cada navegador. A
+  forma está congelada pela ADR 0025, e o nome de produção é escolhido no passo 8, pelas regras
+  dela; a partir do primeiro login de produção, ele é permanente.
 - **`TRUSTED_PROXY_COUNT`.** Vale `1`, que é o certo com um proxy só. Cada intermediário
   acrescentado à frente do Caddy soma um, e errar o número devolve à trilha e ao limitador de
   taxa um endereço que não é o do cliente.

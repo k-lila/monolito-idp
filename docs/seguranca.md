@@ -1,8 +1,9 @@
 # Segurança — nova_api
 
 Escrito para quem decide expor este provedor de identidade (IdP, Identity Provider) a alguém.
-Diz o que ele protege hoje, com a evidência no código; o que não protege; e o que muda antes
-de ele sair de `localhost`.
+Diz o que ele protege hoje, com a evidência no código; o que não protege; e o que muda ao sair
+de `localhost` — exposição decidida pelas ADRs (Architecture Decision Records) 0025 e 0026 e
+aplicada nos passos 7 a 9 de `docs/plano-contrato-backend.md`.
 
 ## 1. A premissa de ambiente
 
@@ -11,18 +12,31 @@ Tudo aqui descansa sobre uma premissa única, declarada no `README.md` e em
 
 - host único, orquestrado por `docker-compose.yml`;
 - uma réplica da aplicação — premissa da migração no entrypoint;
-- portas publicadas em `127.0.0.1`, para o proxy, o Postgres e o Redis; a aplicação não publica
-  nenhuma;
-- TLS (Transport Layer Security) terminado no proxy do compose, com certificado de uma
-  autoridade certificadora (CA) local que nenhum cliente de fora conhece; o Gunicorn fala texto
-  claro na rede interna, e só o proxy o alcança;
-- nenhuma pessoa usuária além de quem opera a máquina.
+- Postgres e Redis publicados em `127.0.0.1`; a aplicação não publica porta nenhuma;
+- o proxy publicado em `127.0.0.1` em desenvolvimento e na jornada de container. Em produção ele
+  é a exceção declarada: a ADR 0026 o publica em 80 e 443 fora de loopback por um arquivo de
+  override do compose, `docker-compose.prod.yml`, que quem opera a instância da AWS (Amazon Web
+  Services) invoca com `docker compose -f docker-compose.yml -f docker-compose.prod.yml`, com um
+  salto de proxy só. O security group da instância é a única barreira de rede — pré-condição que
+  vive fora do repositório e que nada nele verifica: só 80 e 443 da internet, SSH (Secure Shell)
+  restrito ao endereço de quem opera;
+- TLS (Transport Layer Security) terminado nesse proxy: certificado de uma autoridade
+  certificadora (CA) local, que nenhum cliente de fora conhece, na jornada de container em
+  `idp.localhost`, e certificado público, por ACME (Automatic Certificate Management
+  Environment), em produção (ADR 0026). O Gunicorn fala texto claro na rede interna, e só o proxy
+  o alcança;
+- pessoas usuárias com conta criada no admin (ADR 0023), além de quem opera a máquina.
+
+O override e o certificado público entram no passo 7 de `docs/plano-contrato-backend.md`; até
+lá, o proxy publica em `127.0.0.1` e o `docker/Caddyfile` emite pela CA interna (`tls internal`).
 
 **As escolhas descritas adiante são coerentes com esta premissa e só com ela.** Não são
-posturas defensáveis em geral; são o que faz sentido enquanto a única coisa que alcança o IdP é
-um processo na mesma máquina. Quebrada a premissa por uma porta publicada sem endereço, por um
-túnel ou por um proxy à frente, a lista da seção 6 deixa de ser inventário e passa a ser dívida
-vencida.
+posturas defensáveis em geral. Até o passo 7 de `docs/plano-contrato-backend.md`, a única coisa
+que alcança o IdP é um processo na mesma máquina; a partir do passo 8, a internet o alcança pela
+instância. Nesse dia, o que a seção 6 ainda listar como aberto deixa de ser inventário e passa a
+ser dívida vencida. Só dois itens estão aceitos como risco da exposição, nas Consequências da
+ADR 0026: o `refresh_token` sem expiração e os cookies com a política do default. O mesmo vale
+se a premissa for quebrada por outro caminho — um túnel ou um proxy à frente.
 
 ## 2. O que o IdP protege hoje
 
@@ -90,7 +104,7 @@ desligar o redirecionamento para HTTPS escrevendo `X-Forwarded-Proto` (ADR 0017)
 
 Superfície própria do projeto, em `config/urls.py`: `/`, `/health`, `/accounts/login/`,
 `/accounts/logout/`, `/admin/`, e tudo sob `/o/`. O `/health` é público e sem sessão, e revela
-o estado de banco e de cache — custo aceito nas ADRs (Architecture Decision Records) 0009 e
+o estado de banco e de cache — custo aceito nas ADRs 0009 e
 0010, `docs/adr/0009-isolar-a-view-de-health-da-sessao-e-do-usuario.md` e
 `docs/adr/0010-isentar-health-do-redirecionamento-para-https.md`.
 
@@ -224,15 +238,18 @@ fixada; ela saiu desta lista porque está de pé, conforme a seção 4. Saíram 
 de transporte e de container, implantados no mesmo bloco das ADRs 0017, 0018 e 0019: o proxy
 TLS com `BEHIND_TLS_PROXY=True` e `ALLOWED_HOSTS` composto pelo compose (ADR 0017), o
 `requirepass` no Redis e o `USER` dedicado com a posse de `/var/log/nova_api` — esses dois sem
-ADR —, e a criação de superusuário fora do `.env` (ADR 0019). Saiu por último a restrição de
-quem pode registrar Application, fechada pela ADR 0024.
+ADR —, e a criação de superusuário fora do `.env` (ADR 0019). Saiu também a restrição de quem
+pode registrar Application, fechada pela ADR 0024. A confirmação da forma do issuer que a ADR
+0007 pedia saiu com a ADR 0025.
 A ordem do que restou é decisão pendente, registrada na seção 7.
 
 - certificado emitido por uma autoridade que o cliente já conheça, no lugar da CA interna do
   Caddy — é trocar a diretiva `tls internal` de `docker/Caddyfile`, e deixar de trocá-la ao
-  expor faz o Caddy tentar ACME contra a internet (`docs/runbook.md`);
-- publicar o proxy fora de `127.0.0.1`, que é edição à mão no `docker-compose.yml` e não uma
-  variável — é a decisão que este bloco inteiro existe para preparar (ADR 0017);
+  expor faz o Caddy tentar ACME contra a internet (`docs/runbook.md`); o certificado público
+  por ACME é o que a ADR 0026 decide;
+- publicar o proxy fora de `127.0.0.1`, pelo override `docker-compose.prod.yml` invocado à mão
+  com `-f` na instância, e não por variável — é a decisão que este bloco inteiro existe para
+  preparar (ADRs 0017 e 0026), aplicada no passo 7 de `docs/plano-contrato-backend.md`;
 - conferir `TRUSTED_PROXY_COUNT` contra a topologia real, e as marcas de origem da trilha
   junto. O sinal do próprio dia é `ip_edge`: enquanto toda linha disser `gateway`, o
   `docker-proxy` continua no caminho e o `ip` não identifica cliente nenhum — ou a exposição
@@ -245,8 +262,6 @@ A ordem do que restou é decisão pendente, registrada na seção 7.
 - coleta externa de log;
 - pin das dependências transitivas, unificando os dois pontos de resolução;
 - agendamento de `cleartokens` e `clearsessions`, hoje inexistente;
-- confirmação da string do issuer antes da primeira RP integrar, conforme
-  `docs/adr/0007-fixar-o-issuer-do-idp-em-base-url-barra-o.md`;
 - ao ligar a primeira aplicação de página única, conferir a posição do `CorsMiddleware`, cuja
   configuração incorreta é indetectável enquanto a allowlist estiver vazia — ver
   `docs/runbook.md`;

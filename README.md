@@ -5,22 +5,31 @@ Provedor de identidade (IdP, de *Identity Provider*) OpenID Connect (OIDC) sobre
 publica descoberta e JWKS (JSON Web Key Set), e emite `id_token` assinado em RS256 (RSA, de
 Rivest–Shamir–Adleman, com SHA-256).
 
-## O escopo é o de sandbox exploratório
+## O escopo é o de host único, exposto só pelo proxy
 
 Tudo o que está decidido neste repositório descansa sobre uma premissa única:
 
 - host único, orquestrado por `docker-compose.yml`;
 - uma réplica da aplicação;
-- portas publicadas em `127.0.0.1`, para o proxy, o Postgres e o Redis — a aplicação não
-  publica nenhuma;
-- TLS (Transport Layer Security) terminado num proxy do próprio compose, com certificado de
-  uma autoridade certificadora (CA) local; o Gunicorn continua falando texto claro na rede
-  interna, e só o proxy o alcança;
-- nenhuma pessoa usuária além de quem opera a máquina.
+- Postgres e Redis publicados em `127.0.0.1`; a aplicação não publica porta nenhuma;
+- o proxy publicado em `127.0.0.1` em desenvolvimento e na jornada de container. Em produção ele
+  é a exceção declarada: a ADR 0026 o publica em 80 e 443 fora de loopback por um arquivo de
+  override do compose, `docker-compose.prod.yml`, que quem opera a instância da AWS (Amazon Web
+  Services) invoca com `docker compose -f docker-compose.yml -f docker-compose.prod.yml`, com um
+  salto de proxy só. O security group da instância é a única barreira de rede — pré-condição que
+  vive fora do repositório e que nada nele verifica: só 80 e 443 da internet, SSH (Secure Shell)
+  restrito ao endereço de quem opera;
+- TLS (Transport Layer Security) terminado nesse proxy: certificado de uma autoridade
+  certificadora (CA) local na jornada de container em `idp.localhost`, e certificado público, por
+  ACME (Automatic Certificate Management Environment), em produção (ADR 0026). O Gunicorn
+  continua falando texto claro na rede interna, e só o proxy o alcança;
+- pessoas usuárias com conta criada no admin (ADR 0023), além de quem opera a máquina.
+
+O override e o certificado público entram no passo 7 de `docs/plano-contrato-backend.md`; até
+lá, o proxy publica em `127.0.0.1` e o `docker/Caddyfile` emite pela CA interna (`tls internal`).
 
 Isso não é provisório por descuido: é premissa de várias decisões registradas. O que o IdP
-protege hoje, o que não protege e o que muda antes de expô-lo a alguém está em
-`docs/seguranca.md`.
+protege hoje, o que não protege e o que muda com a exposição está em `docs/seguranca.md`.
 
 ## As duas jornadas
 

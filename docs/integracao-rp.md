@@ -13,10 +13,11 @@ contrato depende de algo que só se resolve do lado do IdP. Há uma exceção, e
 9: a raiz da autoridade certificadora, sem a qual o cliente da RP não chega a abrir conexão.
 Apontar para fora seria apontar para fora do contrato justamente onde ele não fecha.
 
-**Aviso de estabilidade.** Enquanto o projeto for sandbox exploratório, o par `(iss, sub)` —
-a chave de identidade que a OpenID Connect (OIDC) Core §5.7 manda a RP guardar — pode ser
-reciclado entre execuções do IdP, e com ele a conta que a RP associou a uma pessoa. A condição
-que dispara isso está em `docs/runbook.md`.
+**Aviso de estabilidade.** O par `(iss, sub)` — a chave de identidade que a OpenID Connect
+(OIDC) Core §5.7 manda a RP guardar — é reciclado se o banco do IdP for recriado, e com ele a
+conta que a RP associou a uma pessoa. Em desenvolvimento isso acontece a cada `docker compose
+down -v`; em produção, só com a perda do volume `pgdata`. A condição exata está em
+`docs/runbook.md`.
 
 ## 2. Coordenadas
 
@@ -29,11 +30,12 @@ daquela implantação — é ele a fonte, e nunca um literal copiado daqui.
 Duas propriedades do issuer valem em qualquer implantação: ele termina em `/o`, e o esquema é
 `https` se e somente se o IdP está atrás do proxy de terminação TLS (Transport Layer Security).
 
-**A string ainda pode mudar, e é a primeira integração que a congela.** A forma é decidida; o
-nome público de que ela deriva é provisório por escolha de 2026-09-13, e vale enquanto nenhuma
-RP tiver integrado. Depois disso o issuer está cacheado dos dois lados, e trocá-lo passa a
-exigir reconfiguração de quem integrou. Quem lê o `issuer` da descoberta em vez de fixar um
-literal atravessa essa troca sem reconfigurar nada; quem copiou a string, não.
+**A forma do issuer de produção está congelada (ADR 0025): `https://` mais o nome público,
+seguido de `/o`, sem barra final e sem porta.** O nome vive só no ambiente de produção e é
+entregue à RP na integração, nunca escrito neste documento. A partir do primeiro login de
+produção ele é permanente, e trocá-lo exige ADR nova e reconfiguração de quem integrou. Quem lê
+o `issuer` da descoberta em vez de fixar um literal atravessa essa troca sem reconfigurar nada;
+quem copiou a string, não.
 
 O documento de descoberta responde em:
 
@@ -252,8 +254,13 @@ Resource Sharing). A origem da RP precisa ser acrescentada à variável no IdP.
 
 O IdP tem TLS quando está atrás do proxy de terminação, e não tem quando roda em
 `http://localhost:8000` — é a mesma divisão da seção 2, e é o esquema do `issuer` que a
-denuncia. As duas implantações publicam em `127.0.0.1`: nada descrito neste documento deve
-atravessar rede não confiável, pelas razões e com a lista de pendências de
+denuncia. Em desenvolvimento, as duas implantações publicam em `127.0.0.1`, e o certificado da
+jornada de container sai da autoridade interna descrita abaixo. Em produção o proxy é publicado
+fora de loopback, pelo override de compose da ADR 0026, com certificado público por ACME
+(Automatic Certificate Management Environment), e o que segue sobre a autoridade interna não se
+aplica. O override e o certificado público entram no passo 7 de `docs/plano-contrato-backend.md`;
+até lá, o proxy publica em `127.0.0.1` e o `docker/Caddyfile` emite pela CA interna (`tls
+internal`), a descrita abaixo. O que o IdP protege e o que não protege quando exposto está em
 `docs/seguranca.md`.
 
 **O certificado do IdP sai de uma autoridade certificadora (CA) interna, que cliente nenhum

@@ -6,16 +6,18 @@ Key Set) e emite `id_token` assinado em RS256 (RSA, de Rivest–Shamir–Adleman
 Monólito: identidade, telas de login e consentimento, servidor de autorização e endpoints de
 descoberta vivem em uma aplicação implantável só.
 
-O escopo é o de sandbox exploratório — host único, uma réplica, sem TLS (Transport Layer
-Security) próprio, portas publicadas em `127.0.0.1`. Isso é premissa registrada de várias
-decisões, não licença para decidir de qualquer jeito: o escopo não é de produção, mas as
-decisões já tomadas são compromissos.
+O escopo é o de host único e uma réplica, e a aplicação não tem TLS (Transport Layer Security)
+próprio: ele termina no proxy do compose. Postgres e Redis publicam em `127.0.0.1`, e o proxy
+também, fora de produção. O proxy é a exceção declarada em produção: a ADR (Architecture Decision
+Record) 0026 o publica em 80 e 443 fora de loopback na instância da AWS (Amazon Web Services), por
+um arquivo de override do compose que quem opera invoca com `-f`, com um salto de proxy só e o
+security group da instância como única barreira de rede. Isso é premissa registrada de várias
+decisões, não licença para decidir de qualquer jeito: as decisões já tomadas são compromissos.
 
 ## O que já está fechado
 
-- As ADRs (Architecture Decision Records) são imutáveis depois de aceitas. Contrariar uma exige
-  emenda ou ADR nova, nunca edição do arquivo aceito. O índice está em `docs/arquitetura.md`;
-  os arquivos, em `docs/adr/`.
+- As ADRs são imutáveis depois de aceitas. Contrariar uma exige emenda ou ADR nova, nunca edição do
+  arquivo aceito. O índice está em `docs/arquitetura.md`; os arquivos, em `docs/adr/`.
 - O contrato OIDC é público e fica cacheado em cada relying party (RP): issuer, descoberta e
   JWKS. Mudança nele não é refatoração interna — é quebra de contrato com terceiro.
 - Fechado prova-se com a suíte e contra o código, nunca contra o documento que descreve o
@@ -29,8 +31,10 @@ decisões já tomadas são compromissos.
 - A primeira RP é a `nova_api_SPA`, e a integração em desenvolvimento está fechada contra
   este IdP real (passos 1 a 4 de `docs/plano-contrato-backend.md`). O que a SPA consome e o
   que este projeto lhe deve estão em `docs/contrato-backend.md`; o caminho até a exposição na
-  AWS (Amazon Web Services) são os passos 5 a 9 do plano, e nenhum começou. A premissa de sandbox acima só cai
-  quando a ADR que o passo 6 prevê for aceita — até lá, ela vale.
+  AWS são os passos 5 a 9 do plano. Os passos 5 e 6 estão fechados (ADRs 0024, 0025 e 0026): a
+  forma do issuer de produção está congelada, e a premissa de loopback deixou de valer para o
+  proxy em produção com a aceitação da 0026. Os passos 7 a 9 aplicam a decisão, e nenhum
+  começou.
 
 ## Como se escreve código aqui
 

@@ -15,10 +15,13 @@ relying parties (RPs).
 Monólito significa que modelo de usuário, telas de login e consentimento, servidor de
 autorização, emissão de token e endpoints de descoberta vivem em uma aplicação implantável só.
 
-O escopo declarado é o de sandbox exploratório: host único, uma réplica, portas publicadas em
-`127.0.0.1`. O TLS (Transport Layer Security) termina num proxy do próprio compose, que é o
-único serviço publicado (ADR 0017); a aplicação continua falando texto claro na rede interna.
-Isso não é provisório por descuido — é premissa de várias decisões registradas, e a lista do
+O escopo declarado é o de host único e uma réplica. O TLS (Transport Layer Security) termina num
+proxy do próprio compose, que é o único caminho até a aplicação (ADR 0017); a aplicação continua
+falando texto claro na rede interna. Postgres e Redis publicam em `127.0.0.1`, e o proxy também,
+fora de produção. O proxy é a exceção declarada em produção: a ADR 0026 o publica em 80 e 443 fora
+de loopback por um arquivo de override do compose que quem opera invoca com `-f`, com um salto de
+proxy só e o security group da AWS (Amazon Web Services) como única barreira de rede. Isso não é
+provisório por descuido — é premissa de várias decisões registradas, e a lista do
 que ainda não existe está em `docs/seguranca.md`, como risco, e em `docs/receita.md`, como
 pendência de produção.
 
@@ -167,8 +170,14 @@ fixos em 10001, é dono dos dois diretórios que ele escreve, os estáticos e a 
 `X-Forwarded-For` repousa num default medido nessa versão) —, e a espera pelos dois de estado é
 do `depends_on` com `condition: service_healthy`, não de laço no entrypoint.
 
-Quem publica porta é o `proxy`, em `127.0.0.1:80` e `127.0.0.1:443`: o `app` não tem `ports:`,
-e a rede interna do compose é o único caminho até a porta 8000 (ADR 0017). O nome que o proxy
+Quem publica a porta da aplicação é o `proxy`. No `docker-compose.yml`, em `127.0.0.1:80` e
+`127.0.0.1:443`, e é assim em desenvolvimento e na jornada de container. Na instância de
+produção, quem opera invoca o arquivo base junto do override da ADR 0026 — `docker compose -f
+docker-compose.yml -f docker-compose.prod.yml` —, que substitui essas publicações por 80 e 443 sem
+endereço. O override entra no passo 7 de `docs/plano-contrato-backend.md`; até lá, o proxy publica
+em `127.0.0.1` também na instância, e o `docker/Caddyfile` emite pela CA interna (`tls internal`).
+Postgres e Redis ficam em `127.0.0.1` nos dois casos. O `app` não tem `ports:`, e a rede
+interna do compose é o único caminho até a porta 8000 (ADR 0017). O nome que o proxy
 atende sai de `PUBLIC_HOST`, variável do `.env` da qual o compose deriva também `BASE_URL`,
 `ALLOWED_HOSTS` e `BEHIND_TLS_PROXY` do serviço `app`.
 
@@ -221,7 +230,7 @@ As decisões de arquitetura, uma por arquivo em `docs/adr/`:
 | O tempo de vida do identificador de requisição; emenda à 0012 | `0014-manter-o-identificador-de-requisicao-ate-a-requisicao-seguinte.md` |
 | A origem do cliente resolvida num ponto único | `0015-resolver-a-origem-do-cliente-num-ponto-unico.md` |
 | O limite de taxa nas três portas de autenticação | `0016-limitar-a-taxa-na-superficie-de-autenticacao.md` |
-| O proxy de terminação TLS no compose, e só ele publicado — emenda a **0006** | `0017-terminar-o-tls-num-proxy-declarado-no-compose.md` |
+| O proxy de terminação TLS no compose, e só ele publicado — emenda a **0006**; **emendada pela 0026** | `0017-terminar-o-tls-num-proxy-declarado-no-compose.md` |
 | A procedência do endereço em cada linha da trilha — estende a **0013** | `0018-declarar-a-procedencia-do-endereco-em-cada-linha-da-trilha.md` |
 | O superusuário criado por comando explícito — emenda a **0006** | `0019-criar-o-superusuario-por-comando-explicito-fora-do-boot.md` |
 | O endereço colapsado pelo `docker-proxy` marcado em cada linha da trilha — emenda a **0018** | `0020-marcar-na-linha-o-endereco-colapsado-pelo-docker-proxy.md` |
@@ -229,6 +238,8 @@ As decisões de arquitetura, uma por arquivo em `docs/adr/`:
 | O CORS por origem exata, uma por ambiente; previews da Vercel fora | `0022-liberar-o-cors-por-origem-exata-e-deixar-os-previews-da-vercel-fora.md` |
 | Sem cadastro nem edição de perfil nesta fase; contas criadas no admin | `0023-nao-oferecer-cadastro-nem-perfil-nesta-fase-e-manter-a-criacao-de-contas-no-admin.md` |
 | A montagem sob `/o/` só das listas de protocolo do toolkit — emenda a **0002** | `0024-montar-sob-o-so-as-listas-de-protocolo-do-django-oauth-toolkit.md` |
+| O issuer de produção congelado na forma `https://<PUBLIC_HOST>/o` — cumpre a condição da **0007** | `0025-congelar-o-issuer-de-producao-na-forma-https-public-host-barra-o.md` |
+| A exposição na AWS por um salto de proxy só, com ACME (Automatic Certificate Management Environment) e 80/443 fora de loopback por override de compose — emenda a **0017** | `0026-expor-o-idp-na-aws-por-um-salto-de-proxy-so-com-acme-e-80-443-fora-de-loopback.md` |
 
 ADR aceita é imutável: decisão que mudou vira ADR nova. O formato está em
 `docs/adr/template-adr.md`.

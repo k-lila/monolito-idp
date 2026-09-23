@@ -302,16 +302,18 @@ login, sem indicar a causa.
 
 ### A) Itens implementados juntos
 
-1. ADR 0024: confirmar e congelar o issuer de produção em `https://<dominio-proprio>/o`
-   (a confirmação que a ADR 0007:35 exige antes da primeira RP).
-2. ADR 0025: expor o IdP na AWS — um salto de proxy só (Caddy do compose, sem balanceador),
+1. ADR 0025: confirmar e congelar a forma do issuer de produção, `https://<PUBLIC_HOST>/o` (a
+   confirmação que a ADR 0007:35 exige antes da primeira RP); o nome não entra no repositório.
+2. ADR 0026: expor o IdP na AWS — um salto de proxy só (Caddy do compose, sem balanceador),
    certificado por ACME (Automatic Certificate Management Environment), portas 80/443
-   publicadas fora de loopback, `TRUSTED_PROXY_COUNT = 1` mantido.
-3. `CLAUDE.md` (deste projeto), `README.md` ("O escopo é o de sandbox exploratório") e
+   publicadas fora de loopback só na instância, por override de compose invocado com `-f`,
+   `TRUSTED_PROXY_COUNT = 1` mantido.
+3. `CLAUDE.md` (deste projeto), `README.md` ("O escopo é o de host único, exposto só pelo proxy") e
    `docs/arquitetura.md`: a premissa "portas publicadas em `127.0.0.1`" passa a valer para
    Postgres e Redis, e o proxy é a exceção declarada.
 4. Emenda à ADR 0017: a exposição fora de loopback, que ela previa como "editar esse endereço à
-   mão" (linha 60), ganha a ADR que a governa.
+   mão" (linha 60), ganha a ADR que a governa — a 0026, que a emenda no Status; a 0017 não é
+   editada.
 
 ### B) Informações relevantes
 
@@ -334,9 +336,9 @@ login, sem indicar a causa.
 
 - Pró: sem estas duas ADRs, cada linha do passo 8 contraria compromisso escrito — o `CLAUDE.md`
   diz que a premissa de sandbox "não é licença para decidir de qualquer jeito".
-- Pró: a ADR 0024 fecha a pendência mais antiga do projeto: a ADR 0007 pediu esta confirmação
+- Pró: a ADR 0025 fecha a pendência mais antiga do projeto: a ADR 0007 pediu esta confirmação
   antes da primeira RP, e a primeira RP é agora.
-- Contra: a ADR 0025 rompe a premissa de quatro documentos e de várias ADRs; a emenda à 0017 e
+- Contra: a ADR 0026 rompe a premissa de quatro documentos e de várias ADRs; a emenda à 0017 e
   as edições em `CLAUDE.md`, `README.md` e `arquitetura.md` são custo de coerência, não de
   função.
 - Contra: "um salto só" é decisão de topologia que limita a escala: uma réplica, uma instância.
@@ -361,19 +363,32 @@ inteira de origem (ADRs 0015, 0018, 0020) contra uma topologia que não se vai u
 
 1. `docker/Caddyfile`: retirar `tls internal`; o comentário que a justifica passa a registrar
    o contrário — ACME é o default do Caddy sem a diretiva, e é isso que se quer.
-2. `docker-compose.yml`: as publicações do serviço `proxy` passam de `127.0.0.1:80:80` e
-   `127.0.0.1:443:443` para `80:80` e `443:443`. Postgres e Redis continuam em `127.0.0.1`.
+2. `docker-compose.prod.yml`, arquivo novo e versionado, usado só na instância: redefine
+   `services.proxy.ports` como `80:80` e `443:443`, **substituindo** as publicações do arquivo
+   base, e não acrescentando a elas. O `docker-compose.yml` base continua com `127.0.0.1:80:80`
+   e `127.0.0.1:443:443`; Postgres e Redis continuam em `127.0.0.1`. O comentário do serviço
+   `proxy` no base (linhas 143-145, "Expor de verdade é editar estes dois endereços à mão")
+   passa a apontar para o override, para a invocação com `-f` e para a ADR 0026.
 3. `docs/runbook.md`, seção 19 (Caddy): o sintoma "log do proxy fala de desafio ou de conta
    ACME" deixa de significar "faltou `tls internal`" e passa a significar "porta 80 não
-   alcançável da internet, ou DNS não propagado".
+   alcançável da internet, ou DNS não propagado", e todo comando de subida na instância passa a
+   citar `docker compose -f docker-compose.yml -f docker-compose.prod.yml`.
 4. `docs/receita.md`: o passo de extrair a CA local e confiá-la no navegador passa a valer só
-   para a jornada de container em `idp.localhost`, não para produção.
+   para a jornada de container em `idp.localhost`, não para produção, e todo comando de subida
+   na instância passa a citar `docker compose -f docker-compose.yml -f docker-compose.prod.yml`.
 
 ### B) Informações relevantes
 
-- Este passo é uma edição por arquivo, mas os quatro arquivos são um só commit: `tls internal`
+- Este passo é uma edição por arquivo, mas os arquivos deste passo são um só commit: `tls internal`
   fora com a porta ainda em loopback produz um Caddy que tenta ACME, falha no desafio e serve
   502 ou nada (`docker/Caddyfile`, comentário da diretiva; `docs/runbook.md:795`).
+- Em overrides, o Compose concatena as listas de `ports:` dos dois arquivos, não as substitui. A
+  substituição exige a tag `!override` em `ports:` (disponível no Compose 2.24 ou posterior,
+  segundo a documentação do Docker), ou `!reset` seguido da lista nova. Medir antes do commit:
+  `docker compose version` na máquina de dev e na instância, e `docker compose -f
+  docker-compose.yml -f docker-compose.prod.yml config` mostrando só `80:80` e `443:443` no
+  `proxy`, sem nenhuma publicação em `127.0.0.1` restante. O `config` só renderiza e pode rodar
+  em dev; nunca `up` com o override na máquina de dev.
 - A jornada de container em `idp.localhost` deixa de funcionar com o `Caddyfile` sem
   `tls internal`: `.localhost` não recebe certificado público. Ou se aceita perder a jornada
   de container local, ou o `Caddyfile` passa a condicionar a diretiva. Este plano recomenda
@@ -388,8 +403,8 @@ inteira de origem (ADRs 0015, 0018, 0020) contra uma topologia que não se vai u
 
 ### C) Prós e contras
 
-- Pró: são as duas únicas linhas de infraestrutura que separam o sandbox da exposição; tudo o
-  mais já está medido e testado atrás de `BEHIND_TLS_PROXY`.
+- Pró: uma diretiva no `Caddyfile` e um arquivo de override são tudo o que separa a publicação
+  em loopback da exposição; tudo o mais já está medido e testado atrás de `BEHIND_TLS_PROXY`.
 - Pró: com a diretiva condicionada, a jornada de container local sobrevive e continua sendo a
   segunda verificação antes da AWS.
 - Contra: publicação sem endereço é DNAT à frente do firewall do host (comentário de
@@ -414,13 +429,14 @@ sob placeholder mantém um arquivo só, com uma diferença só.
 
 ### A) Itens implementados juntos
 
-1. Domínio próprio com registro DNS `A` apontando para a instância; `PUBLIC_HOST=<dominio>`.
+1. Domínio próprio com registro DNS `A` apontando para a instância; `PUBLIC_HOST=<domínio próprio>`.
 2. Security group: 80 e 443 da internet; SSH restrito ao endereço de quem opera; nada mais.
 3. `.env` de produção gerado **na instância**: `SECRET_KEY` nova, `OIDC_RSA_PRIVATE_KEY` nova
    (`scripts/gen_dev_key.sh`), `POSTGRES_PASSWORD` e `REDIS_PASSWORD` novas, `DEBUG=False`,
    `PUBLIC_HOST`, `CORS_ALLOWED_ORIGINS=https://<spa>`, sem `CADDY_TLS`.
-4. `docker compose up --wait`; superusuário por `docker compose run --rm app python manage.py
-   createsuperuser` (ADR 0019).
+4. `docker compose -f docker-compose.yml -f docker-compose.prod.yml up --wait`; superusuário por
+   `docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm app python
+   manage.py createsuperuser` (ADR 0019).
 5. Backup do `.env` e snapshot dos volumes `pgdata`, `auditlog`, `caddydata`.
 6. Verificação: `GET http://<host>/` → 308 para `https`; certificado aceito pelo navegador sem
    aviso; `https://<host>/o/.well-known/openid-configuration` com `"issuer": "https://<host>/o"`,
@@ -434,13 +450,14 @@ sob placeholder mantém um arquivo só, com uma diferença só.
   fora da instância, cifrado.
 - `ip_edge` = `gateway` depois do acesso externo significa que a publicação ainda passa pelo
   proxy de userland do Docker (ADR 0017:112, ADR 0020) — a porta continua em loopback, ou o
-  acesso veio do próprio host. Enquanto disser `gateway`, a exposição não tomou efeito.
+  acesso veio do próprio host. Enquanto disser `gateway`, a exposição não tomou efeito — ou o
+  `up` foi feito sem o override.
 - O `docker-compose.yml` deriva `BASE_URL`, `ALLOWED_HOSTS` e `BEHIND_TLS_PROXY=True` de
   `PUBLIC_HOST` (linhas 95-109); nenhum deles entra no `.env` de produção.
 - O primeiro `up` com ACME demora o tempo do desafio HTTP-01; `--wait` espera pelo healthcheck
   do `app`, que não passa pelo proxy (`ALLOWED_HOSTS` inclui `127.0.0.1` por isso).
-- Nenhum arquivo do repositório muda neste passo; é operação. O que se versiona é o `README.md`
-  com a pré-condição do security group, se ainda não estiver (passo 6, item 3).
+- Nenhum arquivo do repositório muda neste passo; é operação. A pré-condição do security group
+  já está no `README.md`, versionada no passo 6 (item 3).
 
 ### C) Prós e contras
 
@@ -468,8 +485,9 @@ produção nasce na instância e não sai dela; a de dev continua assinando só 
 
 1. `Application` de produção pelo `/admin/` da instância: `public`, `authorization-code`,
    `RS256`, `redirect_uris` só `https://<spa>/callback`, `skip_authorization` marcado.
-2. Entrega à SPA: `issuer` `https://<dominio>/o` e o `client_id` de produção.
-3. `docs/integracao-rp.md`: o issuer de produção passa a constar ao lado do de construção.
+2. Entrega à SPA: `issuer` `https://<PUBLIC_HOST>/o` e o `client_id` de produção.
+3. `docs/integracao-rp.md`: a forma do issuer de produção (ADR 0025) passa a constar ao lado da
+   de construção, sem o nome. Já cumprido no passo 6, com a ADR 0025.
 4. Verificação: os quatro caminhos com `Origin: https://<spa>` devolvem
    `Access-Control-Allow-Origin: https://<spa>`, e `OPTIONS` em `/o/userinfo/` com
    `Access-Control-Request-Headers: authorization` responde a preflight; fluxo PKCE à mão de
@@ -564,26 +582,32 @@ documento.
 
 ### Passo 6 — ADRs de exposição
 
-- [ ] ADR 0024 issuer de produção congelado, referindo a ADR 0007 e a ADR da SPA
-- [ ] ADR 0025 exposição na AWS: um salto, ACME, portas fora de loopback
-- [ ] Emenda à ADR 0017 apontando para a 0025
-- [ ] `CLAUDE.md`, `README.md`, `docs/arquitetura.md` com a premissa atualizada
+- [x] ADR 0025 forma do issuer de produção congelada, referindo a ADR 0007 e a ADR da SPA
+- [x] ADR 0026 exposição na AWS: um salto, ACME, portas fora de loopback por override
+- [x] Emenda à ADR 0017 no Status da 0026 e no índice
+- [x] `CLAUDE.md`, `README.md`, `docs/arquitetura.md` com a premissa atualizada
 
 ### Passo 7 — transporte e publicação
 
 - [ ] `docker/Caddyfile` com `tls` condicionado por placeholder; `.env.example` com a variável
 - [ ] `.env` de dev com `CADDY_TLS=internal` (backup antes; `SECRET_KEY` e
       `OIDC_RSA_PRIVATE_KEY` preservados)
-- [ ] `docker-compose.yml` com 80/443 publicadas sem endereço; Postgres e Redis em `127.0.0.1`
+- [ ] `docker-compose.prod.yml` substituindo as publicações do `proxy` por 80/443 sem endereço
+      (`!override`, conferido por `docker compose -f docker-compose.yml -f
+      docker-compose.prod.yml config`); `docker-compose.yml` base inalterado em `127.0.0.1`;
+      Postgres e Redis em `127.0.0.1`
 - [ ] `docs/runbook.md` §19 e `docs/receita.md` atualizados
 - [ ] Jornada de container em `idp.localhost` ainda sobe com certificado da CA local
 
 ### Passo 8 — instância e `.env` de produção
 
-- [ ] Domínio próprio com DNS apontando; `PUBLIC_HOST` definido
+- [ ] Domínio próprio com DNS apontando; `PUBLIC_HOST` definido — domínio decidido aqui, pelas
+      regras da ADR 0025
 - [ ] Security group: só 80/443 da internet, SSH restrito
 - [ ] `.env` gerado na instância, chaves e senhas novas, `DEBUG=False`, `CORS_ALLOWED_ORIGINS`
 - [ ] Superusuário por `createsuperuser`
+- [ ] `docker compose ps` mostra o `proxy` em `0.0.0.0:80` e `0.0.0.0:443` (conferência
+      repetida após cada deploy)
 - [ ] Backup cifrado do `.env` fora da instância; snapshot de `pgdata`, `auditlog`, `caddydata`
 - [ ] `http://` → 308 `https://`; certificado aceito sem aviso
 - [ ] Descoberta com `"issuer": "https://<host>/o"`, `S256`, sem `end_session_endpoint`
@@ -594,7 +618,7 @@ documento.
 - [ ] `Application` de produção: `public`, `authorization-code`, `RS256`,
       `https://<spa>/callback`, `skip_authorization`
 - [ ] `issuer` de produção e `client_id` entregues à SPA
-- [ ] `docs/integracao-rp.md` com o issuer de produção
+- [x] `docs/integracao-rp.md` com a forma do issuer de produção, sem o nome
 - [ ] Quatro caminhos com `Access-Control-Allow-Origin: https://<spa>`; preflight de
       `/o/userinfo/` responde
 - [ ] Fluxo PKCE à mão fecha em produção com `id_token` completo, sem consentimento repetido

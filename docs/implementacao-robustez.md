@@ -1,14 +1,13 @@
 # Implementação dos reforços — blocos e sequência
 
-> **Estado: guia, não procedimento.** Os Blocos A e B estão implantados; o C, menos um item — a
-> **confirmação da string do issuer** continua aberta, e seu prazo é a primeira relying party
-> integrada. Para o que está implantado, `docs/receita.md` e `docs/runbook.md` já trazem o
-> comando exato e o sinal de que deu certo. Do
-> Bloco D em diante nada foi exercitado, e nenhum dos dois documentos cobre esses reforços. Cada
-> bloco descreve o que entra junto, por que junto, o que quebra e como se sabe que terminou. Os
-> fatos que sustentam cada agrupamento estão levantados em `docs/robustez-info.md`, e é lá que
-> estão os `arquivo:linha` — com a ressalva da ficha 2.2, cuja linha "nenhuma ADR nova para o
-> transporte" o Bloco C desmentiu com três.
+> **Estado: guia, não procedimento.** Os Blocos A, B e C estão implantados; o último item do C, a
+> confirmação do issuer, fechou com a ADR 0025, que congela a forma `https://<PUBLIC_HOST>/o`. Para
+> o que está implantado, `docs/receita.md` e `docs/runbook.md` já trazem o comando exato e o sinal
+> de que deu certo. Do Bloco D em diante nada foi exercitado, e nenhum dos dois documentos cobre
+> esses reforços. Cada bloco descreve o que entra junto, por que junto, o que quebra e como se sabe
+> que terminou. Os fatos que sustentam cada agrupamento estão levantados em `docs/robustez-info.md`,
+> e é lá que estão os `arquivo:linha` — com a ressalva da ficha 2.2, cuja linha "nenhuma ADR nova
+> para o transporte" o Bloco C desmentiu com três.
 
 `docs/robustez.md` diz **o que** reforçar. `docs/robustez-info.md` diz **o que é preciso saber
 antes** de encostar em cada reforço. Este documento diz **com o que cada um vai junto e em que
@@ -112,11 +111,11 @@ verde com os testes ajustados. `manage.py check` não serve de critério: os che
 
 ### Bloco C — A fronteira
 
-**Entra.** Terminação TLS (Transport Layer Security) com proxy à frente e a confirmação da
-string do issuer (ficha 2.2) — desta, só a **forma** do issuer foi decidida, e a string segue
-aberta; `requirepass` no Redis, com o healthcheck corrigido; criação de superusuário fora do
-`.env`; `USER` dedicado no container, com posse de `/app/staticfiles` (metade da ficha 2.13); e
-a publicação da porta só pelo proxy.
+**Entra.** Terminação TLS (Transport Layer Security) com proxy à frente e a confirmação da string do
+issuer (ficha 2.2) — fechada pela ADR 0025, que congela a forma e deixa o nome fora do repositório;
+`requirepass` no Redis, com o healthcheck corrigido; criação de superusuário fora do `.env`; `USER`
+dedicado no container, com posse de `/app/staticfiles` (metade da ficha 2.13); e a publicação da
+porta só pelo proxy.
 
 **Por que junto.** É a fronteira que `docs/seguranca.md` já nomeia: o conjunto do que muda
 quando o bind em loopback deixa de ser a barreira. Cada item de fora dessa lista é inofensivo
@@ -142,11 +141,10 @@ continua `healthy`, com `127.0.0.1` ainda em `ALLOWED_HOSTS`; a descoberta publi
 novo; o healthcheck do Redis compara a saída com `PONG` em vez de confiar no código de saída; e
 o processo dentro do container não é `root`.
 
-**O que este bloco não fechou.** A forma do issuer é `https://<nome público>/o` e está fixada
-pela ADR 0017; a **string** não, porque o nome público é valor de implantação e o de hoje é de
-exemplo. `docs/seguranca.md` mantém, com razão, "confirmação da string do issuer antes da
-primeira RP integrar" na lista do que muda antes de expor — a decisão de 2026-09-13 é explícita
-em valer por enquanto, e a janela fecha na primeira RP integrada.
+**O que este bloco deixou para depois, e como fechou.** A forma do issuer é `https://<nome
+público>/o`, fixada pela ADR 0017; a string ficou em aberto, porque o nome público é valor de
+implantação. A ADR 0025 fechou o item: congela a forma `https://<PUBLIC_HOST>/o` e deixa o nome fora
+do repositório, só no `.env` da instância e no painel da Vercel.
 
 ### Bloco D — Conformidade do servidor de autorização
 
