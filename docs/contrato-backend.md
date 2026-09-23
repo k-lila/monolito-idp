@@ -144,11 +144,11 @@ topologia que o código já mediu.
 Itens de `docs/seguranca.md` que deixam de ser inventário quando o IdP sai de `localhost`, e
 que afetam diretamente a RP:
 
-- `AUTH_PASSWORD_VALIDATORS` (hoje lista vazia): o teto de 5 tentativas do axes supõe senha
-  forte.
-- `/o/applications/register/` permite a **qualquer conta autenticada** registrar uma
-  `Application`. Restringir a `is_staff` ou retirar do URLConf antes que exista mais de uma
-  conta.
+- `AUTH_PASSWORD_VALIDATORS` declarada com os quatro validadores do Django: o teto de 5
+  tentativas do axes supõe senha forte. Feito; os limites dela estão em `docs/seguranca.md` §4.
+- `/o/applications/register/` permitia a **qualquer conta autenticada** registrar uma
+  `Application`. Feito: as rotas de gestão saíram do URLConf e respondem 404, e o registro é só
+  pelo admin (ADR 0024).
 - Superusuário por `createsuperuser` (ADR 0019), nunca por variável.
 
 ---
@@ -172,9 +172,10 @@ Por que separadas: o cliente de produção nunca aceita retorno em `http://local
 apagar o de dev não toca produção; a trilha de auditoria distingue os dois. Nunca colocar as
 duas `redirect_uris` na mesma `Application`.
 
-Recomendado em produção: `ALLOWED_REDIRECT_URI_SCHEMES = ["https"]` no `OAUTH2_PROVIDER`, para
-que nem por engano se registre `http` ali (hoje o default aceita os dois; isso é global à
-instância, então em dev fica como está).
+`ALLOWED_REDIRECT_URI_SCHEMES` no `OAUTH2_PROVIDER` segue `BEHIND_TLS_PROXY`: `["https"]` atrás
+do proxy TLS, para que nem por engano se registre `http` em produção, e `["http", "https"]` na
+jornada de construção, que é a de desenvolvimento. A chave é global à instância; o que a separa
+por ambiente é a variável.
 
 Entregar o `client_id` de cada `Application` à SPA.
 
@@ -191,8 +192,8 @@ Entregar o `client_id` de cada `Application` à SPA.
   (ADR 0022).
 - Preflight: `django-cors-headers` 4.9.0 já inclui `authorization` e `content-type` em
   `CORS_ALLOW_HEADERS` por default; nada a acrescentar.
-- Recomendado: `CORS_URLS_REGEX = r"^/o/"`, para que cabeçalhos de CORS saiam só na superfície
-  de protocolo (`/admin/` e `/accounts/login/` nunca são cross-origin).
+- `CORS_URLS_REGEX = r"^/o/"`, em `config/settings.py`: cabeçalhos de CORS saem só na
+  superfície de protocolo (`/admin/` e `/accounts/login/` nunca são cross-origin).
 - **Ao preencher a allowlist, conferir a posição do `CorsMiddleware` e do
   `LimiteDeTaxaMiddleware`** — o `runbook.md` avisa que uma posição errada é indetectável
   enquanto a lista estiver vazia. Verificação: `curl -i -H "Origin: https://<spa>"
@@ -243,7 +244,10 @@ A regra da raiz: a SPA só está integrada quando fecha contra o IdP real, não 
 2. A jornada de integração em dev é a **de construção**: `runserver` em
    `http://localhost:8000`, `BEHIND_TLS_PROXY=False`. Issuer `http://localhost:8000/o`. Texto
    claro em loopback é aceitável em dev e evita instalar a CA do Caddy no navegador. A jornada
-   de container (`https://idp.localhost`) fica como segunda verificação antes da AWS.
+   de container (`https://idp.localhost`) fica como segunda verificação antes da AWS, mas a
+   SPA de dev não fecha contra ela: com `BEHIND_TLS_PROXY=True`, a `redirect_uri`
+   `http://localhost:5173/callback` é recusada com 400 (`ALLOWED_REDIRECT_URI_SCHEMES`,
+   seção 5.1).
 3. `CORS_ALLOWED_ORIGINS=http://localhost:5173` no `.env`.
 4. `Application` de dev (seção 5.1) com `http://localhost:5173/callback`; entregar o
    `client_id`.
@@ -322,10 +326,10 @@ documento.
       posição do `CorsMiddleware` e do limitador conferida com a lista preenchida
 - [ ] `Application` de produção registrada: `public`, `authorization-code`, `RS256`,
       `https://<spa>/callback`, `skip_authorization=True`; `client_id` entregue à SPA
-- [ ] `ALLOWED_REDIRECT_URI_SCHEMES = ["https"]` avaliado e decidido
-- [ ] `CORS_URLS_REGEX = r"^/o/"` avaliado e decidido
-- [ ] `AUTH_PASSWORD_VALIDATORS` declarado
-- [ ] `/o/applications/register/` restrito ou removido
+- [x] `ALLOWED_REDIRECT_URI_SCHEMES = ["https"]` avaliado e decidido
+- [x] `CORS_URLS_REGEX = r"^/o/"` avaliado e decidido
+- [x] `AUTH_PASSWORD_VALIDATORS` declarado
+- [x] `/o/applications/register/` restrito ou removido
 - [ ] Superusuário criado por `createsuperuser`
 - [ ] Fluxo PKCE à mão (`docs/receita.md`) fecha contra a `Application` de produção com
       `id_token` completo e sem consentimento repetido

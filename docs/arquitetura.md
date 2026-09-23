@@ -37,7 +37,7 @@ identificador que correlaciona as linhas de um mesmo pedido e a linha de acesso;
 endereço é para o próprio processo, o seu gateway padrão ou não — resposta única do sistema,
 consumida pela trilha de auditoria, pelo limitador de taxa e pelo `django-axes` (ADRs 0015,
 0018 e 0020); e `config/limites.py`, o teto de requisições por origem em
-`/o/token/`, em `/o/authorize/` e em `/accounts/login/`. Nenhum deles afirma nada sobre identidade: o limitador não conhece pessoa
+`/o/token/`, em `/o/authorize/`, em `/o/device-authorization/` e em `/accounts/login/`. Nenhum deles afirma nada sobre identidade: o limitador não conhece pessoa
 nem conta.
 
 `LOGIN_URL`, `LOGIN_REDIRECT_URL` e `LOGOUT_REDIRECT_URL` guardam nomes de rota (`"login"`,
@@ -59,9 +59,10 @@ falha ruidosa.
   origem, e nada mais (ADRs 0015, 0018 e 0020);
 - `accounts/admin.py` — `UserAdmin` ajustado a um modelo sem `username`.
 
-**`oauth2_provider` — o protocolo.** É dependência de terceiro, montada sob o prefixo `o/` pelo
-`include` em `config/urls.py`. Nenhum método de protocolo é sobrescrito; a única peça
-substituída é o template da tela de consentimento,
+**`oauth2_provider` — o protocolo.** É dependência de terceiro, montada sob o prefixo `o/` em
+`config/urls.py`: três das cinco listas de rotas que o módulo exporta, as de protocolo, num
+`include` com o namespace `oauth2_provider` (ADR 0024). Nenhum método de protocolo é
+sobrescrito; a única peça substituída é o template da tela de consentimento,
 `templates/oauth2_provider/authorize.html`.
 
 **`axes` — o teto da tela de login.** Também dependência de terceiro, e a única que entra no
@@ -92,11 +93,12 @@ errado falha ali; chave ausente não dá erro nenhum e o `id_token` sai só com 
 
 A superfície HTTP própria do projeto é curta: `/`, `/health` (sem barra final, porque é a URL
 da sonda do container), `/accounts/login/`, `/accounts/logout/` (só POST) e `/admin/`. Tudo o
-mais vem do `include` do toolkit sob `/o/`: `authorize/`, `token/`, `userinfo/`,
-`.well-known/openid-configuration` e `.well-known/jwks.json`, e junto com eles a gestão de
-Applications e de tokens, o fluxo de device grant e `/o/register/` — rotas que este projeto não
-usa. O registro dinâmico de client responde 404 enquanto `DCR_ENABLED` mantiver o default
-`False`. `/accounts/password_reset/` é um 404 deliberado, explicado no comentário de
+mais vem do toolkit sob `/o/`: `authorize/`, `token/`, `userinfo/`,
+`.well-known/openid-configuration` e `.well-known/jwks.json`, e junto com eles o fluxo de device
+grant, a revogação e a introspecção — rotas que este projeto não usa, mas que estão nas mesmas
+listas. A gestão de Applications e de tokens e o registro dinâmico de client não são montados:
+`/o/applications/`, `/o/authorized_tokens/` e `/o/register/` respondem 404, e a gestão é do
+admin (ADR 0024). `/accounts/password_reset/` é um 404 deliberado, explicado no comentário de
 `config/urls.py`.
 
 ## Onde mora o estado
@@ -104,7 +106,7 @@ usa. O registro dinâmico de client responde 404 enquanto `DCR_ENABLED` mantiver
 | Lugar | O que guarda |
 | --- | --- |
 | Postgres | contas, Applications, grants, tokens, `django_session` e as tentativas de login que o `axes` conta; volume `pgdata` |
-| Redis | cópia quente da sessão, a chave da sonda do `/health` e os contadores de taxa dos três caminhos limitados; volume `redisdata` |
+| Redis | cópia quente da sessão, a chave da sonda do `/health` e os contadores de taxa dos quatro caminhos limitados; volume `redisdata` |
 | Ambiente do processo | a chave privada RSA e a `SECRET_KEY`, fora do banco e da imagem |
 | Cookie do navegador | apenas o identificador da sessão |
 | Arquivo, no container | a trilha de auditoria; volume `auditlog`, montado em `/var/log/nova_api` |
@@ -125,8 +127,8 @@ config/
   views.py             home e health — a borda que não afirma nada sobre identidade
   observabilidade.py   como uma linha de log é escrita e como duas linhas se ligam
   origem.py            de que endereço veio a requisição, e de onde esse valor saiu
-  limites.py           o teto de requisições por origem em /o/token/, /o/authorize/ e
-                       /accounts/login/
+  limites.py           o teto de requisições por origem em /o/token/, /o/authorize/,
+                       /o/device-authorization/ e /accounts/login/
   wsgi.py              ponto de entrada do gunicorn
 accounts/
   models.py            o que é uma pessoa aqui: e-mail único, sem username
@@ -204,7 +206,7 @@ As decisões de arquitetura, uma por arquivo em `docs/adr/`:
 | Assunto | ADR |
 | --- | --- |
 | Plataforma: Django 5.2 sobre Python 3.14 | `0001-adotar-django-5-2-lts-sobre-python-3-14.md` |
-| O toolkit como servidor de autorização | `0002-usar-django-oauth-toolkit-como-servidor-de-autorizacao.md` |
+| O toolkit como servidor de autorização — **emendada pela 0024** | `0002-usar-django-oauth-toolkit-como-servidor-de-autorizacao.md` |
 | `User` customizado com e-mail como identificador | `0003-modelar-identidade-em-user-customizado-com-email-como-identificador.md` |
 | RS256 e a custódia da chave privada | `0004-assinar-tokens-com-rs256-e-custodiar-a-chave-privada-no-ambiente.md` |
 | A sessão SSO em `cached_db` | `0005-manter-a-sessao-sso-em-sessao-django-com-backend-cached-db.md` |
@@ -226,6 +228,7 @@ As decisões de arquitetura, uma por arquivo em `docs/adr/`:
 | O consentimento pulado na `Application` de primeira parte, por `skip_authorization` | `0021-pular-o-consentimento-na-application-de-primeira-parte-por-skip-authorization.md` |
 | O CORS por origem exata, uma por ambiente; previews da Vercel fora | `0022-liberar-o-cors-por-origem-exata-e-deixar-os-previews-da-vercel-fora.md` |
 | Sem cadastro nem edição de perfil nesta fase; contas criadas no admin | `0023-nao-oferecer-cadastro-nem-perfil-nesta-fase-e-manter-a-criacao-de-contas-no-admin.md` |
+| A montagem sob `/o/` só das listas de protocolo do toolkit — emenda a **0002** | `0024-montar-sob-o-so-as-listas-de-protocolo-do-django-oauth-toolkit.md` |
 
 ADR aceita é imutável: decisão que mudou vira ADR nova. O formato está em
 `docs/adr/template-adr.md`.

@@ -63,7 +63,13 @@ pura, ou o estado que ela confere já foi montado antes de o primeiro caso rodar
   sobre duas settings e o `META` de uma requisição, e `RequestFactory` mais `override_settings`
   dão as duas coisas; `origem_completa` lê ainda a tabela de rotas, e o que substitui o mundo
   é um arquivo temporário para o qual o teste aponta `config.origem._TABELA_DE_ROTAS`, em vez
-  de `/proc/net/route`;
+  de `/proc/net/route`. Todo caso que assere a procedência fixa `BEHIND_TLS_PROXY` por
+  `override_settings`, e não herda o da jornada: dois casos de `OrigemCompletaTests` não o
+  faziam, passavam na jornada de construção e falhavam na de container, onde a mesma requisição
+  cai em `remote_addr_fallback` (T-13 da TASK-019);
+- `tests/test_endurecimento_transporte.py`, inteiro — leitura de settings, sem cliente HTTP.
+  Quando a pergunta é o valor de produção de uma chave que o executor neutraliza, lê o que ele
+  guardou antes de neutralizar, e não o que `settings` mostra durante a suíte;
 - a classe `HealthViewDatabaseDownUnitTests`, em `tests/test_health.py` — `RequestFactory`
   mais chamada direta a `health`, com `connection` substituída por um duplo que levanta;
 - a classe `FormatadorJSONTests`, em `tests/test_observabilidade.py` — um registro emitido por
@@ -100,7 +106,7 @@ nível fim-a-fim neste projeto.
 | Assunto | Arquivo | Nível |
 | --- | --- | --- |
 | Claims emitidas pelo validador, por combinação de scope | `tests/test_oauth_validators.py` | sem banco |
-| Documento de descoberta: `issuer`, endpoints, o que não deve aparecer | `tests/test_discovery.py` | com banco |
+| Os dois documentos de descoberta, o do OpenID Connect (OIDC) e o da Request for Comments (RFC) 8414: `issuer`, o valor exato de cada endpoint, o que não deve aparecer; e o `alg` da chave publicada em `/o/.well-known/jwks.json` | `tests/test_discovery.py` | com banco |
 | JWKS (JSON Web Key Set) publicado: uma chave RSA (Rivest–Shamir–Adleman) com `kid` | `tests/test_jwks.py` | com banco |
 | Authorization Code + PKCE fechado de ponta a ponta | `tests/test_authorization_code_flow.py` | com banco |
 | Guardas de `/o/authorize/`: PKCE obrigatório, `redirect_uri`, método `plain` | `tests/test_authorize_guards.py` | com banco |
@@ -115,8 +121,14 @@ nível fim-a-fim neste projeto.
 | Trilha de auditoria: os cinco eventos — `user_logged_in`, `user_login_failed`, `user_logged_out` e `app_authorized`, da ADR 0013, e `user_locked_out`, da ADR 0016 —, a tripla `ip`, `ip_src` e `ip_edge` presente em cada um deles, a ausência de segredo e o isolamento sob a suíte | `tests/test_auditoria.py` | misto |
 | Endereço de origem do cliente: a tabela inteira de `origem_da_requisicao`, o par de `origem_e_procedencia` — endereço e rótulo de procedência — nos quatro desfechos, com e sem proxy declarado, e a tripla de `origem_completa`, com `ip_edge` nos três valores contra uma tabela de rotas de fixture, mais `_alcance_do_endereco` | `tests/test_origem.py` | sem banco |
 | Limite do login: o bloqueio do `django-axes` por conta, por origem e o prazo; o teto de requisição da mesma porta; o que o 429 não diz e o que distingue os dois 429; e a linha `user_locked_out` na trilha, com a origem igual à que o axes contou | `tests/test_limite_login.py` | com banco |
-| Limite de `/o/token/` e `/o/authorize/`: o teto, o corpo do 429, a linha de log, e o dicionário de produção alcançando os três caminhos | `tests/test_limite_oauth.py` | com banco |
+| Limite de `/o/token/`, `/o/authorize/` e `/o/device-authorization/`: o teto, o corpo do 429, a linha de log; em `/o/device-authorization/`, uma linha de `DeviceGrant` por POST abaixo do teto e nenhuma a mais no POST recusado com 429 (`LimiteDeDeviceAuthorizationTests`); e o dicionário de produção alcançando os quatro caminhos, `/accounts/login/` inclusive | `tests/test_limite_oauth.py` | com banco |
 | Falha aberta do limitador: com o Redis inalcançável, a requisição segue e uma linha `WARNING` registra o silêncio | `tests/test_falha_aberta_limites.py` | com banco |
+| As cinco chaves do endurecimento de transporte e `ALLOWED_REDIRECT_URI_SCHEMES` seguindo `BEHIND_TLS_PROXY` — as duas que o executor neutraliza, lidas do valor que ele guardou —; e o cache do toolkit alcançado pela neutralização | `tests/test_endurecimento_transporte.py` | sem banco |
+| Admin de `Application`: esquema de `redirect_uris` recusado e aceito sob `["https"]` e sob o valor neutro da suíte, com o efeito em `/o/authorize/`; as quatro views de gestão; e o 500 do "View on site", dívida aceita pela ADR 0024 | `tests/test_admin_oauth2_application.py` | com banco |
+| As sete rotas de gestão do `django-oauth-toolkit` (DOT) e a de registro dinâmico de cliente respondendo 404 sob `/o/`, para as quatro identidades | `tests/test_gestao_dot_ausente.py` | com banco |
+| Política de senha nas quatro superfícies em que uma senha é escolhida: adicionar conta e trocar senha no admin, `changepassword` e `createsuperuser` interativo | `tests/test_politica_de_senha.py` | com banco |
+| Login com senha legada fraca: entra, e a senha continua a mesma | `tests/test_login_senha_legada.py` | com banco |
+| Cross-Origin Resource Sharing (CORS) restrito a `/o/`: ausente fora do prefixo, com a origem exata dentro dele, preflight e 401 incluídos | `tests/test_cors.py` | com banco |
 
 As linhas que o nome do arquivo não explica sozinho:
 
@@ -136,7 +148,40 @@ subdeclarando em silêncio.
 **Descoberta.** Compara o `issuer` por igualdade exata, nunca por substring, porque tanto o
 `{BASE_URL}` sem o sufixo `/o` quanto uma barra final indevida passariam numa comparação
 frouxa. E afirma a **ausência** de `end_session_endpoint`, cujo default na biblioteca está
-programado para inverter numa versão futura.
+programado para inverter numa versão futura. Cada endpoint dos dois documentos é comparado por
+valor, o issuer mais o sufixo literal, e nunca por `reverse()`, que resolveria contra o mesmo
+URLConf sob prova. No documento da RFC 8414 essa comparação é a única guarda: a view do toolkit
+engole o `NoReverseMatch` de um endpoint sem rota e omite a chave com 200, e é o que acusaria
+uma lista de protocolo desmontada do include (ADR 0024). `registration_endpoint` tem de estar
+ausente dos dois.
+
+**Admin de `Application`.** Desde a ADR 0024 é a única superfície de gestão, e o que se prova é a
+costura entre o formulário, o `clean()` do modelo do toolkit e `ALLOWED_REDIRECT_URI_SCHEMES`.
+Os dois valores dessa chave estão na mesma classe: `["https"]` por `override_settings` sobre
+`OAUTH2_PROVIDER`, e o neutro que o executor aplica. O endurecido nunca se alcança por
+`override_settings(BEHIND_TLS_PROXY=True)`, que mudaria também o redirecionamento, a procedência
+e o issuer. A classe do CRUD confere ainda que o clique em "View on site" responde 500: é a
+dívida que a ADR 0024 aceita, e o caso existe para que a correção dela, ou a troca por um 200
+silencioso, não passe sem ser vista.
+
+**Gestão do DOT ausente.** A prova é de ausência de rota, e por isso o esperado é 404 sem
+`Location` para toda identidade, superusuário incluído — 403 seria permissão negada por view, e
+302, redirecionamento para o login. As rotas com `pk` recebem o de objetos gravados pelo módulo:
+um `pk` inexistente daria 404 pela ausência do objeto, e as duas causas não se distinguiriam.
+
+**Política de senha.** As recusas são asseridas pelo `code` do `ValidationError`, nunca pelo
+texto. No `createsuperuser` interativo, o `stdin` é substituído por um que se declara terminal,
+sem o que o comando sai antes de pedir senha; e o caso sem bypass termina num
+`KeyboardInterrupt` simulado, porque o comando, ao contrário do `changepassword`, não tem teto de
+tentativas. O arquivo vizinho, `tests/test_login_senha_legada.py`, prova o outro lado do mesmo
+silêncio, registrado no comentário de `AUTH_PASSWORD_VALIDATORS`: o login não valida a política.
+
+**CORS.** As duas classes fixam `CORS_ALLOWED_ORIGINS` por `override_settings`, com o mesmo
+literal do `.env`, para que o que esteja sob prova seja só `CORS_URLS_REGEX`. Fora de `/o/`, a
+asserção é só a ausência de `Access-Control-Allow-Origin`, e nunca a de `Vary`, cabeçalho que
+outras camadas também escrevem e cuja presença nada diria sobre CORS. Dentro de `/o/`, o 401 de
+`/o/userinfo/` também leva a origem exata: sem ela, o navegador da `nova_api_SPA` esconderia o
+401 atrás de um erro de CORS.
 
 **Prontidão.** O caso sem banco existe para provar que um componente falhando não apaga o
 estado do outro: com o banco fora, `"cache": "ok"` continua presente e correto. É a guarda que
@@ -207,6 +252,29 @@ caminho não limitado já percorre em produção, e o middleware continua na cad
 limitador ligado o religa por `override_settings`, com `REMOTE_ADDR` forjado, e apaga as próprias
 chaves por `config.limites.chave_do_contador` — nunca por `cache.clear()`, que o `RedisCache`
 implementa como `FLUSHDB` e levaria junto a cópia quente das sessões (ADR 0005).
+
+O terceiro valor é `settings.SECURE_SSL_REDIRECT`, zerado durante a suíte e guardado em
+`tests.runner.SECURE_SSL_REDIRECT_DE_PRODUCAO`. Na jornada de container o compose liga
+`BEHIND_TLS_PROXY`, de que o redirecionamento deriva, e o cliente de teste fala HTTP simples:
+sem o zeramento, toda requisição a rota não isenta receberia 301 antes de a view rodar. Zera-se
+o redirecionamento, e nunca `BEHIND_TLS_PROXY`, porque é esta variável que decide a procedência
+da origem (ADR 0018) e o esquema do issuer, e a jornada de container existe para exercitá-las.
+`override_settings(SECURE_SSL_REDIRECT=True)` continua valendo por cima do zeramento.
+
+O quarto é `settings.OAUTH2_PROVIDER`, pela mesma razão do terceiro: com `BEHIND_TLS_PROXY`
+ligado, `ALLOWED_REDIRECT_URI_SCHEMES` é `["https"]`, e as fixtures registram `redirect_uri` em
+`http://` — o 302 de `/o/authorize/` viraria 400 em todo teste de fluxo. O executor guarda o
+dicionário de produção em `tests.runner.OAUTH2_PROVIDER_DE_PRODUCAO`, põe no lugar uma cópia
+com `"ALLOWED_REDIRECT_URI_SCHEMES": ["http", "https"]` e envia
+`django.test.signals.setting_changed` com `setting="OAUTH2_PROVIDER"` e `enter=True`; no
+teardown repõe o original e envia o sinal com `enter=False`. A cópia, e nunca a mutação no
+lugar nem um `setattr` em `oauth2_settings`: o objeto de settings do toolkit guarda referência
+ao dicionário e faz cache por atributo, e só o `reload()` que o sinal dispara limpa os dois
+caches. O sinal é o mesmo canal do `override_settings`, e é isso que mantém a suíte
+independente de ordem. A neutralização é incondicional, como a do terceiro valor. Dois testes, em
+`tests/test_endurecimento_transporte.py`, fecham o par: um lê de volta o valor guardado para
+provar que o de produção segue `BEHIND_TLS_PROXY`, e o outro confere que o cache do toolkit
+chegou a `["http", "https"]`, o que só o sinal garante.
 
 ## `tests/oauth_helpers.py`
 

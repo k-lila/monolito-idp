@@ -232,17 +232,27 @@ passo está em `docs/receita.md`.
 **Sintoma.** A tela de consentimento nunca aparece. O que volta é 400, ou um redirecionamento
 de erro sem `code`.
 
-**Duas causas, ambas na requisição de autorização:**
+**Três causas, as duas primeiras na requisição de autorização e a terceira no registro da
+`Application`:**
 
 - **`redirect_uri` diferente da registrada.** A comparação é de **igualdade exata, não de
   prefixo**: `http://localhost:8000/noop/` não casa com `http://localhost:8000/noop`
   registrada — uma barra a mais basta. O resultado é 400 direto no GET, sem `Location`.
 - **`code_challenge` ausente.** `PKCE_REQUIRED` está declarado em `config/settings.py`, e
   cliente público sem PKCE é recusado antes da tela, com `error=invalid_request`.
+- **`redirect_uri` registrada em `http://`, com `BEHIND_TLS_PROXY=True`.** Ali
+  `ALLOWED_REDIRECT_URI_SCHEMES` é só `["https"]`, e o redirecionamento com o `code` vira
+  `DisallowedRedirect`: 400 **depois** do login, sem `Location`. Na `Application` com
+  `skip_authorization` a recusa vem no GET, sem tela nenhuma; nas demais, a tela de
+  consentimento aparece e o 400 vem no POST dela. O admin já não aceita gravar `http://` sob
+  essa variável, de modo que a causa é uma `Application` gravada antes, ou na jornada de
+  construção, e servida pela de container. A linha de log sai no logger
+  `django.security.DisallowedRedirect`, com `Redirect to scheme 'http' is not permitted`.
 
 **Verificação.** Compare caractere a caractere a `redirect_uri` da barra de endereços com a
-registrada em `/admin/oauth2_provider/application/`, e confirme que a query string carrega
-`code_challenge` e `code_challenge_method=S256`.
+registrada em `/admin/oauth2_provider/application/`, confira o esquema dela contra
+`BEHIND_TLS_PROXY` da jornada em curso, e confirme que a query string carrega `code_challenge`
+e `code_challenge_method=S256`.
 
 ### 7. Container `unhealthy` eterno, com a aplicação atendendo por fora
 
@@ -482,17 +492,19 @@ porque a allowlist está vazia e ele não emite resposta nenhuma. No dia da prim
 contará errado. O `client_id` e o `sub` de cada linha continuam corretos.
 
 **O limitador de taxa acima do `CorsMiddleware`.** `config.limites.LimiteDeTaxaMiddleware`
-**emite resposta** — o 429 de `/o/token/`, de `/o/authorize/` e de `/accounts/login/` — e por
+**emite resposta** — o 429 de `/o/token/`, de `/o/authorize/`, de `/o/device-authorization/` e
+de `/accounts/login/` — e por
 isso vale para ele a mesma regra da entrada acima: acima do `CorsMiddleware`, aquele 429 sairia
 sem os cabeçalhos de CORS. Com a allowlist vazia é **indetectável**, e o sinal só aparecerá na
 fase de uma SPA (Single-Page Application), como um 429 que o navegador esconde atrás de um erro
-de CORS. O caminho novo na lista é `/accounts/login/`, e é o único dos três que uma pessoa abre
-diretamente no navegador — é por ele que a mordida apareceria primeiro.
+de CORS. Dos quatro caminhos, `/accounts/login/` é o único que uma pessoa abre diretamente no
+navegador — é por ele que a mordida apareceria primeiro.
 
-**A queda do Redis desliga o teto de requisição dos três caminhos.** `config/limites.py` falha
+**A queda do Redis desliga o teto de requisição dos quatro caminhos.** `config/limites.py` falha
 **aberto**: quando o cliente de Redis recusa a conexão ou esgota o tempo de espera, o middleware
 captura o erro e **deixa a requisição seguir**. Enquanto durar a queda não há teto nenhum em
-`/o/token/`, em `/o/authorize/` nem em `/accounts/login/`, e nada acusa: não há 429, não há
+`/o/token/`, em `/o/authorize/`, em `/o/device-authorization/` nem em `/accounts/login/`, e nada
+acusa: não há 429, não há
 erro, e o único rastro é uma linha `WARNING` por requisição no log operacional. É troca
 deliberada — o preço de não converter queda de cache em 500 num endpoint que antes atravessava a
 queda inteiro (ADR `docs/adr/0016-limitar-a-taxa-na-superficie-de-autenticacao.md`). A queda em
@@ -655,8 +667,8 @@ diz qual dos dois respondeu**:
 - na tela de login, **HTTP 429 com corpo JSON** `{"error": "temporarily_unavailable", ...}` **e
   cabeçalho `Retry-After: 60`** — é `config/limites.py`, o mesmo mecanismo que barra em `/o/`.
   Nenhuma tentativa foi registrada: a requisição nem chegou a `authenticate()`;
-- em `/o/token/` ou `/o/authorize/`, **HTTP 429 com o mesmo corpo JSON e o mesmo
-  `Retry-After: 60`**.
+- em `/o/token/`, `/o/authorize/` ou `/o/device-authorization/`, **HTTP 429 com o mesmo corpo
+  JSON e o mesmo `Retry-After: 60`**.
 
 Não há um quarto caso: o 429 do axes é sempre página HTML e nunca traz o cabeçalho; o do
 middleware é sempre JSON e sempre traz. Tudo o mais nesta seção depende de qual dos dois foi.
@@ -669,9 +681,12 @@ middleware é sempre JSON e sempre traz. Tudo o mais nesta seção depende de qu
 | `/accounts/login/` e `/admin/login/` | `django-axes` | tentativas **falhas**, por conta e por origem, separadamente | 15 minutos após a última tentativa |
 | `/accounts/login/` | `config/limites.py` | **todas** as requisições, o GET que renderiza o formulário inclusive, por origem | até 60 segundos |
 | `/o/token/` e `/o/authorize/` | `config/limites.py` | **todas** as requisições, por origem e por endpoint | até 60 segundos |
+| `/o/device-authorization/` | `config/limites.py` | **todas** as requisições, por origem | até 60 segundos |
 
 Na tela de login o teto do axes é de cinco falhas e o do middleware é de 60 requisições por
-minuto; em `/o/`, o do middleware é de 120 por minuto. Uma tentativa feita pela tela custa
+minuto; em `/o/token/` e `/o/authorize/`, o do middleware é de 120 por minuto, e em
+`/o/device-authorization/`, de 30 — rota sem uso por este projeto, em que um 429 só aparece
+diante de tráfego que não é da SPA. Uma tentativa feita pela tela custa
 **duas** requisições contadas (o GET do formulário e o POST que o envia), de modo que as
 sessenta dão cerca de trinta tentativas por minuto. Contar por conta tem custo conhecido e
 aceito: quem souber o e-mail de alguém pode mantê-lo fora por quinze minutos sem nunca acertar
@@ -681,7 +696,7 @@ uma senha.
 recusa do middleware não deixa linha na trilha de auditoria em caminho nenhum, no login
 inclusive.** Quem procurar só na trilha não encontra nada e conclui que não houve bloqueio.
 
-O bloqueio do axes deixa linha na **trilha de auditoria**; a recusa do middleware, nos três
+O bloqueio do axes deixa linha na **trilha de auditoria**; a recusa do middleware, nos quatro
 caminhos, deixa linha no **log operacional**:
 
 ```bash
@@ -705,7 +720,7 @@ operacional traz `path` e `ip`, e nunca `route`: o limitador roda antes de a URL
 
 **As saídas.** Também dependem de qual dos dois barrou:
 
-- **429 em JSON, com `Retry-After`**, em qualquer um dos três caminhos: nenhuma ação. A janela
+- **429 em JSON, com `Retry-After`**, em qualquer um dos quatro caminhos: nenhuma ação. A janela
   fecha sozinha em no máximo sessenta segundos, e o cabeçalho já diz isso. `axes_reset_ip` **não
   faz absolutamente nada** contra este 429 — o contador dele vive no cache, e não na tabela de
   tentativas do axes;
@@ -728,7 +743,7 @@ minutos.
 
 **E se nenhum 429 aparecer**, por mais requisições que se faça, o limitador do middleware está
 falhando aberto por queda do Redis: a entrada "A queda do Redis desliga o teto de requisição dos
-três caminhos" da [seção 14](#14-as-falhas-que-não-produzem-sintoma-nenhum-hoje) diz como
+quatro caminhos" da [seção 14](#14-as-falhas-que-não-produzem-sintoma-nenhum-hoje) diz como
 confirmar e o que mais sai de lugar enquanto durar. O bloqueio do axes não depende do cache e
 continua valendo.
 

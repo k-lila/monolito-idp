@@ -555,12 +555,12 @@ documento.
 
 ### Passo 5 — endurecimento
 
-- [ ] `AUTH_PASSWORD_VALIDATORS` declarada com os quatro validadores
-- [ ] `/o/applications/register/` responde 404; descoberta continua a montar os endpoints
-- [ ] `ALLOWED_REDIRECT_URI_SCHEMES` condicionada a `BEHIND_TLS_PROXY`
-- [ ] `CORS_URLS_REGEX = r"^/o/"`; `/accounts/login/` sem cabeçalho de CORS
-- [ ] `docs/seguranca.md` atualizado
-- [ ] Testes novos verdes na suíte inteira (`manage.py test`)
+- [x] `AUTH_PASSWORD_VALIDATORS` declarada com os quatro validadores
+- [x] `/o/applications/register/` responde 404; descoberta continua a montar os endpoints
+- [x] `ALLOWED_REDIRECT_URI_SCHEMES` condicionada a `BEHIND_TLS_PROXY`
+- [x] `CORS_URLS_REGEX = r"^/o/"`; `/accounts/login/` sem cabeçalho de CORS
+- [x] `docs/seguranca.md` atualizado
+- [x] Testes novos verdes na suíte inteira (`manage.py test`)
 
 ### Passo 6 — ADRs de exposição
 

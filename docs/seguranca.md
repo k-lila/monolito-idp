@@ -30,12 +30,15 @@ vencida.
 | --- | --- |
 | A senha não sai do IdP | a relying party (RP) recebe token, nunca credencial |
 | Senha armazenada com Argon2 | `PASSWORD_HASHERS` em `config/settings.py`, Argon2 em primeiro |
+| Política de senha onde a senha é escolhida | `AUTH_PASSWORD_VALIDATORS` em `config/settings.py` |
 | PKCE (Proof Key for Code Exchange) obrigatório, restrito a S256 | `PKCE_REQUIRED` e `COMPLIANT_BCP_RFC9700_PKCE_METHOD` |
 | `redirect_uri` por igualdade exata | `tests/test_authorize_guards.py` |
+| `redirect_uri` só em `https` atrás do proxy TLS | `ALLOWED_REDIRECT_URI_SCHEMES`, condicionada a `BEHIND_TLS_PROXY` |
+| Gestão de `Application` e de token só no admin; sem registro dinâmico | `config/urls.py`, ADR 0024 |
 | Logout apenas por POST | `tests/test_logout_view.py` |
 | Assinatura assimétrica | `docs/adr/0004-assinar-tokens-com-rs256-e-custodiar-a-chave-privada-no-ambiente.md` |
 | Cookie sem estado de identidade | `SESSION_ENGINE = cached_db` em `config/settings.py` |
-| Nenhuma origem cruzada autorizada | `CORS_ALLOWED_ORIGINS` vazia em `.env.example` |
+| CORS (Cross-Origin Resource Sharing) por origem exata, e só sob `/o/` | `CORS_ALLOWED_ORIGINS` no `.env`, uma origem por ambiente (ADR 0022); `CORS_URLS_REGEX` em `config/settings.py` |
 | Sem fluxo de recuperação de senha | `config/urls.py`, `tests/test_password_reset_urls.py` |
 | Trilha de auditoria de autenticação e de concessão de token | `accounts/auditoria.py`, ADR 0013 |
 
@@ -48,6 +51,18 @@ O que cada linha compra:
 - **Igualdade exata de `redirect_uri`** impede que um endereço de retorno registrado seja
   estendido para um destino controlado por terceiro. A comparação por prefixo é o erro clássico do
   protocolo, e o teste da barra a mais existe para que afrouxá-la fique vermelho.
+- **`https` como único esquema de retorno, com `BEHIND_TLS_PROXY=True`,** impede que o código de
+  autorização viaje em texto claro pelo canal de frente. O admin recusa gravar `redirect_uri` em
+  `http://`, e uma `Application` já gravada assim recebe 400 em `/o/authorize/` em vez do código.
+  Com `BEHIND_TLS_PROXY=False`, na jornada de construção, `http` continua aceito, e é o que deixa
+  a SPA (Single-Page Application) de desenvolvimento voltar a `http://localhost:5173/callback`.
+- **A política de senha** recusa senha curta, comum, só numérica ou parecida com o e-mail da
+  própria conta, e é ela que sustenta a aritmética do teto de cinco tentativas. O alcance dela
+  tem limites, nomeados na seção 4.
+- **A gestão de `Application` só no admin** fecha o registro de cliente por conta comum: as rotas
+  de gestão do toolkit não são montadas, e `/admin/` exige `is_staff`.
+- **CORS só sob `/o/`** restringe o cabeçalho à superfície de protocolo: com a origem da SPA na
+  allowlist, `/admin/` e `/accounts/login/` continuam sem `Access-Control-Allow-Origin`.
 - **Logout só por POST** fecha o logout forjado: um `GET` responde 405 e preserva a sessão, de
   modo que uma imagem ou um link apontando para `/accounts/logout/` não desloga ninguém.
 - **Assinatura assimétrica em RS256** (RSA, Rivest–Shamir–Adleman, com SHA-256) dispensa
@@ -82,45 +97,68 @@ o estado de banco e de cache — custo aceito nas ADRs (Architecture Decision Re
 **`/admin/` está na mesma origem do IdP**, e portanto atrás do mesmo endereço, do mesmo
 transporte e do mesmo formulário de senha que o fluxo de autorização.
 
-O `include` do `django-oauth-toolkit` publica sob `/o/` mais do que este projeto usa. O
-inventário, lido de `oauth2_provider/urls.py`:
+Sob `/o/` entram três das cinco listas de rotas do `django-oauth-toolkit` — as de protocolo —,
+e ainda assim mais do que este projeto usa (ADR 0024). O inventário, lido de
+`oauth2_provider/urls.py` e de `config/urls.py`:
 
 | Rota | Situação |
 | --- | --- |
 | `/o/authorize/`, `/o/token/`, `/o/userinfo/`, as duas `.well-known` | em uso |
-| `/o/applications/...` | gestão de Applications; exige sessão autenticada |
-| `/o/authorized_tokens/...` | tokens da própria conta; exige sessão autenticada |
-| `/o/device-authorization/`, `/o/device/`, `/o/device-confirm/...`, `/o/device-grant-status/...` | device grant; não usado |
+| `/o/applications/...`, `/o/authorized_tokens/...` | 404, com ou sem sessão: `management_urlpatterns` não é montada |
+| `/o/device-authorization/`, `/o/device/`, `/o/device-confirm/...`, `/o/device-grant-status/...` | device grant; sem uso pelo projeto, mas o POST de `/o/device-authorization/` grava no banco sem autenticação (seção 4) |
 | `/o/revoke_token/` | revogação RFC 7009; não usada por este projeto |
 | `/o/introspect/` | responde 403 — nenhum token pode carregar o scope exigido (ADR 0002) |
 | `/o/.well-known/oauth-authorization-server`, `/o/.well-known/oauth-protected-resource` | metadados RFC 8414 e RFC 9728, montados pelo `include` |
 | `/o/logout/` | 404 com `OIDC_RP_INITIATED_LOGOUT_ENABLED=False` |
-| `/o/register/` | 404 com `DCR_ENABLED` no default `False` |
+| `/o/register/` | 404: `dcr_urlpatterns` não é montada, e `DCR_ENABLED` segue no default `False` |
 
-Duas dessas rotas estão fechadas por configuração declarada em `config/settings.py`; as demais
-estão de pé sem que nenhum uso ou teste deste projeto as exercite. Uma consequência merece
-registro: a view de `/o/applications/register/` exige apenas sessão autenticada, sem checagem
-de `is_staff` nem de permissão — **qualquer conta com senha neste IdP pode registrar uma
-Application própria.** Hoje isso é inerte porque a única conta é a de quem opera; deixa de ser
-no primeiro ambiente com mais de uma pessoa.
+As rotas de gestão e o registro dinâmico estão fechados pela ausência no URLConf, e
+`/o/logout/`, por configuração declarada em `config/settings.py`. Device grant, revogação e
+introspecção estão de pé sem que nenhum uso deste projeto os exercite: a unidade da montagem é
+a lista, e retirá-los exigiria copiar rotas da biblioteca. Sem uso não quer dizer inerte:
+`/o/device-authorization/` aceita POST anônimo e grava uma linha por requisição, e por isso tem
+teto de requisição, sem que o URLConf da ADR 0024 mude (seção 4). **Nenhuma conta, com ou sem
+`is_staff`, registra Application fora do admin**, que é o único lugar de gestão de clientes e
+de tokens.
+
+O preço aparece no próprio admin: o botão "Ver no site" da edição de uma Application aponta
+para a rota de detalhe que deixou de existir, e o clique responde 500. É dívida aceita, sem
+desligar `view_on_site` (ADR 0024).
 
 ## 4. Controles ausentes
 
 Cada item é uma ausência conhecida, com o risco que ela deixa aberto.
 
-- **Sem teto de requisição em `/admin/login/`, e sem política de senha.** A limitação de taxa
+- **Sem teto de requisição em `/admin/login/`.** A limitação de taxa
   existe desde a ADR 0016, e alcança as três portas: o `django-axes` conta tentativa falha em
   `/accounts/login/` e em `/admin/login/`, por conta e por origem separadamente, bloqueando por
   quinze minutos contados da última tentativa; e `config/limites.py` põe teto de requisição por
-  origem em `/accounts/login/` (60 por minuto), `/o/token/` e `/o/authorize/` (120 por minuto).
-  Faltam duas coisas. `/admin/login/` **não tem teto de requisição**: o dicionário
+  origem em `/accounts/login/` (60 por minuto), `/o/token/` e `/o/authorize/` (120 por minuto) e
+  `/o/device-authorization/` (30 por minuto).
+  Falta uma coisa: `/admin/login/` **não tem teto de requisição**. O dicionário
   `RATE_LIMIT_POR_CAMINHO` não o nomeia, de modo que ali só o axes barra, e um laço que apenas
-  carregue aquele formulário não encontra limite nenhum. E **não há política de senha**:
-  `config/settings.py` não declara `AUTH_PASSWORD_VALIDATORS`, cujo default é lista vazia, de
-  modo que nenhuma senha é recusada por ser curta, comum, numérica ou parecida com o próprio
-  identificador — os quatro defeitos que os validadores prontos do Django cobrem. É essa
-  ausência que enfraquece a aritmética do teto de cinco tentativas, o qual supõe um espaço de
-  busca inviável.
+  carregue aquele formulário não encontra limite nenhum.
+- **`DeviceGrant` acumula sem limpeza.** `/o/device-authorization/` é a única superfície
+  anônima que grava no banco: aceita POST sem sessão e sem CSRF, o oauthlib só confere que o
+  `client_id` existe, e o `client_id` da SPA é público. Cada POST responde 200 e grava uma
+  linha de `DeviceGrant`. Token nenhum sai dali — `/o/token/` recusa o grant pelo tipo da
+  Application —, e o `django-oauth-toolkit` 3.4.1 não tem setting que desligue o device flow;
+  a rota continua publicada porque vem na mesma lista do protocolo (ADR 0024). O teto de 30
+  requisições por minuto limita o custo por origem, e só isso: `clear_expired()` não apaga
+  `DeviceGrant`, e as linhas continuam acumulando a partir de origens distintas, sem nada que as
+  recolha. É dívida registrada.
+- **A política de senha só alcança a senha escolhida por tela ou por comando.**
+  `AUTH_PASSWORD_VALIDATORS` roda nos formulários do admin de adicionar conta e de alterar
+  senha, em `changepassword` e em `createsuperuser` interativo. Fora deles, é silenciosa:
+  - o login não valida, e conta cuja senha foi gravada antes da política continua entrando com
+    ela, por fraca que seja;
+  - `create_user` e `set_password` não validam, e a suíte e o `shell` passam por baixo;
+  - `createsuperuser` interativo oferece ignorar a recusa ("Bypass password validation"), e
+    `createsuperuser --noinput` não valida nada.
+
+  As contas de teste de desenvolvimento têm senha que a política recusaria, e ficam assim até o
+  passo 8 de `docs/plano-contrato-backend.md`; nenhuma conta nova nasce com essa senha. Numa
+  conta dessas, o teto de cinco tentativas volta a supor um espaço de busca que não existe.
 - **Certificado de uma CA local, e só.** O transporte é TLS desde a ADR 0017, e o
   endurecimento — cookie `Secure`, HSTS (HTTP Strict Transport Security), redirecionamento e
   `SECURE_PROXY_SSL_HEADER` — está ligado na jornada de container. O que falta é um certificado
@@ -175,8 +213,9 @@ expira por tempo e que a desativação da conta não invalida; o procedimento de
 `docs/runbook.md`.
 
 **Pessoa usuária hostil, com conta neste IdP.** Não alcança dados de outra conta pelo IdP: as
-claims saem sempre da conta autenticada, e `/admin/` exige `is_staff`. O que ela pode fazer
-hoje é registrar uma Application própria por `/o/applications/register/`, conforme a seção 3.
+claims saem sempre da conta autenticada, e `/admin/` exige `is_staff`. Também não registra
+Application: as rotas de gestão do toolkit não são montadas, e o registro é só do admin
+(seção 3).
 
 ## 6. A fronteira: o que muda antes de expor fora de `localhost`
 
@@ -185,7 +224,8 @@ fixada; ela saiu desta lista porque está de pé, conforme a seção 4. Saíram 
 de transporte e de container, implantados no mesmo bloco das ADRs 0017, 0018 e 0019: o proxy
 TLS com `BEHIND_TLS_PROXY=True` e `ALLOWED_HOSTS` composto pelo compose (ADR 0017), o
 `requirepass` no Redis e o `USER` dedicado com a posse de `/var/log/nova_api` — esses dois sem
-ADR —, e a criação de superusuário fora do `.env` (ADR 0019).
+ADR —, e a criação de superusuário fora do `.env` (ADR 0019). Saiu por último a restrição de
+quem pode registrar Application, fechada pela ADR 0024.
 A ordem do que restou é decisão pendente, registrada na seção 7.
 
 - certificado emitido por uma autoridade que o cliente já conheça, no lugar da CA interna do
@@ -205,7 +245,6 @@ A ordem do que restou é decisão pendente, registrada na seção 7.
 - coleta externa de log;
 - pin das dependências transitivas, unificando os dois pontos de resolução;
 - agendamento de `cleartokens` e `clearsessions`, hoje inexistente;
-- restrição de quem pode registrar Application;
 - confirmação da string do issuer antes da primeira RP integrar, conforme
   `docs/adr/0007-fixar-o-issuer-do-idp-em-base-url-barra-o.md`;
 - ao ligar a primeira aplicação de página única, conferir a posição do `CorsMiddleware`, cuja
@@ -214,14 +253,18 @@ A ordem do que restou é decisão pendente, registrada na seção 7.
 - `email_verified` e revogação efetiva, que são contrato com a RP e estão em
   `docs/integracao-rp.md`.
 
-## 7. Duas decisões abertas
+## 7. Decisões abertas
 
-Registradas como pendentes; nenhuma delas é resolvida por este documento.
+A 7.1 fechou com a ADR 0024 e fica registrada pelo desfecho; a 7.2 continua pendente, e este
+documento não a resolve.
 
-**7.1 — O `include` do toolkit publica rotas que o projeto não usa.** Mantém-se o `include`
-inteiro, como manda a ADR 0002 ao proibir reescrever e envelopar endpoint de protocolo, ou
-restringe-se o URLConf às rotas em uso? A tensão é entre fidelidade à biblioteca e superfície
-mínima, e a lista do que está em jogo é a tabela da seção 3.
+**7.1 — O `include` do toolkit publica rotas que o projeto não usa. Fechada.** A pergunta era
+manter o `include` inteiro, como mandava a ADR 0002 ao proibir reescrever e envelopar endpoint
+de protocolo, ou restringir o URLConf às rotas em uso. A ADR 0024 restringiu pela lista, e não
+pela rota: `management_urlpatterns` e `dcr_urlpatterns` saíram, e o que continua publicado sem
+uso — device grant, revogação e introspecção — é o preço de não copiar rota da biblioteca. O
+resultado é a tabela da seção 3. Do preço, o device grant é a parte que grava no banco, e o
+teto de requisição e a dívida que ele não cobre estão na seção 4.
 
 **7.2 — A ordem real da lista da seção 6.** O único item com posição declarada era a limitação
 de taxa, e ela saiu da lista por já estar implantada. Nenhum dos que restam tem ordem; ela é
@@ -235,7 +278,11 @@ plano.
 | PKCE obrigatório | `config/settings.py`, `PKCE_REQUIRED` | ADR 0002 |
 | Restrição a `S256` | `config/settings.py`, `COMPLIANT_BCP_RFC9700_PKCE_METHOD` | sem ADR |
 | Assinatura RS256 e custódia da chave no ambiente | `config/settings.py`, `scripts/gen_dev_key.sh` | ADR 0004 |
-| Issuer em `{BASE_URL}/o`, rotas do toolkit sob prefixo | `config/urls.py`, `config/settings.py` | ADR 0007 |
+| Issuer em `{BASE_URL}/o`, rotas do toolkit sob prefixo | `config/urls.py`, `config/settings.py` | ADR 0007; quais rotas, ADR 0024 |
+| Só as listas de protocolo do toolkit sob `/o/`; gestão de `Application` só no admin | `config/urls.py` | ADR 0024, emenda à 0002 |
+| `redirect_uri` só em `https` com `BEHIND_TLS_PROXY` | `config/settings.py`, `ALLOWED_REDIRECT_URI_SCHEMES` | sem ADR; a condição é a da ADR 0006 |
+| Política de senha na criação e na troca | `config/settings.py`, `AUTH_PASSWORD_VALIDATORS` | sem ADR |
+| CORS por origem exata, só sob `/o/` | `config/settings.py`, `CORS_ALLOWED_ORIGINS` e `CORS_URLS_REGEX` | ADR 0022, a allowlist; sem ADR, o prefixo |
 | Claims emitidas, sem `email_verified` | `accounts/oauth_validators.py` | sem ADR |
 | Logout iniciado pela RP, desligado | `config/settings.py`, `OIDC_RP_INITIATED_LOGOUT_ENABLED` | sem ADR |
 | Sessão revogável no servidor, cookie sem estado | `config/settings.py`, `SESSION_ENGINE` | ADR 0005 |
@@ -245,7 +292,8 @@ plano.
 | Trilha de auditoria dos cinco sinais, sem e-mail e sem token | `accounts/auditoria.py`, `config/settings.py`, `LOGGING` | ADR 0013, ampliada pela 0016 |
 | Origem do cliente resolvida num ponto único | `config/origem.py` | ADR 0015 |
 | Bloqueio por tentativa falha em `/accounts/login/` e `/admin/login/` | `config/settings.py`, bloco `AXES_*` | ADR 0016 |
-| Teto de requisição por origem em `/accounts/login/`, `/o/token/` e `/o/authorize/` | `config/limites.py`, `RATE_LIMIT_POR_CAMINHO` | ADR 0016 |
+| Teto de requisição por origem em `/accounts/login/`, `/o/token/` e `/o/authorize/` | `config/settings.py`, `RATE_LIMIT_POR_CAMINHO`; o mecanismo, `config/limites.py` | ADR 0016 |
+| Teto de requisição por origem em `/o/device-authorization/` | `config/settings.py`, `RATE_LIMIT_POR_CAMINHO`; o mecanismo, `config/limites.py` | sem ADR; a rota, ADR 0024 |
 | Terminação TLS no proxy, e só ele publicado em `127.0.0.1` | `docker-compose.yml`, `docker/Caddyfile` | ADR 0017, emenda à 0006 |
 | Uma réplica, migração no boot, endurecimento por variável | `docker-compose.yml`, `Dockerfile` | ADR 0006 |
 | Procedência do endereço em cada linha da trilha | `config/origem.py`, `accounts/auditoria.py` | ADR 0018 |

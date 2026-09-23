@@ -470,8 +470,8 @@ docker compose exec app python manage.py axes_reset_ip 203.0.113.10
 `axes_list_attempts` mostra o que está registrado — origem, identificador tentado e número de
 falhas —, e `axes_reset` sem argumento apaga tudo de todo mundo, evidência de ataque inclusive.
 O e-mail vai como foi digitado na tentativa, sem normalizar caixa. Os tetos de requisição de
-`/accounts/login/`, de `/o/token/` e de `/o/authorize/` não têm comando — a janela dos três
-expira em sessenta segundos, e comando nenhum acima alcança o 429 em JSON que o teto da própria
+`/accounts/login/`, de `/o/token/`, de `/o/authorize/` e de `/o/device-authorization/` não têm
+comando — a janela dos quatro expira em sessenta segundos, e comando nenhum acima alcança o 429 em JSON que o teto da própria
 tela de login devolve. Sintoma, causa e o resto do procedimento estão em `docs/runbook.md`.
 
 ## Produção — o que ainda não existe

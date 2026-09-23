@@ -44,9 +44,10 @@ O documento de descoberta responde em:
 Essa é a forma da OIDC Discovery 1.0, que concatena o sufixo ao issuer inteiro. A forma da RFC
 8414, que põe o segmento `.well-known` na raiz do host e o path do issuer no fim
 (`{BASE_URL}/.well-known/oauth-authorization-server/o`), **responde 404**. Não é falha a
-descobrir por tentativa: as rotas do servidor de autorização entram por um único `include` sob
-`/o/`, e a decisão está registrada em
-`docs/adr/0007-fixar-o-issuer-do-idp-em-base-url-barra-o.md`.
+descobrir por tentativa: as rotas do servidor de autorização, os metadados inclusive, entram
+só sob `/o/`, e nenhuma é montada na raiz. A decisão do prefixo está registrada em
+`docs/adr/0007-fixar-o-issuer-do-idp-em-base-url-barra-o.md`, e a de quais rotas entram, em
+`docs/adr/0024-montar-sob-o-so-as-listas-de-protocolo-do-django-oauth-toolkit.md`.
 
 **Derive todo endpoint da descoberta, não os codifique.** O documento traz
 `authorization_endpoint`, `token_endpoint`, `userinfo_endpoint` e `jwks_uri`, e são eles que
@@ -57,8 +58,9 @@ adiante estão aqui para tornar o texto legível, não para serem copiados para 
 
 O registro é manual, feito por uma pessoa com acesso administrativo ao IdP, em
 `/admin/oauth2_provider/application/add/`. O registro dinâmico de cliente (`/o/register/`)
-responde 404 enquanto `DCR_ENABLED` mantiver o default `False` do
-`django-oauth-toolkit`: não há como uma RP se auto-registrar nesta fase.
+responde 404, e por duas razões: a rota não é montada (ADR 0024), e `DCR_ENABLED` mantém o
+default `False` do `django-oauth-toolkit`. Não há como uma RP se auto-registrar nesta fase, nem
+registrar-se por formulário fora do admin.
 
 Quatro campos decidem se a integração funciona; um quinto decide se a pessoa vê a tela de
 consentimento:
@@ -75,7 +77,8 @@ consentimento:
 mais na URL enviada em `/o/authorize/` já basta para o servidor recusar antes de emitir
 código, e esse comportamento está fixado em `tests/test_authorize_guards.py`. Cada URL
 de retorno da RP tem de estar registrada literalmente, com esquema, host, porta e path. O
-esquema `http` é aceito além de `https`, o que permite registrar uma RP de desenvolvimento em
+esquema aceito depende da implantação: atrás do proxy de terminação TLS, só `https`; na jornada
+de construção, `http` também, o que permite registrar uma RP de desenvolvimento em
 `localhost`.
 
 O `algorithm` deixado em branco não impede a autorização: o código é emitido normalmente e a
