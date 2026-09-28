@@ -1,0 +1,212 @@
+# Override de produção: o provedor de identidade (IdP, de _Identity Provider_) servido da máquina
+# local pelo Cloudflare Tunnel, sem nenhuma porta de entrada: ADR (Architecture Decision Record)
+# 0027. Soma-se ao `docker-compose.yml`, que continua sendo o arquivo de desenvolvimento e da
+# jornada de container, e nunca é lido sozinho em produção.
+#
+# Invocação. No clone de produção, TODO comando leva os dois arquivos, digitados:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml <comando>
+#
+# Não há script, `COMPOSE_FILE`, link nem unidade de sistema que os lembre (ADR 0027,
+# "Invocação"). Num diretório de desenvolvimento, nunca `up` com este arquivo.
+#
+# Esquecer o `-f` falha fechado para a internet, e não para o host:
+#
+# - `up` sem ele recria os quatro serviços só com o arquivo base: `postgres`, `redis` e `proxy`
+#   publicados em 127.0.0.1, os quatro sem `restart:`, e o `proxy` fora da rede `borda`. O
+#   conector deixa de alcançá-lo, e a borda da Cloudflare responde erro.
+# - `down` sem ele não conhece o `cloudflared`, e nada o para: o contêiner continua de pé,
+#   órfão, e a borda responde erro enquanto ele aponta para um `proxy` que não existe. A
+#   expectativa é que o Compose avise do contêiner órfão nesse `down`, mas isso não foi medido,
+#   porque exigiria um `up` com este arquivo.
+#
+# O `name:` exige `COMPOSE_PROJECT_NAME`, e o `.env` de desenvolvimento não a tem. Rodar este
+# arquivo por engano num clone de desenvolvimento aborta antes de criar qualquer coisa, nomeando
+# a variável: a falha é intencional. É o nome que separa os projetos, porque dois clones com o
+# mesmo nome dividem contêineres e volumes.
+#
+# O SILÊNCIO DO MERGE. O Compose funde este arquivo com o base serviço a serviço, e o que o base
+# declara e este não sobrescreve vale como está. Todo serviço novo no base precisa de uma entrada
+# aqui. Sem ela, o `ports:` dele publica em 127.0.0.1 da máquina de produção, e a falta de
+# `restart:` o deixa parado depois do primeiro reboot. Nenhuma das duas coisas dá erro nem aviso.
+#
+# O SILÊNCIO DO `!reset`. `ports: []` sem a tag não esvazia nada: o Compose soma as listas, as
+# portas do base continuam publicadas, e o `config` sai sem erro. A tag exige Compose 2.24 ou
+# mais novo, e foi medida no 2.27.
+#
+# O que `restart: unless-stopped` cobre e o que não cobre. Ele faz o daemon do Docker subir de
+# novo o que estava de pé, depois de um reboot ou da queda de um processo, e o IdP volta sem
+# comando. Não cobre:
+#
+# - contêiner `unhealthy` cujo processo não sai: a política reage a processo que sai, e não ao
+#   healthcheck;
+# - a ordem do reboot: o daemon não respeita `depends_on`, e o `app` pode subir antes do
+#   `postgres` e sair na migração do entrypoint, até a política o repetir com o banco de pé;
+# - contêiner parado por `stop` antes do reboot, que continua parado;
+# - daemon desabilitado no boot da máquina, caso em que nada sobe.
+#
+# O arquivo base não ganha a política, e o desenvolvimento não sobe sozinho.
+name: ${COMPOSE_PROJECT_NAME:?defina COMPOSE_PROJECT_NAME no .env do clone de produção}
+
+services:
+  postgres:
+    ports: !reset []
+    restart: unless-stopped
+
+  redis:
+    ports: !reset []
+    restart: unless-stopped
+
+  app:
+    restart: unless-stopped
+    # DEBUG fixado aqui porque este é o único arquivo que sabe que aquilo é produção: o `.env`
+    # não sabe, e `DEBUG=True` ligado nele para diagnosticar poria na internet, pelo túnel, as
+    # páginas 404 com as rotas e as 500 com as variáveis locais. `environment:` prevalece sobre
+    # o `env_file:` e se funde ao mapa do base, e ligar DEBUG em produção passa a exigir editar
+    # este arquivo versionado, de propósito. As aspas são obrigatórias, como em
+    # `BEHIND_TLS_PROXY` no base: o valor chega como texto a `env.bool("DEBUG")`.
+    environment:
+      DEBUG: "False"
+
+  proxy:
+    # Produção não publica porta nenhuma: a entrada é o túnel, que chega pela rede `borda`.
+    ports: !reset []
+    restart: unless-stopped
+    # `default` para alcançar o `app`; `borda` para ser alcançado pelo conector.
+    networks:
+      - default
+      - borda
+
+  cloudflared:
+    # Pin de versão exata, pelo mesmo motivo do `caddy:2.11.4` no arquivo base: o nível de cada
+    # flag abaixo e o uid (identificador de usuário) que lê as credenciais foram medidos nesta
+    # versão, e uma tag móvel os trocaria num `pull`, sem ninguém editar arquivo nenhum. A
+    # 2026.9.3 foi lançada em 2026-09-24, e a janela de suporte da Cloudflare conta a partir
+    # dessa data: o pin sobe antes de ela se fechar (ADR 0027, "Manutenção"). Subir o pin é
+    # remedir o `--help` de `tunnel` e de `tunnel run` e o `.Config.User` da imagem, e repetir
+    # as medições de origem do ensaio, e não ler a nota de versão.
+    image: cloudflare/cloudflared:2026.9.3
+    restart: unless-stopped
+    # O entrypoint da imagem é `cloudflared --no-autoupdate`, e esta lista substitui só o
+    # `version` que vem depois dele. O `--no-autoupdate` repetido no nível `tunnel` deixa a
+    # desativação da atualização automática explícita neste arquivo, em vez de depender de um
+    # entrypoint que outra versão pode trocar: um conector que se atualiza sozinho desfaz o pin.
+    #
+    # Forma de lista, sem shell (a imagem não tem um), e a interpolação é do Compose.
+    #
+    # O NÍVEL DE CADA FLAG. O parser do `cloudflared` aceita uma flag só no nível que a declara e
+    # para de ler flags no primeiro argumento posicional. Por isso o `TUNNEL_ID` é o ÚLTIMO item,
+    # e isso é necessidade.
+    #
+    # As flags da origem depois de `run` são escolha, e não necessidade do parser: o
+    # `tunnel --help` desta versão também as lista, e no nível `tunnel` elas são aceitas e
+    # aparecem na linha `Settings:` do log. Aparecer ali não prova que sejam aplicadas. Ficam no
+    # nível documentado do comando que as usa, o `tunnel run --help`.
+    #
+    # O erro de posição só é ruidoso no log. Medido nesta versão: flag depois do identificador
+    # aborta com "accepts only one argument" e código 255, e flag que o nível não declara sai
+    # com "flag provided but not defined" e código 0. Sob `unless-stopped`, esse segundo caso é
+    # um laço de reinício em que o código de saída mostra sucesso. A linha `Settings:` do log
+    # mostra cada flag que o conector aceitou.
+    #
+    # O silencioso é a flag que falta, e o que segue é expectativa, não medida: o ensaio não
+    # alcançou a borda. Sem `--origin-server-name`, o conector deve apresentar o nome `proxy` na
+    # indicação de nome do servidor (SNI, de _Server Name Indication_), e o Caddy, que só tem
+    # certificado para `PUBLIC_HOST`, deve recusar o handshake; a borda responderia erro sem
+    # sinal nenhum no host fora dos logs do conector. Quem vai conferir a cadeia de ponta a
+    # ponta é o Passo 4 de `docs/plano-implantacao.md`.
+    #
+    # A origem é `https://proxy:443` porque o site do Caddy só atende HTTPS (HTTP, de
+    # _Hypertext Transfer Protocol_, sobre TLS, de _Transport Layer Security_) no nome público
+    # e responde 308 na porta 80. `--http-host-header` entrega esse mesmo nome no `Host`, que o
+    # Caddy usa para escolher o site e o Django compara com `ALLOWED_HOSTS`. `--no-tls-verify`
+    # porque o certificado é da autoridade certificadora interna do Caddy (`tls internal`), que
+    # o conector não conhece; o salto é interno à máquina.
+    command:
+      [
+        "tunnel",
+        "--no-autoupdate",
+        "run",
+        "--credentials-file",
+        "/etc/cloudflared/credenciais.json",
+        "--url",
+        "https://proxy:443",
+        "--origin-server-name",
+        "${PUBLIC_HOST:?defina PUBLIC_HOST no .env}",
+        "--http-host-header",
+        "${PUBLIC_HOST:?defina PUBLIC_HOST no .env}",
+        "--no-tls-verify",
+        "${TUNNEL_ID:?defina TUNNEL_ID no .env do clone de produção}",
+      ]
+    # SEM `environment:` e SEM `env_file:`, e a ausência é o controle. O `cloudflared` lê como
+    # flag toda variável `TUNNEL_*` do próprio ambiente, e um `env_file: .env` entregaria ao
+    # conector a `SECRET_KEY`, a `OIDC_RSA_PRIVATE_KEY` e as senhas, que ele não usa. Tudo o que
+    # ele recebe está na linha de comando acima.
+    #
+    # SEM `ports:`: o conector só disca para fora. SEM `depends_on`: o daemon não o respeita no
+    # reboot, e enquanto o `proxy` não existe a borda responde 502, o que é ruidoso. SEM
+    # `healthcheck`: a imagem não tem shell (medido: `/bin/sh` não existe) com que sondar.
+    volumes:
+      # As credenciais do túnel, em JSON (JavaScript Object Notation), montadas por diretório e
+      # somente-leitura. Quem as tem recebe o tráfego do domínio do IdP: são segredo da classe
+      # da `OIDC_RSA_PRIVATE_KEY`, com backup cifrado fora da máquina e rotação conforme a ADR
+      # 0027.
+      #
+      # Sintaxe longa por causa de `create_host_path: false`. Na forma curta, `./cloudflared`
+      # ausente faz o daemon criar no host um diretório vazio de root; o conector sobe, não acha
+      # as credenciais e sai em laço, e a borda responde 1033 sem sinal nenhum no host. Assim,
+      # o contêiner não chega a ser criado, e o erro nomeia o caminho: medido no Compose 2.27,
+      # `bind source path does not exist: <clone>/cloudflared`. Nessa versão, `false` já é o
+      # padrão da sintaxe longa, e o `config` nem imprime a chave; a linha explícita fixa a
+      # intenção contra uma mudança de padrão.
+      #
+      # Dono e modo: o usuário de desenvolvimento, `0644` no arquivo e `0755` no diretório, sem
+      # `chown` e sem `user:`. O `.env` do mesmo clone guarda segredo da mesma classe sob a
+      # mesma barreira, o modo de um diretório ancestral do clone, e quem está no grupo `docker`
+      # equivale a root ("Mesmo privilégio", ADR 0027); restringir só este arquivo não ergue
+      # barreira nova. Quem lê é o uid 65532, não-root, da imagem, e para ele o arquivo precisa
+      # ser legível por todos.
+      #
+      # A BARREIRA É PRÉ-CONDIÇÃO, e não fato garantido. Ela só existe se ao menos um ancestral
+      # do clone de produção estiver fechado para "outros". O "Mesmo privilégio" da ADR 0027
+      # cobre os processos do usuário de desenvolvimento, e não os outros uids do host. Num clone
+      # sob `/srv` ou `/opt` com todos os pais em 0755, e com o `.env` também em 0644 pela umask
+      # 022, qualquer uid de serviço do host lê as credenciais do túnel, a
+      # `OIDC_RSA_PRIVATE_KEY` e a `SECRET_KEY`, sem erro nem aviso. Confere-se com
+      # `namei -l <clone>/cloudflared/credenciais.json`: ao menos uma linha de diretório
+      # ancestral sem permissão para "outros".
+      #
+      # O SILÊNCIO DO MODO. O JSON entregue por quem opera pode chegar legível só pelo dono.
+      # Copiado assim, sem `chmod 0644`, o conector não o lê e sai, a política de reinício o
+      # repete em laço, e o único sinal fora de `docker compose logs cloudflared` é o erro 1033
+      # na borda.
+      - type: bind
+        source: ./cloudflared
+        target: /etc/cloudflared
+        read_only: true
+        bind:
+          create_host_path: false
+    # Só na `borda`: o conector alcança o `proxy` e nada mais do compose. O endereço é fixo
+    # porque é nele que o `docker/Caddyfile` confia para ler `CF-Connecting-IP`. O Caddyfile é
+    # a fonte do valor, e este literal é cópia à mão, sem variável que una os dois; o que
+    # acontece quando divergem está descrito lá, no silêncio da confiança. A suíte compara os
+    # dois literais (`tests/test_borda_do_tunel.py`).
+    networks:
+      borda:
+        ipv4_address: 10.203.14.200
+
+networks:
+  # Rede própria do conector e do `proxy`. Sub-rede fixa fora dos pools padrão do Docker e da
+  # rede local do host, para que o endereço do conector seja sempre o mesmo. O `ip_range` é a
+  # faixa de alocação dinâmica, de `.2` a `.126`, de onde o `proxy` recebe endereço; o `.200`
+  # fica fora dela de propósito, e o `proxy` nunca o toma.
+  #
+  # Sem `name:` fixo: o nome deriva do projeto, e o ensaio e a produção ganham redes distintas.
+  # Os dois não coexistem na mesma máquina, porque a sub-rede colide, e o segundo `up` para com
+  # "Pool overlaps", o que é ruidoso. Sem `internal: true`, porque o conector sai para a
+  # Cloudflare por ela.
+  borda:
+    ipam:
+      config:
+        - subnet: 10.203.14.0/24
+          ip_range: 10.203.14.0/25

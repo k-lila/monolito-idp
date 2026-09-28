@@ -331,9 +331,11 @@ inteiro estão em `docs/receita.md`; elas não são cosméticas.
 de compose, um túnel. As duas portas são publicadas em `127.0.0.1` pelo serviço `proxy`, e são
 as únicas portas da aplicação — o `app` deixou de publicar a 8000 (ADR 0017).
 
-**Correção.** Libere a porta, ou edite as duas publicações no `docker-compose.yml`. Não são
-variáveis, e isso é deliberado: o endereço de publicação é a decisão que separa "só este host"
-de "exposto", e não deve caber num valor de ambiente.
+**Correção.** Libere a porta, ou edite as duas publicações no `docker-compose.yml`, mantendo o
+endereço `127.0.0.1`. Não são variáveis, e isso é deliberado: o endereço de publicação é a
+decisão que separa "só este host" de "exposto", e não deve caber num valor de ambiente. Expor
+também não é editar o arquivo base: é o override `docker-compose.prod.yml`, invocado com `-f`
+na instância (ADR 0026).
 
 **O que este sintoma deixou de ser.** Um `runserver` de pé na 8000 já não colide com nada: as
 duas jornadas convivem na mesma máquina, uma em `localhost:8000` e a outra em

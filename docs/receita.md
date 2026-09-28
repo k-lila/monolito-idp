@@ -67,7 +67,7 @@ documento, em "Produção — o que ainda não existe".
 
 **A forma do issuer de produção está congelada pela ADR 0025: `https://<PUBLIC_HOST>/o`.** O nome
 não entra no repositório: vive só no `.env` da instância e no painel da Vercel, e é escolhido no
-passo 8 de `docs/plano-contrato-backend.md`. A partir do primeiro login de produção ele é
+passo 6 de `docs/plano-implantacao.md`. A partir do primeiro login de produção ele é
 permanente, porque o issuer fica cacheado do outro lado
 (`docs/adr/0007-fixar-o-issuer-do-idp-em-base-url-barra-o.md`).
 
@@ -485,12 +485,16 @@ Quatro itens desta lista saíram dela com o proxy: `BASE_URL`, `BEHIND_TLS_PROXY
 `ALLOWED_HOSTS` passaram a ser derivados de `PUBLIC_HOST` pelo próprio compose, e a porta do
 `app` deixou de ser publicada. O que continua sendo diferença:
 
-- **O endereço de publicação do proxy.** Hoje `127.0.0.1:80` e `127.0.0.1:443`; expor é editar
-  esses dois endereços à mão, no `docker-compose.yml`. Deliberadamente não é variável
-  (`docs/adr/0017-terminar-o-tls-num-proxy-declarado-no-compose.md`).
-- **O certificado.** Sai da CA interna do Caddy, que nenhum cliente de fora conhece. Trocar
-  por um de verdade é trocar a diretiva `tls internal` de `docker/Caddyfile`; deixar de trocá-la
-  ao expor faz o Caddy tentar ACME contra a internet (`docs/runbook.md`).
+- **O endereço de publicação do proxy.** Hoje `127.0.0.1:80` e `127.0.0.1:443`. Expor não é
+  editar esses dois endereços no `docker-compose.yml`, nem trocá-los por variável: é invocar, na
+  instância, o override `docker-compose.prod.yml` com `-f`
+  (`docs/adr/0026-expor-o-idp-na-aws-por-um-salto-de-proxy-so-com-acme-e-80-443-fora-de-loopback.md`,
+  que emenda a 0017). O override entra no passo 3 de `docs/plano-implantacao.md`.
+- **O certificado.** Sai da CA interna do Caddy, que nenhum cliente de fora conhece. O público
+  vem por ACME (ADR 0026), e o passo 7 do plano condiciona a diretiva `tls internal` de
+  `docker/Caddyfile` por ambiente. Retirá-la sem expor faz o Caddy tentar ACME contra a internet
+  e falhar (`docs/runbook.md`, seção 19); mantê-la ao expor serve em produção um certificado que
+  nenhum cliente aceita.
 - **O nome em `PUBLIC_HOST`.** Com ele muda o `issuer`, que é `{BASE_URL}/o` e fica cacheado em cada
   RP (`docs/adr/0007-fixar-o-issuer-do-idp-em-base-url-barra-o.md`). E o HSTS de um ano marca o
   navegador de quem visitar: trocar de nome depois exige limpar esse estado em cada navegador. A

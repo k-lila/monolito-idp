@@ -258,7 +258,7 @@ denuncia. Em desenvolvimento, as duas implantações publicam em `127.0.0.1`, e 
 jornada de container sai da autoridade interna descrita abaixo. Em produção o proxy é publicado
 fora de loopback, pelo override de compose da ADR 0026, com certificado público por ACME
 (Automatic Certificate Management Environment), e o que segue sobre a autoridade interna não se
-aplica. O override e o certificado público entram no passo 7 de `docs/plano-contrato-backend.md`;
+aplica. O override e o certificado público entram no passo 3 de `docs/plano-implantacao.md`;
 até lá, o proxy publica em `127.0.0.1` e o `docker/Caddyfile` emite pela CA interna (`tls
 internal`), a descrita abaixo. O que o IdP protege e o que não protege quando exposto está em
 `docs/seguranca.md`.

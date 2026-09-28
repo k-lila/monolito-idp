@@ -25,7 +25,7 @@ Tudo o que está decidido neste repositório descansa sobre uma premissa única:
   continua falando texto claro na rede interna, e só o proxy o alcança;
 - pessoas usuárias com conta criada no admin (ADR 0023), além de quem opera a máquina.
 
-O override e o certificado público entram no passo 7 de `docs/plano-contrato-backend.md`; até
+O override e o certificado público entram no passo 3 de `docs/plano-implantacao.md`; até
 lá, o proxy publica em `127.0.0.1` e o `docker/Caddyfile` emite pela CA interna (`tls internal`).
 
 Isso não é provisório por descuido: é premissa de várias decisões registradas. O que o IdP
@@ -135,8 +135,7 @@ justamente o que a ADR 0019 tirou do caminho.
 | `docs/seguranca.md` | o que o IdP protege, o que não protege e o que muda antes de ele sair de `localhost` |
 | `docs/testes.md` | o que a suíte cobre, em que nível, com que rastreabilidade, e o que ficou de fora |
 | `docs/esboco.md` | o que é um IdP e por que cada tecnologia do núcleo, com prós e contras |
-| `docs/contrato-backend.md` | o que este IdP deve oferecer, configurar e decidir para a `nova_api_SPA` fechar o fluxo contra ele |
-| `docs/plano-contrato-backend.md` | em que ordem cumprir esse contrato, com prós, contras e alternativas de cada passo |
+| `docs/plano-implantacao.md` | o contrato com a `nova_api_SPA` e os passos até produção, cada um com a sua checklist |
 | `CLAUDE.md` | as regras de trabalho deste repositório |
 
 As decisões de arquitetura vivem em `docs/adr/`, uma por arquivo e imutáveis depois de aceitas.

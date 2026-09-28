@@ -1,6 +1,11 @@
 # Segredos. O .env carrega SECRET_KEY e OIDC_RSA_PRIVATE_KEY; *.pem é a chave do passo 03.
 .env
 *.pem
+# Credenciais do túnel da Cloudflare, só no clone de produção, pela ADR (Architecture Decision
+# Record) 0027: quem as tem recebe o tráfego do domínio do provedor de identidade (IdP, de
+# _Identity Provider_), e são segredo da classe da OIDC_RSA_PRIVATE_KEY. A regra barra o
+# diretório inteiro, e não só o JSON, para que um arquivo de outro nome também fique fora.
+cloudflared/
 
 # Python
 __pycache__/

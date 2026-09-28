@@ -119,15 +119,19 @@ services:
 
   proxy:
     # Pin de versão exata, e não a tag móvel `caddy:2`, porque uma PROPRIEDADE DE SEGURANÇA
-    # repousa num default medido nesta versão: o `reverse_proxy` com `trusted_proxies` vazio
-    # SUBSTITUI o `X-Forwarded-For` de quem chega, em vez de anexar. É disso que
-    # `TRUSTED_PROXY_COUNT = 1` depende do outro lado, em `config/origem.py` (ADR 0015). Uma
-    # versão futura que passasse a confiar em quem chega de faixa privada faria do gateway da
-    # bridge um par confiável, e o `X-Forwarded-For` forjado pelo cliente atravessaria até a
-    # trilha de auditoria e até a chave do limitador de taxa — sem erro, sem log e sem teste
-    # vermelho. Com a tag móvel, um `docker compose pull` bastaria para produzir isso sem
-    # ninguém editar linha nenhuma. Subir o pin é, portanto, remedir o default do
-    # `reverse_proxy`, e não ler a nota de versão.
+    # repousa em dois comportamentos medidos nesta versão e registrados no `docker/Caddyfile`:
+    #
+    # - o `header_up` prevalece sobre o `X-Forwarded-For` e o `X-Forwarded-Proto` que o
+    #   `reverse_proxy` monta por conta própria. Invertido, o conector confiável da produção
+    #   (ADR 0027) faria o Caddy anexar o que o cliente escreveu, e `TRUSTED_PROXY_COUNT = 1`,
+    #   em `config/origem.py` (ADR 0015), leria um valor forjado;
+    # - `{client_ip}` só lê `CF-Connecting-IP` do par declarado em `trusted_proxies`.
+    #   Invertido, qualquer par forjaria a origem escrevendo o cabeçalho.
+    #
+    # Nos dois casos, a origem forjada atravessaria até a trilha de auditoria e até a chave do
+    # limitador de taxa, sem erro, sem log e sem teste vermelho. Com a tag móvel, um
+    # `docker compose pull` bastaria para produzir isso sem ninguém editar linha nenhuma.
+    # Subir o pin é, portanto, remedir os dois comportamentos, e não ler a nota de versão.
     image: caddy:2.11.4
     depends_on:
       - app

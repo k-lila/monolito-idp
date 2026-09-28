@@ -49,6 +49,7 @@
 | 2026-09-22 | Montar sob `/o/` só as listas de protocolo do toolkit (metadata, base, oidc); emenda à 0002 | [0024](../../docs/adr/0024-montar-sob-o-so-as-listas-de-protocolo-do-django-oauth-toolkit.md) |
 | 2026-09-23 | Congelar a forma do issuer de produção em `https://<PUBLIC_HOST>/o`, sem literal de domínio versionado; cumpre a condição da 0007 — contraparte: SPA 0017 | [0025](../../docs/adr/0025-congelar-o-issuer-de-producao-na-forma-https-public-host-barra-o.md) |
 | 2026-09-23 | Expor na AWS por um salto de proxy só, ACME, 80/443 fora de loopback por override invocado com `-f`; emenda à 0017 — contraparte: SPA 0016 | [0026](../../docs/adr/0026-expor-o-idp-na-aws-por-um-salto-de-proxy-so-com-acme-e-80-443-fora-de-loopback.md) |
+| 2026-09-24 | Servir o IdP de produção da máquina do dono pelo Cloudflare Tunnel, sem porta de entrada, com zona própria e túnel entregue por quem opera; **proposta** — substitui a 0026 e emenda a 0017 e a 0020 quando aceita — contraparte: SPA 0018 | [0027](../../docs/adr/0027-servir-o-idp-de-producao-da-maquina-local-pelo-cloudflare-tunnel-sem-porta-de-entrada.md) |
 
 ---
 
@@ -163,4 +164,145 @@ texto final antes da gravação.
 - **Prova:** 138 testes OK na jornada de construção nas duas passagens do `quality-assurance`;
   só `.md` mudou. Verificação final do orquestrador: nenhuma frase antiga restante, nenhum literal
   de domínio, nenhuma linha acrescentada acima de 100 colunas, citação da 0017 literal na 0026.
+- **Tipo:** decisão, tech-debt e apontamento adiado.
+
+## [2026-09-24] TASK-021 · Passo 1 do plano de implantação: ADRs 0027 e SPA 0018 propostas
+
+Rota `/scaffold` (escolhida pelo usuário pela sequência de agentes), aberta em 2026-09-24. Só
+documentação: ADR 0027 criada, `docs/plano-implantacao.md` revisto, `CLAUDE.md` (Passo 1 fechado)
+e, na SPA, a ADR 0018 criada. Quatro rodadas de architect → writer → QA/senso-critico.
+
+- **Decisão (usuário): domínio próprio com zona Cloudflare só do IdP.** Pseudo IPv4 e Bot Fight
+  Mode valem para a zona inteira.
+- **Decisão (usuário): o túnel é de quem opera.** Túnel de produção e de ensaio, com a rota de DNS,
+  são criados fora do repositório e entregues como `TUNNEL_ID` + JSON de credenciais; o plano só
+  consome. Nada de outro projeto (`user-service`) é usado, testado, revogado nem citado.
+- **Decisão (usuário): responsabilidade do projeto restrita a código e documentação.** Cada passo
+  do plano tem linha "Responsável"; a §4 registra a regra.
+- **Decisão (usuário): aceite de risco em 2026-09-24** da borda vendo o `sessionid` do
+  superusuário, com a persistência por `/admin/` — registrado no Status da 0027.
+- **Decisão (usuário): o Apêndice A do plano virou ponteiro** para a ADR; o arquivo da ADR vale.
+- **Aplicado nas ADRs e no plano:** `restart: unless-stopped` só no override; alíneas Restauração
+  (nome de projeto trocado, dev derrubado) e Migração (um conector só); roteiro de vazamento da
+  chave com revisão de contas `is_staff`/`is_superuser` e `Application` também sobre banco
+  restaurado, e backups anteriores inválidos; 0018 alinhada à ADR 0013 da SPA (rotação de chave
+  derruba o login por até 1–2 h); `sessionid` na lista de riscos; desmonte do ensaio com `down -v`
+  antes; Pronto do Passo 5 conferindo os roteiros no runbook; siglas.
+- **Descartados por decisão do usuário:** todo apontamento sobre o `cert.pem`, o túnel, a zona ou
+  a revogação do `user-service` (senso-critico B, O2, O3, OB2; architect rodada 3); `tunnel login`
+  com `HOME` temporário e `--origincert` (N1), sem objeto com o túnel entregue; revogação do
+  `cert.pem` de produção no 6.1.
+- **Adiados, com dono:**
+  - Passo 3: proprietário e permissão de `cloudflared/credenciais.json` (uid 65532 do contêiner) —
+    já anotado no plano.
+  - Passo 4 (ensaio): flags `--url` servem ou recuo para `config.yml` com `ingress:`; agregação do
+    /64 pelo Pseudo IPv4; `run --rm` com `restart:` (6.3 provisório até lá); sub-rede fixa da
+    `borda` impede ensaio ao lado de produção.
+  - Passo 5: roteiros no `docs/runbook.md`; configurações da zona no `README.md`;
+    `nova_api_SPA/CLAUDE.md` ainda cita a AWS (linhas 9 e 15) e não está na lista do Passo 5.
+  - Manutenção: fim de suporte do `cloudflared` fixado e termos do plano gratuito sem observação.
+  - SPA, tarefa própria: comentário de `src/auth/idToken.ts:11` contradiz a ADR 0013 da SPA.
+- **Rejeitados:** linhas acima de 100 colunas que são caminhos (não quebráveis); caminhos do plano
+  relativos à raiz do `nova_api` (convenção do arquivo); caminho textual do plano na 0018
+  (cosmético).
+- **Prova:** QA de conformidade nas quatro rodadas; diffs contra cópias prévias; `grep` sem
+  `user-service`/`cert.pem`; 0026 e ADRs aceitas da SPA intocadas no git. Suíte não rodou
+  (Postgres/Redis parados); só `.md` mudou.
+- **Tipo:** decisão, tech-debt e apontamento adiado.
+
+## [2026-09-24] TASK-022 · Passo 2 do plano de implantação: Caddy confia no endereço real
+
+Rota `/feature`, aberta e fechada em 2026-09-24. Código: só `docker/Caddyfile`. Documentação:
+`docs/plano-implantacao.md` (Passo 2 fechado; notas nos Passos 3 a 6), `CLAUDE.md` (passos 1 e 2
+fechados) e a ADR 0027, ainda Proposta, corrigida no sinal de colapso. Fases: product-manager →
+architect → writer → QA → writer → QA → senso-critico → architect → writer.
+
+- **Decisão (architect): literal do conector `10.203.14.200/32`**, na sub-rede da `borda`
+  `10.203.14.0/24` com `ip_range` `10.203.14.0/25`: fora dos pools padrão do Docker, da LAN do
+  host (192.168.0.0/24) e da alocação dinâmica. O `docker/Caddyfile` é a fonte do valor; o Passo 3
+  o copia. A ADR 0027 registra só os critérios, não o valor, para não virar terceira cópia.
+- **Decisão (architect): `header_up X-Forwarded-Proto {scheme}`.** Com o conector confiável, o
+  Caddy repassaria o `X-Forwarded-Proto` dele ao Django (`SECURE_PROXY_SSL_HEADER`). Medido: sem o
+  `set`, `http` vindo do .200 dá 301; com ele, 200. O aviso "Unnecessary header_up" do Caddy é
+  falso para o par confiável, e o comentário o registra.
+- **Decisão (usuário): corrigir a ADR 0027 agora**, enquanto Proposta: alínea Origem, Emenda à
+  0020 e negativa Colapso silencioso. O sinal de colapso é o mesmo `ip` em linhas de clientes de
+  redes distintas, com `ip_edge` `peer`; o `ip` é o literal só quando falta o cabeçalho, e o
+  endereço real do conector quando ele diverge do literal (medido com vizinho .201).
+- **Decisão (usuário): notas no plano** — forja de `CF-Connecting-IP` testada no Passo 4 em três
+  formas (valor único, linha duplicada, lista com vírgula); Apache do host na porta 80 faz o `up`
+  do arquivo base falhar alto (Passo 6); roteiro de colapso exige segundo cliente em outra rede
+  (Passo 5).
+- **Aceitos:** linha em branco do topo removida (`caddy fmt` limpo); exemplo do celular em dados
+  móveis no Passo 5 (acréscimo do writer); "nenhuma linha com o IP do `cloudflared`" no Passo 4
+  fica como condição necessária, ao lado do sinal por clientes distintos.
+- **Adiados, com dono:**
+  - Passo 3: comentário do pin no serviço `proxy` de `docker-compose.yml` (~120-129) ainda diz
+    "`trusted_proxies` vazio"; teste que compare o /32 do Caddyfile com o `ipv4_address` do
+    `cloudflared` no override, com exceção registrada em `docs/testes.md` (QA emite o T-NN).
+  - Passo 5: `docs/runbook.md` seção 14 afirma que o Caddyfile não traz `trusted_proxies`.
+  - Passo 4: a borda sobrescrever `CF-Connecting-IP` é premissa externa não medida.
+  - Remedição do pin do Caddy com rede temporária não roda com produção de pé (sub-rede ocupada).
+- **Rejeitados (senso-critico, descartados por ele mesmo):** `CF-Connecting-IP` com lixo ou IPv6,
+  `{scheme}` diferente de https, `X-Forwarded-Host` (Django não o lê).
+- **Prova:** `caddy adapt` e `caddy fmt` limpos no `caddy:2.11.4`; jornada de container com
+  `ip_edge=gateway` e forja do host ignorada; rede temporária 10.203.14.0/24: 121º POST em
+  `/o/token/` com A → 429, B não; do .200, trilha `ip=A`, `peer`, `X-Forwarded-For` de um valor
+  só (sem o `set`: anexação); vizinho .201 não forja; descoberta e JWKS iguais byte a byte a HEAD;
+  suíte 138 OK nas duas jornadas. O QA usou override temporário de portas (8080/8443) por causa do
+  Apache na porta 80.
+- **Tipo:** decisão, tech-debt e apontamento adiado.
+
+## [2026-09-24] TASK-023 · Passo 3 do plano de implantação: override de produção e conector
+
+Rota `/feature`, aberta e fechada em 2026-09-24. Código: `docker-compose.prod.yml` (novo),
+`docker-compose.yml` (só o comentário do pin do `proxy`), `.env.example`, `.gitignore`,
+`.dockerignore`. Teste: `tests/test_borda_do_tunel.py` (T-01, T-02). Documentação:
+`docs/testes.md`, `docs/plano-implantacao.md` (Passo 3 fechado; notas nos Passos 4, 5 e 6) e
+`CLAUDE.md` (passos 1 a 3 fechados). Sem ADR nova. Fases: product-manager → architect → writer →
+QA → writer + tester → QA → tester → senso-critico → writer + tester → writer.
+
+- **Decisão (architect): override só com topologia da ADR 0027** — `name:` de
+  `COMPOSE_PROJECT_NAME`, `ports: !reset []`, `restart: unless-stopped` nos cinco, rede `borda`
+  sem `name:` fixo, `cloudflared` só na `borda` em `10.203.14.200`, sem `env_file`, `environment`,
+  `depends_on`, `healthcheck` nem `ports`; volume de diretório, sintaxe longa, `read_only`,
+  `create_host_path: false`.
+- **Decisão (writer, medida): pin `cloudflare/cloudflared:2026.9.3`**, lançado em 2026-09-24,
+  uid 65532:65532, entrypoint `cloudflared --no-autoupdate`. `TUNNEL_ID` por último por
+  necessidade do parser; flags de origem depois de `run` por escolha. Flag não declarada sai com
+  código 0; flag após o identificador, com 255.
+- **Decisão (usuário): credenciais com dono de dev, 0644/0755**, sem `chown` nem `user:`, com a
+  pré-condição (R1 do senso-critico) de um ancestral do clone fechado para "outros", conferida
+  por `namei -l`; registrada no override e no Passo 6.
+- **Decisão (usuário): `DEBUG: "False"` fixado no `app` só no override** (R3).
+- **Decisão (QA, autorizada pelo usuário): teste de guarda** — T-01 igualdade do `/32` do
+  Caddyfile com o `ipv4_address`; T-02 endereço dentro da `subnet` e fora do `ip_range` (R4).
+  Primeira leitura de arquivo de infraestrutura pela suíte, registrada em `docs/testes.md`.
+- **Decisão (usuário): checklists leem `config` por campo** (R5): a saída inteira expande o
+  `env_file` e imprime `OIDC_RSA_PRIVATE_KEY`, `SECRET_KEY` e senhas.
+- **Aceitos:** `cloudflared/` no `.dockerignore`, fora da lista original (o `COPY . .` levaria as
+  credenciais à imagem); bloco de produção do `.env.example` comentado (descomentado num `.env`
+  de dev juntaria os projetos, e `down -v` apagaria o `pgdata` de produção); comentários do
+  override corrigidos para separar o medido do esperado; siglas nos ignores; redação e rótulo
+  `TASK-023/T-01` do teste; AC-16 lido como "nenhum `.py` de produção"; cópia dos segredos no
+  scratchpad (`prod-config.json`) destruída com `shred` pelo orquestrador.
+- **Adiados, com dono:**
+  - Passo 4: SNI e `Host` de ponta a ponta; flag de origem de fato aplicada; `restart:` com
+    `run --rm` do `createsuperuser`.
+  - Passo 5: R2 (`--http-host-header` faz `PUBLIC_HOST` esquecido como `idp.localhost` responder
+    200 coerente; guarda é o issuer nos Passos 4 e 6); R6 (prazo de suporte do pin como
+    data-limite no runbook); sub-rede fixa como guarda involuntária contra `COMPOSE_PROJECT_NAME`
+    trocado ("Pool overlaps"); ADR 0027 "Esquecer o `-f`" — o `down` sem `-f` não para o
+    `cloudflared`, que fica de pé porque nada o parou, e `unless-stopped` o traz de volta após
+    reboot; comentário das portas do `proxy` no base (ADR 0017).
+  - Sem dono de passo: nada guarda o `DEBUG: "False"` do override além do `jq`; candidato a T-NN
+    se o QA decidir. Pin recém-lançado (30 min após 2026.9.2): o ensaio do Passo 4 roda esse pin.
+- **Resíduos no host, deixados:** `busybox:latest` (pode não ser da tarefa) e uma imagem
+  `<none>` do rebuild. `cloudflare/cloudflared:latest` é anterior e alheia à tarefa.
+- **Prova:** `config` combinado por campo — nome, nenhum `ports`, redes, `restart` nos cinco,
+  `DEBUG` = `False`, aborto nomeando `COMPOSE_PROJECT_NAME` e `TUNNEL_ID`; hash do `config` do base
+  `979614da…3007` igual ao de antes; ensaio isolado em rede `--internal` com JSON de mentira
+  (flags aceitas, 0644 lido e 0600 recusado pelo uid 65532, sem alcançar a Cloudflare);
+  `/app/cloudflared` fora da imagem; `ports: []` sem `!reset` mantém as portas; bind longo recusa
+  caminho ausente; T-01 e T-02 vermelhos provados fora da suíte; suíte 140 OK nas duas jornadas.
 - **Tipo:** decisão, tech-debt e apontamento adiado.

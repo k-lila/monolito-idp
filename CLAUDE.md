@@ -29,12 +29,12 @@ decisões, não licença para decidir de qualquer jeito: as decisões já tomada
   `SECRET_KEY` do projeto: `git clean -xd` apaga a identidade do IdP, e nenhum `reset` a
   restaura.
 - A primeira RP é a `nova_api_SPA`, e a integração em desenvolvimento está fechada contra
-  este IdP real (passos 1 a 4 de `docs/plano-contrato-backend.md`). O que a SPA consome e o
-  que este projeto lhe deve estão em `docs/contrato-backend.md`; o caminho até a exposição na
-  AWS são os passos 5 a 9 do plano. Os passos 5 e 6 estão fechados (ADRs 0024, 0025 e 0026): a
+  este IdP real. O que a SPA consome, o que este projeto lhe deve e o caminho até produção estão
+  em `docs/plano-implantacao.md`. O endurecimento e as ADRs 0024, 0025 e 0026 estão fechados: a
   forma do issuer de produção está congelada, e a premissa de loopback deixou de valer para o
-  proxy em produção com a aceitação da 0026. Os passos 7 a 9 aplicam a decisão, e nenhum
-  começou.
+  proxy em produção com a aceitação da 0026. A rota em curso troca a AWS pela máquina local com
+  Cloudflare Tunnel (ADR 0027, proposta); os passos 1 a 7 do plano a aplicam, e os 1 a 3 estão
+  fechados.
 
 ## Como se escreve código aqui
 
@@ -87,8 +87,7 @@ teste no `requirements.txt`. O que cada arquivo de teste cobre é de `docs/teste
   fluxos em si estão em `.claude/commands/`.
 - `README.md` — o mapa dos documentos e o arranque mínimo.
 - `docs/arquitetura.md` — os módulos, a fronteira entre eles e o índice das ADRs.
-- `docs/contrato-backend.md` — o contrato com a `nova_api_SPA`: o que não pode mudar, o que
-  falta configurar e a checklist por ambiente. `docs/plano-contrato-backend.md` — a ordem de
-  cumpri-lo, passo a passo. `../pre-deploy.md` — os dois lados consolidados antes do deploy.
+- `docs/plano-implantacao.md` — o contrato com a `nova_api_SPA` (o que não pode mudar, o que
+  ela exige) e os passos até produção, cada um com a sua checklist. `../pre-deploy.md` — os dois lados consolidados antes do deploy.
 - `.claude/settings.json` — exige confirmação para `Edit` e `Write` em `.claude/**` e
   `docs/adr/**`. Escrita por `Bash` passa por baixo: é compromisso, não barreira.

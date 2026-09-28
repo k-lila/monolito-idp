@@ -2,6 +2,11 @@
 .env
 # Chave privada do passo 03: o .gitignore a barra do repo, esta linha a barra do build.
 *.pem
+# Credenciais do túnel da Cloudflare, pela ADR (Architecture Decision Record) 0027: segredo da
+# classe da OIDC_RSA_PRIVATE_KEY. O .gitignore as barra do repo, esta linha as barra do build.
+# Sem ela, o `COPY . .` do clone de produção as grava numa camada da imagem do `app`, que não as
+# usa.
+cloudflared/
 .venv/
 venv/
 __pycache__/

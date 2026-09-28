@@ -3,7 +3,7 @@
 Escrito para quem decide expor este provedor de identidade (IdP, Identity Provider) a alguém.
 Diz o que ele protege hoje, com a evidência no código; o que não protege; e o que muda ao sair
 de `localhost` — exposição decidida pelas ADRs (Architecture Decision Records) 0025 e 0026 e
-aplicada nos passos 7 a 9 de `docs/plano-contrato-backend.md`.
+aplicada nos passos 2 a 7 de `docs/plano-implantacao.md`.
 
 ## 1. A premissa de ambiente
 
@@ -27,12 +27,12 @@ Tudo aqui descansa sobre uma premissa única, declarada no `README.md` e em
   o alcança;
 - pessoas usuárias com conta criada no admin (ADR 0023), além de quem opera a máquina.
 
-O override e o certificado público entram no passo 7 de `docs/plano-contrato-backend.md`; até
+O override e o certificado público entram no passo 3 de `docs/plano-implantacao.md`; até
 lá, o proxy publica em `127.0.0.1` e o `docker/Caddyfile` emite pela CA interna (`tls internal`).
 
 **As escolhas descritas adiante são coerentes com esta premissa e só com ela.** Não são
-posturas defensáveis em geral. Até o passo 7 de `docs/plano-contrato-backend.md`, a única coisa
-que alcança o IdP é um processo na mesma máquina; a partir do passo 8, a internet o alcança pela
+posturas defensáveis em geral. Até o passo 3 de `docs/plano-implantacao.md`, a única coisa
+que alcança o IdP é um processo na mesma máquina; a partir do passo 6, a internet o alcança pela
 instância. Nesse dia, o que a seção 6 ainda listar como aberto deixa de ser inventário e passa a
 ser dívida vencida. Só dois itens estão aceitos como risco da exposição, nas Consequências da
 ADR 0026: o `refresh_token` sem expiração e os cookies com a política do default. O mesmo vale
@@ -171,7 +171,7 @@ Cada item é uma ausência conhecida, com o risco que ela deixa aberto.
     `createsuperuser --noinput` não valida nada.
 
   As contas de teste de desenvolvimento têm senha que a política recusaria, e ficam assim até o
-  passo 8 de `docs/plano-contrato-backend.md`; nenhuma conta nova nasce com essa senha. Numa
+  passo 6 de `docs/plano-implantacao.md`; nenhuma conta nova nasce com essa senha. Numa
   conta dessas, o teto de cinco tentativas volta a supor um espaço de busca que não existe.
 - **Certificado de uma CA local, e só.** O transporte é TLS desde a ADR 0017, e o
   endurecimento — cookie `Secure`, HSTS (HTTP Strict Transport Security), redirecionamento e
@@ -244,12 +244,14 @@ pode registrar Application, fechada pela ADR 0024. A confirmação da forma do i
 A ordem do que restou é decisão pendente, registrada na seção 7.
 
 - certificado emitido por uma autoridade que o cliente já conheça, no lugar da CA interna do
-  Caddy — é trocar a diretiva `tls internal` de `docker/Caddyfile`, e deixar de trocá-la ao
-  expor faz o Caddy tentar ACME contra a internet (`docs/runbook.md`); o certificado público
-  por ACME é o que a ADR 0026 decide;
+  Caddy: o certificado público por ACME é o que a ADR 0026 decide, e o passo 3 de
+  `docs/plano-implantacao.md` condiciona a diretiva `tls internal` de `docker/Caddyfile`
+  por ambiente. Retirá-la sem expor faz o Caddy tentar ACME contra a internet e falhar
+  (`docs/runbook.md`, seção 19); mantê-la ao expor serve um certificado que nenhum cliente
+  aceita;
 - publicar o proxy fora de `127.0.0.1`, pelo override `docker-compose.prod.yml` invocado à mão
   com `-f` na instância, e não por variável — é a decisão que este bloco inteiro existe para
-  preparar (ADRs 0017 e 0026), aplicada no passo 7 de `docs/plano-contrato-backend.md`;
+  preparar (ADRs 0017 e 0026), aplicada no passo 3 de `docs/plano-implantacao.md`;
 - conferir `TRUSTED_PROXY_COUNT` contra a topologia real, e as marcas de origem da trilha
   junto. O sinal do próprio dia é `ip_edge`: enquanto toda linha disser `gateway`, o
   `docker-proxy` continua no caminho e o `ip` não identifica cliente nenhum — ou a exposição

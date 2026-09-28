@@ -1,5 +1,37 @@
 # Terminação TLS do IdP (ADR 0017). Montado somente-leitura no serviço `proxy`.
-#
+{
+	# A origem do cliente na produção servida pelo túnel da Cloudflare (ADR 0027). Em
+	# produção, toda requisição chega pela mesma conexão, a do conector `cloudflared`, e o
+	# endereço dessa conexão seria o de todos os clientes. O endereço real vem em
+	# `CF-Connecting-IP`, cabeçalho que a borda da Cloudflare sobrescreve e que só vale vindo
+	# dela. Por isso a confiança cabe neste /32 e em nenhum outro endereço: de qualquer outro
+	# par, `CF-Connecting-IP` e `X-Forwarded-For` são forjáveis, e o Caddy os ignora em favor
+	# do endereço da conexão.
+	#
+	# O literal é o `ipv4_address` do `cloudflared` na rede `borda` e vive também em
+	# `docker-compose.prod.yml`, sincronizado à mão. Não há variável que una os dois: um
+	# `{$VAR}` ausente no desenvolvimento malformaria esta diretiva, e o `.env` que a
+	# preencheria é untracked e sem cópia. Trocar um sem o outro produz o silêncio abaixo.
+	#
+	# O SILÊNCIO DESTA CONFIANÇA é o de ela falhar, seja por literal divergente do override,
+	# por conector em outro endereço ou por cabeçalho que não chega. Nada dá erro.
+	# `{client_ip}` passa a valer o endereço da conexão: o literal 10.203.14.200, quando só o
+	# cabeçalho falta; o endereço real do conector, diferente do literal, nos outros dois
+	# casos. Nos três, TODA linha da trilha sai com o mesmo `ip`, `ip_src` = `forwarded` e
+	# `ip_edge` = `peer`, cada uma com a forma de uma linha correta. O limitador de taxa de
+	# `/o/` e o `django-axes` contam o tráfego inteiro numa chave só, e o primeiro atacante
+	# tranca todos os clientes. O único sinal é o conjunto das linhas: o mesmo `ip` em todas,
+	# com `ip_edge` = `peer`. Comparar o `ip` com este literal não basta, porque dois dos três
+	# casos não o mostram.
+	#
+	# No desenvolvimento e na jornada de container, nenhum contêiner tem este endereço, e a
+	# regra fica inerte: todo par é não confiável, como era antes dela.
+	servers {
+		trusted_proxies static 10.203.14.200/32
+		client_ip_headers CF-Connecting-IP
+	}
+}
+
 # Sem literal de host: `{$PUBLIC_HOST}` é substituído pelo Caddy a partir do ambiente do
 # container, e o nome público é valor de implantação, que vive no `.env` untracked. Ausente,
 # o `${PUBLIC_HOST:?}` do compose já abortou o `up` antes de este arquivo ser lido.
@@ -19,17 +51,11 @@ https://{$PUBLIC_HOST} {
 	# cada `up` geraria uma CA nova e o certificado confiado ontem seria de outra autoridade.
 	tls internal
 
-	# O `reverse_proxy` do Caddy SUBSTITUI o `X-Forwarded-For` de quem não é par confiável:
-	# o valor que o cliente mandou é descartado, e o que segue para o `app` é o endereço da
-	# conexão, sozinho. Medido no `caddy:2.11.4`; anexar seria o comportamento se
-	# `trusted_proxies` declarasse confiável quem chega, e o default dessa diretiva é vazio.
-	# O `reverse_proxy` escreve também `X-Forwarded-Proto`.
-	#
-	# É por causa deste default, e não por preferência de versão, que o `docker-compose.yml`
-	# fixa a imagem em versão exata: com a tag móvel `caddy:2`, um `docker compose pull`
-	# trocaria o default medido sem ninguém editar arquivo nenhum, e a substituição do
-	# cabeçalho viraria anexação em silêncio. O comentário do serviço `proxy` traz o
-	# desfecho.
+	# `X-Forwarded-For` sai daqui com um valor só, o `{client_ip}` resolvido pelas opções
+	# globais: o endereço da conexão para qualquer par, e `CF-Connecting-IP` só para o
+	# conector. O `set` substitui o cabeçalho que o `reverse_proxy` monta por conta própria.
+	# Para um par confiável, esse cabeçalho anexaria o endereço da conexão à lista recebida, e
+	# o que o cliente escreveu chegaria ao `app`.
 	#
 	# É essa propriedade que `TRUSTED_PROXY_COUNT = 1` pressupõe do outro lado, em
 	# `config/origem.py`: o único salto do cabeçalho é escrito aqui e não é forjável. A
@@ -38,9 +64,29 @@ https://{$PUBLIC_HOST} {
 	# lugar do endereço do cliente, e o único sinal disso é a procedência nas linhas da
 	# trilha.
 	#
+	# `X-Forwarded-Proto` também é fixado, com o esquema da conexão que este Caddy terminou.
+	# Sem o `set`, o valor que o conector confiável repassa seguiria adiante, e é nesse
+	# cabeçalho que o `SECURE_PROXY_SSL_HEADER` do Django decide o redirecionamento para HTTPS,
+	# o cookie seguro e o HSTS (HTTP Strict Transport Security). Com ele, este arquivo continua
+	# sendo o único que escreve o cabeçalho, como era antes da confiança no conector.
+	#
+	# Ao ler este arquivo, o Caddy avisa "Unnecessary header_up X-Forwarded-Proto". O aviso
+	# vale para par não confiável, cujo cabeçalho o `reverse_proxy` já substitui, e é falso
+	# para o conector. Medido no `caddy:2.11.4`: sem o `set`, `X-Forwarded-Proto: http` vindo
+	# do conector chegou ao Django e produziu 301; com ele, 200.
+	#
+	# O `docker-compose.yml` fixa a imagem em versão exata por causa de dois comportamentos
+	# medidos no `caddy:2.11.4`: o `header_up` prevalece sobre o cabeçalho que o
+	# `reverse_proxy` monta, e `{client_ip}` só lê `CF-Connecting-IP` do par declarado. Com a
+	# tag móvel `caddy:2`, um `docker compose pull` poderia trocar qualquer dos dois sem
+	# ninguém editar arquivo nenhum. Subir o pin é remedir os dois, e não ler a nota de versão.
+	#
 	# `app:8000` pelo nome de serviço da rede do compose. A porta do `app` não é publicada em
 	# lugar nenhum, e este é o único caminho até ela — sem isso, qualquer cliente do host
-	# desligaria o redirecionamento para HTTPS escrevendo `X-Forwarded-Proto: https`, que o
-	# Django confia de qualquer origem.
-	reverse_proxy app:8000
+	# desligaria o redirecionamento para HTTPS escrevendo `X-Forwarded-Proto: https`, em que o
+	# Django confia, venha de onde vier.
+	reverse_proxy app:8000 {
+		header_up X-Forwarded-For {client_ip}
+		header_up X-Forwarded-Proto {scheme}
+	}
 }

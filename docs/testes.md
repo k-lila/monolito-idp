@@ -70,6 +70,10 @@ pura, ou o estado que ela confere já foi montado antes de o primeiro caso rodar
 - `tests/test_endurecimento_transporte.py`, inteiro — leitura de settings, sem cliente HTTP.
   Quando a pergunta é o valor de produção de uma chave que o executor neutraliza, lê o que ele
   guardou antes de neutralizar, e não o que `settings` mostra durante a suíte;
+- `tests/test_borda_do_tunel.py`, inteiro — lê como texto, a partir de `settings.BASE_DIR`, o
+  `docker/Caddyfile` e o `docker-compose.prod.yml`, compara o endereço do conector nos dois e o
+  situa na rede `borda`, dentro da `subnet` e fora do `ip_range`; não há requisição nenhuma a
+  montar;
 - a classe `HealthViewDatabaseDownUnitTests`, em `tests/test_health.py` — `RequestFactory`
   mais chamada direta a `health`, com `connection` substituída por um duplo que levanta;
 - a classe `FormatadorJSONTests`, em `tests/test_observabilidade.py` — um registro emitido por
@@ -129,6 +133,7 @@ nível fim-a-fim neste projeto.
 | Política de senha nas quatro superfícies em que uma senha é escolhida: adicionar conta e trocar senha no admin, `changepassword` e `createsuperuser` interativo | `tests/test_politica_de_senha.py` | com banco |
 | Login com senha legada fraca: entra, e a senha continua a mesma | `tests/test_login_senha_legada.py` | com banco |
 | Cross-Origin Resource Sharing (CORS) restrito a `/o/`: ausente fora do prefixo, com a origem exata dentro dele, preflight e 401 incluídos | `tests/test_cors.py` | com banco |
+| Endereço do conector do túnel: o `trusted_proxies static` do `docker/Caddyfile` e o `ipv4_address` do `docker-compose.prod.yml`, uma ocorrência de cada e iguais, sem fixar o valor; e o mesmo endereço dentro da `subnet` da rede `borda` e fora do seu `ip_range`, com o `ip_range` contido na `subnet`, para que o `proxy` nunca o tome por atribuição dinâmica | `tests/test_borda_do_tunel.py` | sem banco |
 
 As linhas que o nome do arquivo não explica sozinho:
 
@@ -381,7 +386,12 @@ relatório de ferramenta — vale como inventário, não como percentual.
   de `ports:` no `app`, o `requirepass` do Redis e o `USER` do container são propriedades de
   arquivos que a suíte não lê. O que ela exercita do ramo de proxy é `config/origem.py`, por
   `override_settings`, com um `X-Forwarded-For` que os testes escrevem — nunca um que um proxy
-  tenha escrito.
+  tenha escrito. A única exceção é `tests/test_borda_do_tunel.py`, que lê o `docker/Caddyfile`
+  e o `docker-compose.prod.yml` como texto só para comparar o literal do endereço do conector,
+  duplicado à mão entre os dois (ADR 0027, "Literal duplicado"), e a sua posição na rede
+  `borda`, fora da faixa dinâmica. A igualdade dos literais não prova que o proxy confie no
+  conector, e a posição fora do `ip_range` não prova que o daemon do Docker respeite a faixa: o
+  comportamento do proxy e o do daemon continuam fora da suíte.
 - **O `HEALTHCHECK` como o Docker o executa.** `tests/test_health.py` exercita a view e a
   isenção de redirecionamento, ambas em processo. A probe de verdade, com os tempos de
   `docs/adr/0011-dar-teto-de-tempo-ao-health-e-derivar-o-healthcheck-dele.md`, nunca roda aqui.

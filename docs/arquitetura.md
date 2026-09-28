@@ -174,7 +174,7 @@ Quem publica a porta da aplicação é o `proxy`. No `docker-compose.yml`, em `1
 `127.0.0.1:443`, e é assim em desenvolvimento e na jornada de container. Na instância de
 produção, quem opera invoca o arquivo base junto do override da ADR 0026 — `docker compose -f
 docker-compose.yml -f docker-compose.prod.yml` —, que substitui essas publicações por 80 e 443 sem
-endereço. O override entra no passo 7 de `docs/plano-contrato-backend.md`; até lá, o proxy publica
+endereço. O override entra no passo 3 de `docs/plano-implantacao.md`; até lá, o proxy publica
 em `127.0.0.1` também na instância, e o `docker/Caddyfile` emite pela CA interna (`tls internal`).
 Postgres e Redis ficam em `127.0.0.1` nos dois casos. O `app` não tem `ports:`, e a rede
 interna do compose é o único caminho até a porta 8000 (ADR 0017). O nome que o proxy
