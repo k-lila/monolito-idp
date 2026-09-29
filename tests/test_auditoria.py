@@ -16,6 +16,7 @@ unitário sobre a função de origem e apaga, na trilha gravada, a distinção e
 `remote_addr` e `remote_addr_fallback` que a ADR 0018 existe para criar.
 """
 
+import base64
 import hashlib
 import json
 import logging
@@ -200,7 +201,13 @@ class NenhumSegredoVazaTests(TestCase):
         # cada um, porque nenhum deles borbulha para o root.
         self._loggers_operacionais = [
             logging.getLogger(nome)
-            for nome in ("django", "django.request", "oauth2_provider", "access")
+            for nome in (
+                "django",
+                "django.request",
+                "oauth2_provider",
+                "access",
+                "accounts.logout_rp",
+            )
         ]
         self._coletor = _ColetorDeLinhas()
         for logger in self._loggers_operacionais:
@@ -209,6 +216,55 @@ class NenhumSegredoVazaTests(TestCase):
     def tearDown(self):
         for logger in self._loggers_operacionais:
             logger.removeHandler(self._coletor)
+
+    def test_nenhum_segredo_do_logout_pela_rp_aparece_em_log_nenhum(self):
+        """TASK-027/T-19 — o hint é credencial de revogação: nem o válido nem o forjado
+        (carga não-JSON, que faz a view logar o WARNING) chegam à trilha, ao log operacional
+        ou à linha de acesso. O WARNING de `accounts.logout_rp` NÃO é varrido aqui: o
+        `assertLogs` que o captura retira o coletor do logger enquanto dura. Que ele não
+        traz o hint está provado em `tests/test_logout_rp.py`, no T-12
+        (`test_t12_entrada_forjada_e_400_nunca_500_e_o_log_nao_traz_o_hint`), que confere
+        mensagem e `record.__dict__`."""
+        tamanho_trilha_antes = _tamanho_da_trilha()
+        self.client.post(
+            "/accounts/login/", {"username": self.email, "password": self.senha}
+        )
+        code, verifier, _resp = authorize_and_get_code(
+            self.client, self.application, scope="openid"
+        )
+        token_response = exchange_code_for_tokens(self.client, self.application, code, verifier)
+        body = token_response.json()
+        cabecalho, _, assinatura = body["id_token"].split(".")
+        forjado = ".".join(
+            [cabecalho, base64.urlsafe_b64encode(b"not json").rstrip(b"=").decode(), assinatura]
+        )
+
+        with self.assertLogs("accounts.logout_rp", "WARNING"):
+            recusa = self.client.get("/o/logout/", {"id_token_hint": forjado})
+        self.assertEqual(recusa.status_code, 400)
+        saida = self.client.get("/o/logout/", {"id_token_hint": body["id_token"]})
+        self.assertEqual(saida.status_code, 302)
+
+        self.assertGreater(len(self._coletor.linhas), 0)
+        rotas = [linha.get("route") for linha in self._coletor.linhas if "route" in linha]
+        self.assertIn("logout_rp", rotas)
+        trilha = "\n".join(
+            json.dumps(linha, ensure_ascii=False)
+            for linha in _ler_linhas_novas_da_trilha(tamanho_trilha_antes)
+        )
+        operacional = "\n".join(
+            json.dumps(linha, ensure_ascii=False) for linha in self._coletor.linhas
+        )
+        segredos = {
+            "id_token": body["id_token"],
+            "access_token": body["access_token"],
+            "hint_forjado": forjado,
+        }
+        if "refresh_token" in body:
+            segredos["refresh_token"] = body["refresh_token"]
+        for nome, valor in segredos.items():
+            self.assertNotIn(valor, trilha, f"{nome} vazou na trilha")
+            self.assertNotIn(valor, operacional, f"{nome} vazou no log operacional")
 
     def test_nenhum_segredo_do_fluxo_aparece_na_trilha_nem_no_log_operacional(self):
         tamanho_trilha_antes = _tamanho_da_trilha()

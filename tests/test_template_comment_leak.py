@@ -28,8 +28,13 @@ específico — o texto é documentação viva e muda; os delimitadores nunca po
 numa resposta renderizada.
 """
 
+from pathlib import Path
+
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+
+from tests.logout_helpers import criar_application
 
 from tests.oauth_helpers import (
     REDIRECT_URI,
@@ -121,3 +126,51 @@ class AuthorizeConsentTemplateCommentLeakTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         assert_no_template_comment_delimiters(self, response.content.decode())
+
+
+class LogoutConfirmTemplateCommentLeakTests(TestCase):
+    """TASK-027/T-21 — `templates/oauth2_provider/logout_confirm.html` documenta-se num
+    `{% comment %}`, que o Django não emite. Diferente dos casos acima, que guardam os
+    delimitadores `{#`, este confere o TEXTO do comentário, porque a forma que vaza aqui é
+    outra: trocar `{% comment %}` por texto solto.
+
+    Âncora: o primeiro caso lê o código-fonte do template e exige que `TEXTO_DO_COMENTARIO`
+    esteja dentro do bloco `{% comment %}`. Sem ela, reescrever o comentário deixaria os
+    casos de ausência passando por vacuidade, procurando um texto que já não existe. Se o
+    template mudar de redação, a âncora acusa e a constante se atualiza."""
+
+    TEXTO_DO_COMENTARIO = "Override de template do DOT"
+
+    def test_ancora_o_texto_esta_no_bloco_comment_do_template(self):
+        fonte = (
+            Path(settings.BASE_DIR) / "templates" / "oauth2_provider" / "logout_confirm.html"
+        ).read_text(encoding="utf-8")
+
+        abre = fonte.index("{% comment %}")
+        fecha = fonte.index("{% endcomment %}", abre)
+        self.assertIn(self.TEXTO_DO_COMENTARIO, fonte[abre:fecha])
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="vazamento-logout@example.com", password="senha-forte-o-suficiente"
+        )
+        self.aplicacao = criar_application(self.user)
+        self.client.force_login(self.user)
+
+    def test_tela_de_confirmacao_nao_traz_o_comentario(self):
+        response = self.client.get("/o/logout/", {"client_id": self.aplicacao.client_id})
+
+        corpo = response.content.decode()
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Sair?", corpo)
+        self.assertNotIn(self.TEXTO_DO_COMENTARIO, corpo)
+        assert_no_template_comment_delimiters(self, corpo)
+
+    def test_tela_de_erro_nao_traz_o_comentario(self):
+        response = self.client.get("/o/logout/", {"id_token_hint": "abc"})
+
+        corpo = response.content.decode()
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Não foi possível sair", corpo)
+        self.assertNotIn(self.TEXTO_DO_COMENTARIO, corpo)
+        assert_no_template_comment_delimiters(self, corpo)

@@ -391,6 +391,12 @@ AXES_VERBOSE = False
 # registrada: `clear_expired()` não apaga `DeviceGrant`, de modo que as linhas continuam
 # acumulando a partir de origens distintas, sem nada que as recolha.
 #
+# Cento e vinte em `/o/logout/`, o mesmo valor de `/o/authorize/` (ADR 0029). A rota é anônima
+# e custa mais que uma página: valida o `id_token_hint` com consultas ao banco — a Application
+# pelo `aud`, o IDToken pelo `jti` — e, com hint válido, apaga linhas. Uma saída legítima custa
+# uma requisição, duas com a confirmação. O teto limita o custo por origem, e não a revogação
+# por quem tem o `id_token` de alguém: essa é a posse de uma credencial, que teto nenhum limita.
+#
 # Literais no código versionado, NUNCA variáveis de ambiente: não são segredo, não variam por
 # ambiente, e uma variável nova sem default derrubaria o boot e a suíte de todo ambiente já
 # montado — o `.env` é untracked e não tem cópia, como `AUDIT_LOG_PATH` mostrou. Política vive
@@ -400,6 +406,7 @@ RATE_LIMIT_POR_CAMINHO = {
     "/o/authorize/": 120,
     "/accounts/login/": 60,
     "/o/device-authorization/": 30,
+    "/o/logout/": 120,
 }
 RATE_LIMIT_JANELA_SEGUNDOS = 60
 
@@ -415,10 +422,38 @@ OAUTH2_PROVIDER = {
     # requisição de autorização — quem observa o pedido troca o code interceptado por um
     # token. Restringe a S256 (RFC 9700 §2.1.1); default do DOT programado para flipar na 4.0.
     "COMPLIANT_BCP_RFC9700_PKCE_METHOD": True,
-    # Default já é False. A linha existe porque a própria biblioteca documenta que defaults
-    # dela estão programados para flipar na 4.0: sem a declaração explícita, um `pip install -U`
-    # publicaria end_session_endpoint na discovery sem uma linha de log.
-    "OIDC_RP_INITIATED_LOGOUT_ENABLED": False,
+    # O logout iniciado pela relying party (RP), em cinco chaves, todas declaradas mesmo quando
+    # coincidem com o default da 3.4.1: a própria biblioteca documenta que defaults dela estão
+    # programados para mudar na 4.0, e sem a declaração explícita um `pip install -U` mudaria o
+    # comportamento de /o/logout/ sem uma linha de log (ADR 0029). Quem atende a rota é a
+    # subclasse `accounts.logout_rp.LogoutPelaRPView` (ADR 0030). O "Sair" do topo das telas
+    # do IdP é outra rota, /accounts/logout/ (LogoutView do Django), fora destas chaves: encerra
+    # a sessão e não revoga token nenhum. A unificação dos dois é trabalho à parte.
+    #
+    # Liga /o/logout/, que responde 404 enquanto esta chave for falsa, e publica
+    # end_session_endpoint na descoberta. É contrato público com a RP: desligar é quebra.
+    "OIDC_RP_INITIATED_LOGOUT_ENABLED": True,
+    # Falsa, e não quer dizer "não revoga": a revogação do toolkit é por conta, em todas as
+    # Applications; a desta aplicação é a da subclasse, restrita à Application que pede. O
+    # SILÊNCIO desta linha: verdadeira, o toolkit revoga a conta inteira depois da subclasse, e
+    # nada acusa.
+    "OIDC_RP_INITIATED_LOGOUT_DELETE_TOKENS": False,
+    # Sem pergunta quando o hint vivo é da conta da sessão; a view pergunta quando o hint falta,
+    # não tem linha ou é de outra conta (must_prompt, oauth2_provider/views/oidc.py:369-429). O
+    # SILÊNCIO: sem sessão, a view nunca pergunta, e quem tem o id_token vivo de alguém revoga
+    # os tokens dele naquela Application sem pergunta nenhuma.
+    "OIDC_RP_INITIATED_LOGOUT_ALWAYS_PROMPT": False,
+    # A aba aberta há mais de dez horas, com o id_token vencido, também precisa sair. Lida
+    # também pela subclasse, no desempate do hint sem linha. O SILÊNCIO: o `cleartokens` apaga
+    # as linhas vencidas, e o hint delas passa a ser tratado como ausente, sem revogar nada.
+    "OIDC_RP_INITIATED_LOGOUT_ACCEPT_EXPIRED_TOKENS": True,
+    # Segue BEHIND_TLS_PROXY, como ALLOWED_REDIRECT_URI_SCHEMES logo abaixo (ADR 0006).
+    # Verdadeira, recusa post_logout_redirect_uri em `http` para Application pública, o que
+    # atrás do proxy ALLOWED_REDIRECT_URI_SCHEMES já recusa: é redundante ali, e está declarada
+    # para ancorar contra a 4.0 e para não afirmar, com um False literal, que `http` é aceito.
+    # Na jornada de construção vale falsa, e a SPA de desenvolvimento volta a
+    # http://localhost:5173/. O runner da suíte não a neutraliza: o valor dela segue a jornada.
+    "OIDC_RP_INITIATED_LOGOUT_STRICT_REDIRECT_URIS": BEHIND_TLS_PROXY,
     # Descrições em português: são renderizadas cruas na tela de consentimento e lidas pela
     # pessoa usuária. LANGUAGE_CODE governa a i18n do Django, não o conteúdo destas strings.
     "SCOPES": {
@@ -440,7 +475,7 @@ OAUTH2_PROVIDER = {
     # Application já gravada com `http://`, o redirecionamento vira DisallowedRedirect, isto é,
     # 400 depois do login, sem `code`. Na suíte vale sempre ["http", "https"], por
     # tests/runner.py. Declarada mesmo quando coincide com o default da 3.4.1: a biblioteca
-    # anuncia defaults que mudam na 4.0 (ver OIDC_RP_INITIATED_LOGOUT_ENABLED), e um teste
+    # anuncia defaults que mudam na 4.0 (ver o bloco do logout pela RP, acima), e um teste
     # indexa esta chave.
     "ALLOWED_REDIRECT_URI_SCHEMES": ["https"] if BEHIND_TLS_PROXY else ["http", "https"],
 }
@@ -475,9 +510,9 @@ SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https") if BEHIND_TLS_PROX
 # `saltos[0]`, o primeiro elemento — o que o cliente escreve. Com o cabeçalho presente, isso
 # entrega ao cliente a escolha da própria chave de contagem; com o cabeçalho AUSENTE, a lista
 # está vazia e a leitura levanta `IndexError`, isto é, 500 em toda tentativa de login e em
-# toda requisição a `/o/token/` e a `/o/authorize/` — as três superfícies limitadas, que são
-# as que chamam a função. O resto do site, `/health` inclusive, segue respondendo, e é o que
-# torna o estrago difícil de ler pela sonda. Não há guarda contra o zero, deliberadamente: o
+# toda requisição aos demais caminhos de RATE_LIMIT_POR_CAMINHO, que são os que chamam a
+# função. O resto do site, `/health` inclusive, segue respondendo, e é o que torna o estrago
+# difícil de ler pela sonda. Não há guarda contra o zero, deliberadamente: o
 # número é literal versionado, não vem do ambiente, e o cenário só existe se alguém escrever
 # `0` nesta linha.
 TRUSTED_PROXY_COUNT = 1

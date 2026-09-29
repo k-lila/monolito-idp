@@ -47,7 +47,8 @@ for quebrada por outro caminho — outro túnel ou um proxy à frente.
 | `redirect_uri` por igualdade exata | `tests/test_authorize_guards.py` |
 | `redirect_uri` só em `https` atrás do proxy TLS | `ALLOWED_REDIRECT_URI_SCHEMES`, condicionada a `BEHIND_TLS_PROXY` |
 | Gestão de `Application` e de token só no admin; sem registro dinâmico | `config/urls.py`, ADR 0024 |
-| Logout apenas por POST | `tests/test_logout_view.py` |
+| `/accounts/logout/` apenas por POST | `tests/test_logout_view.py` |
+| Logout pela RP só com destino cadastrado, revogando só na `Application` que pede | `accounts/logout_rp.py`, ADRs 0029 e 0030 |
 | Assinatura assimétrica | `docs/adr/0004-assinar-tokens-com-rs256-e-custodiar-a-chave-privada-no-ambiente.md` |
 | Cookie sem estado de identidade | `SESSION_ENGINE = cached_db` em `config/settings.py` |
 | CORS (Cross-Origin Resource Sharing) por origem exata, e só sob `/o/` | `CORS_ALLOWED_ORIGINS` no `.env`, uma origem por ambiente (ADR 0022); `CORS_URLS_REGEX` em `config/settings.py` |
@@ -75,8 +76,19 @@ O que cada linha compra:
   de gestão do toolkit não são montadas, e `/admin/` exige `is_staff`.
 - **CORS só sob `/o/`** restringe o cabeçalho à superfície de protocolo: com a origem da SPA na
   allowlist, `/admin/` e `/accounts/login/` continuam sem `Access-Control-Allow-Origin`.
-- **Logout só por POST** fecha o logout forjado: um `GET` responde 405 e preserva a sessão, de
-  modo que uma imagem ou um link apontando para `/accounts/logout/` não desloga ninguém.
+- **`/accounts/logout/` só por POST** fecha o logout forjado naquela rota: um `GET` responde
+  405 e preserva a sessão, de modo que uma imagem ou um link apontando para `/accounts/logout/`
+  não desloga ninguém.
+- **`/o/logout/` desloga por `GET`**, porque é o que o OpenID Connect RP-Initiated Logout exige,
+  mas só sem pergunta quando o `id_token_hint` vivo é da conta da sessão. O controle contra a
+  saída forjada é a posse do `id_token`: sem ele, ou com o de outra conta, a view pede
+  confirmação por POST com CSRF (Cross-Site Request Forgery). O retorno vai só a destino
+  cadastrado na `Application`, e a revogação alcança só a `Application` que pede (ADR 0029).
+  Entrada forjada recebe 400, e não o 500 que a view do toolkit daria (ADR 0030): `client_id`
+  inexistente ou com o caractere NUL; hint com carga que não é JSON, com `aud` de `Application`
+  sem algoritmo, com `aud` contendo NUL ou, se assinado por segredo de cliente HS256, com `jti`
+  que não é UUID; e `post_logout_redirect_uri` que não se decompõe como URL. A lista é fechada, e
+  entrada nova que dê 500 é defeito (ADR 0029).
 - **Assinatura assimétrica em RS256** (RSA, Rivest–Shamir–Adleman, com SHA-256) dispensa
   segredo compartilhado para verificar: nenhuma RP integrada pode forjar um token em nome do IdP.
 - **O cookie carrega só o identificador da sessão.** O estado vive no Postgres com cópia quente
@@ -87,11 +99,12 @@ O que cada linha compra:
 - **A trilha de auditoria** responde quem autenticou, quando, de que origem e qual relying party
   recebeu token, num arquivo durável que sobrevive à recriação do container
   (`docs/adr/0013-registrar-a-trilha-de-auditoria-dos-quatro-sinais-em-arquivo-duravel.md`).
-  Ela registra os cinco sinais que existem — autenticação, falha de autenticação, logout,
-  concessão de token e bloqueio por tentativas em excesso, este último acrescentado pela
-  limitação de taxa (ADR 0016) — e **não fecha a lacuna inteira**: o que continua sem
-  registro está nomeado na seção 4. Nenhum e-mail e nenhum valor de token entram nela: a
-  pessoa aparece pelo `sub`, e o identificador de uma tentativa falha, por resumo SHA-256.
+  Ela registra seis sinais — autenticação, falha de autenticação, logout, concessão de token,
+  bloqueio por tentativas em excesso, este acrescentado pela limitação de taxa (ADR 0016), e
+  revogação de tokens no logout pela RP (ADR 0029) — e **não fecha a lacuna inteira**: o que
+  continua sem registro está nomeado na seção 4. Nenhum e-mail e nenhum valor de token entram
+  nela: a pessoa aparece pelo `sub`, e o identificador de uma tentativa falha, por resumo
+  SHA-256.
 
 ## 3. Superfície exposta
 
@@ -121,18 +134,17 @@ e ainda assim mais do que este projeto usa (ADR 0024). O inventário, lido de
 | Rota | Situação |
 | --- | --- |
 | `/o/authorize/`, `/o/token/`, `/o/userinfo/`, as duas `.well-known` | em uso |
+| `/o/logout/` | em uso: logout pela RP, atendido pela subclasse que sombreia a rota do toolkit (ADRs 0029 e 0030) |
 | `/o/applications/...`, `/o/authorized_tokens/...` | 404, com ou sem sessão: `management_urlpatterns` não é montada |
 | `/o/device-authorization/`, `/o/device/`, `/o/device-confirm/...`, `/o/device-grant-status/...` | device grant; sem uso pelo projeto, mas o POST de `/o/device-authorization/` grava no banco sem autenticação (seção 4) |
 | `/o/revoke_token/` | revogação RFC 7009; não usada por este projeto |
 | `/o/introspect/` | responde 403 — nenhum token pode carregar o scope exigido (ADR 0002) |
 | `/o/.well-known/oauth-authorization-server`, `/o/.well-known/oauth-protected-resource` | metadados RFC 8414 e RFC 9728, montados pelo `include` |
-| `/o/logout/` | 404 com `OIDC_RP_INITIATED_LOGOUT_ENABLED=False` |
 | `/o/register/` | 404: `dcr_urlpatterns` não é montada, e `DCR_ENABLED` segue no default `False` |
 
-As rotas de gestão e o registro dinâmico estão fechados pela ausência no URLConf, e
-`/o/logout/`, por configuração declarada em `config/settings.py`. Device grant, revogação e
-introspecção estão de pé sem que nenhum uso deste projeto os exercite: a unidade da montagem é
-a lista, e retirá-los exigiria copiar rotas da biblioteca. Sem uso não quer dizer inerte:
+As rotas de gestão e o registro dinâmico estão fechados pela ausência no URLConf. Device grant,
+revogação e introspecção estão de pé sem que nenhum uso deste projeto os exercite: a unidade da
+montagem é a lista, e retirá-los exigiria copiar rotas da biblioteca. Sem uso não quer dizer inerte:
 `/o/device-authorization/` aceita POST anônimo e grava uma linha por requisição, e por isso tem
 teto de requisição, sem que o URLConf da ADR 0024 mude (seção 4). **Nenhuma conta, com ou sem
 `is_staff`, registra Application fora do admin**, que é o único lugar de gestão de clientes e
@@ -150,8 +162,8 @@ Cada item é uma ausência conhecida, com o risco que ela deixa aberto.
   existe desde a ADR 0016, e alcança as três portas: o `django-axes` conta tentativa falha em
   `/accounts/login/` e em `/admin/login/`, por conta e por origem separadamente, bloqueando por
   quinze minutos contados da última tentativa; e `config/limites.py` põe teto de requisição por
-  origem em `/accounts/login/` (60 por minuto), `/o/token/` e `/o/authorize/` (120 por minuto) e
-  `/o/device-authorization/` (30 por minuto).
+  origem em `/accounts/login/` (60 por minuto), `/o/token/`, `/o/authorize/` e `/o/logout/` (120
+  por minuto) e `/o/device-authorization/` (30 por minuto).
   Falta uma coisa: `/admin/login/` **não tem teto de requisição**. O dicionário
   `RATE_LIMIT_POR_CAMINHO` não o nomeia, de modo que ali só o axes barra, e um laço que apenas
   carregue aquele formulário não encontra limite nenhum.
@@ -194,10 +206,28 @@ Cada item é uma ausência conhecida, com o risco que ela deixa aberto.
   `OIDC_RSA_PRIVATE_KEYS_INACTIVE`. Ligá-lo põe mais de uma chave no JWKS (JSON Web Key Set), que
   é contrato com a SPA, e é tarefa própria, com ADR nos dois projetos, ainda não decidida.
 - **A trilha de auditoria não cobre dois eventos, e não tem retenção decidida.** Criação de
-  Application e revogação de token continuam sem registro, e por ausência de sinal: a primeira
-  exigiria um `post_save` no modelo devolvido por `get_application_model()`, e a segunda nem
-  isso — o `cleartokens` apaga linhas sem emitir nada. Some-se que retenção e poda do arquivo não
+  Application e revogação de token fora do logout pela RP continuam sem registro, e por
+  ausência de sinal: a primeira exigiria um `post_save` no modelo devolvido por
+  `get_application_model()`, e a segunda nem isso — `/o/revoke_token/`, o admin e o
+  `cleartokens` apagam linhas sem emitir nada. Só a revogação de `/o/logout/` tem sinal, e é
+  deste projeto (ADR 0029). Some-se que retenção e poda do arquivo não
   estão decididas: ele guarda dado pessoal, cresce indefinidamente e nada o monitora (ADR 0013).
+- **No logout pela RP, o `id_token` vivo é credencial de revogação.** Sem sessão no navegador,
+  a view não pergunta, e quem tem o `id_token` vivo de alguém revoga os tokens do dono naquela
+  `Application`. A revogação alcança a conta **naquela `Application`, em todos os dispositivos**,
+  e não só a sessão que pediu; a sessão de SSO (_single sign-on_) do IdP termina inteira, e as
+  outras RPs perdem a volta sem senha. O teto de 120 por minuto limita custo, não isso.
+- **O hint sem registro redireciona sem revogar.** Um `id_token` autêntico cuja linha já sumiu,
+  por exemplo numa segunda saída, é tratado como ausente: sem sessão, o pedido vai ao destino
+  cadastrado e nada é revogado. Os tokens que a conta tenha naquela `Application`, por um login
+  posterior, sobrevivem a essa saída.
+- **Um refresh em curso durante a saída pode sobreviver a ela.** O toolkit valida o
+  `refresh_token` fora de trava e, ao gravar o par novo, não reconfere a revogação: se a
+  validação acontece antes da saída e a gravação depois, o par novo nasce vivo, e nada acusa.
+  Fechar a janela exige mexer em `/o/token/`, fora da ADR 0029.
+- **O `id_token_hint` viaja na query string de `/o/logout/`.** Nenhum log deste projeto grava a
+  URL completa hoje; ligar log de acesso com ela passa a gravar `id_token`. O log de erro do
+  Caddy, o `cloudflared` e a borda da Cloudflare não foram medidos.
 - **Log operacional só em `stdout`, sem coleta externa.** Recriar o container apaga o histórico do
   log operacional. A trilha de auditoria não está nesse caso — vive em volume nomeado —, mas
   também não tem coleta externa nenhuma.
@@ -314,15 +344,16 @@ plano.
 | Política de senha na criação e na troca | `config/settings.py`, `AUTH_PASSWORD_VALIDATORS` | sem ADR |
 | CORS por origem exata, só sob `/o/` | `config/settings.py`, `CORS_ALLOWED_ORIGINS` e `CORS_URLS_REGEX` | ADR 0022, a allowlist; sem ADR, o prefixo |
 | Claims emitidas, sem `email_verified` | `accounts/oauth_validators.py` | sem ADR |
-| Logout iniciado pela RP, desligado | `config/settings.py`, `OIDC_RP_INITIATED_LOGOUT_ENABLED` | sem ADR |
+| Logout iniciado pela RP, ligado, com revogação restrita à `Application` e destino cadastrado | `config/settings.py`, as cinco chaves `OIDC_RP_INITIATED_LOGOUT_*`; `accounts/logout_rp.py`; `config/urls.py` | ADR 0029; o mecanismo, ADR 0030 |
 | Sessão revogável no servidor, cookie sem estado | `config/settings.py`, `SESSION_ENGINE` | ADR 0005 |
 | Endurecimento de transporte por `BEHIND_TLS_PROXY` | `config/settings.py` | ADR 0006 |
 | Isenção de `/health` no redirecionamento para HTTPS | `config/settings.py`, `SECURE_REDIRECT_EXEMPT` | ADR 0010 |
 | `/health` sem sessão e sem usuário | `config/views.py` | ADR 0009 |
-| Trilha de auditoria dos cinco sinais, sem e-mail e sem token | `accounts/auditoria.py`, `config/settings.py`, `LOGGING` | ADR 0013, ampliada pela 0016 |
+| Trilha de auditoria dos seis sinais, sem e-mail e sem token | `accounts/auditoria.py`, `config/settings.py`, `LOGGING` | ADR 0013, ampliada pela 0016 e pela 0029 |
 | Origem do cliente resolvida num ponto único | `config/origem.py` | ADR 0015 |
 | Bloqueio por tentativa falha em `/accounts/login/` e `/admin/login/` | `config/settings.py`, bloco `AXES_*` | ADR 0016 |
 | Teto de requisição por origem em `/accounts/login/`, `/o/token/` e `/o/authorize/` | `config/settings.py`, `RATE_LIMIT_POR_CAMINHO`; o mecanismo, `config/limites.py` | ADR 0016 |
+| Teto de requisição por origem em `/o/logout/` | `config/settings.py`, `RATE_LIMIT_POR_CAMINHO`; o mecanismo, `config/limites.py` | ADR 0029 |
 | Teto de requisição por origem em `/o/device-authorization/` | `config/settings.py`, `RATE_LIMIT_POR_CAMINHO`; o mecanismo, `config/limites.py` | sem ADR; a rota, ADR 0024 |
 | Terminação TLS no proxy, e só ele publicado em `127.0.0.1` | `docker-compose.yml`, `docker/Caddyfile` | ADR 0017, emenda à 0006; emendada pela 0027 |
 | Nenhuma porta em produção; entrada pelo túnel | `docker-compose.prod.yml` | ADR 0027 |

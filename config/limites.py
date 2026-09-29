@@ -1,5 +1,5 @@
-"""O teto de requisições de `/o/token/`, de `/o/authorize/`, de `/o/device-authorization/` e de
-`/accounts/login/`.
+"""O teto de requisições de `/o/token/`, de `/o/authorize/`, de `/o/device-authorization/`, de
+`/o/logout/` e de `/accounts/login/`.
 
 Mecanismo, e nada além dele: conta requisições por origem e por caminho numa janela fixa e
 recusa o que passa do teto. Não conhece pessoa nem conta. Na tela de login este teto convive
@@ -9,7 +9,7 @@ quanto tempo, por conta ou por origem — é toda do axes, que age no caminho de
 tentativa. As escolhas, os números e o que elas custam estão na ADR (Architecture Decision
 Record) `docs/adr/0016-limitar-a-taxa-na-superficie-de-autenticacao.md`; o teto de
 `/o/device-authorization/` veio depois, sem ADR, e a razão dele está ao lado do número, em
-`config/settings.py`.
+`config/settings.py`; o de `/o/logout/` veio com a ADR 0029, e a razão também está lá.
 
 A origem vem de `config/origem.py`, que é a única leitura de origem do sistema (ADR 0015):
 o valor contado aqui e o valor gravado no campo `ip` da trilha de auditoria são o mesmo.
@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 def chave_do_contador(caminho, origem):
     """A chave em cache do contador de um caminho e uma origem.
 
-    Uma chave por caminho e por origem: os tetos dos quatro caminhos limitados são separados, e
+    Uma chave por caminho e por origem: os tetos dos cinco caminhos limitados são separados, e
     o excesso de um não recusa os outros.
 
     Pública de propósito, e não `_privada`: é por ela que a suíte apaga o contador que ela
@@ -77,7 +77,7 @@ class LimiteDeTaxaMiddleware:
 
     As duas settings são lidas a cada requisição, e nunca no import: é o que faz
     `override_settings` valer na suíte. Caminho ausente do dicionário é o caminho de toda
-    requisição fora dos quatro limitados, de modo que `RATE_LIMIT_POR_CAMINHO={}` desliga o
+    requisição fora dos cinco limitados, de modo que `RATE_LIMIT_POR_CAMINHO={}` desliga o
     limitador pela mesma trilha que já se percorre, sem ramo especial.
 
     A posição dele no `MIDDLEWARE` é fixada em `config/settings.py`, com as razões.

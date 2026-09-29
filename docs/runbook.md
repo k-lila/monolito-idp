@@ -39,6 +39,8 @@ Provider*) e da operação corrente. Os demais documentos apontam para cá em ve
 | Produção: a descoberta responde 200 com o issuer de outro nome | [25](#25-produção-a-descoberta-responde-200-com-o-issuer-de-outro-nome) |
 | Produção: `http://` do nome público responde 200 com a tela de login | [26](#26-produção-http-do-nome-público-responde-200-com-a-tela-de-login) |
 | O processo não sobe, e a mensagem cita `SPA_URL` | [27](#27-o-processo-não-sobe-e-a-mensagem-cita-spa_url) |
+| O "Sair" da RP termina na tela "Não foi possível sair" do IdP | [28](#28-o-sair-da-rp-termina-na-tela-de-erro-do-idp) |
+| O "Sair" da RP encerra a sessão, mas o `access_token` segue com 200 em `/o/userinfo/` | [29](#29-sair-encerra-a-sessão-mas-o-token-segue-valendo) |
 | Produção: `invalid_grant` intermitente | [Migração com um conector só](#5-migração-com-um-conector-só) |
 
 A operação do dia a dia — desbloquear conta, revogar acesso, limpar tabela, trocar chave, subir
@@ -466,7 +468,7 @@ relying party está em `docs/integracao-rp.md`.
 
 ### 14. As falhas que não produzem sintoma nenhum hoje
 
-Dezessete defeitos deste sistema não têm entrada de sintoma porque **não têm sintoma**. Só se
+Vinte e nove defeitos deste sistema não têm entrada de sintoma porque **não têm sintoma**. Só se
 descobrem lendo, e é por isso que estão listados aqui.
 
 **`BEHIND_TLS_PROXY=False` atrás de um proxy TLS real.** Cookie com flag `Secure`, HSTS (HTTP
@@ -686,6 +688,61 @@ origem, e nenhum mecanismo confere isso. Trocar só `CORS_ALLOWED_ORIGINS` deixa
 levando à origem antiga; trocar só `SPA_URL` leva a uma SPA cujas chamadas a `/o/` o navegador
 barra por CORS. Nenhum dos dois casos falha na carga.
 
+**`OIDC_RP_INITIATED_LOGOUT_DELETE_TOKENS` verdadeira.** A revogação do logout pela RP é a da
+subclasse `accounts.logout_rp.LogoutPelaRPView`, restrita à `Application` que pede. Com a chave
+ligada, o toolkit revoga, depois dela, os tokens da conta em **todas** as `Application`s. O
+"Sair" continua funcionando, e a única diferença é que as outras RPs perdem os tokens sem nada
+acusar (ADR 0030).
+
+**A rota-sombra de `/o/logout/` fora de ordem.** Em `config/urls.py`, `o/logout/` é declarada
+antes do `include` de `o/`, e é a ordem que faz a subclasse atender. Declarada depois, ou com o
+caminho do toolkit renomeado num upgrade, a view original volta a atender: encerra a sessão,
+redireciona com o `state` e não revoga nada, porque `DELETE_TOKENS` é falsa. Só a guarda da
+suíte, que resolve o caminho do `reverse("oauth2_provider:rp-initiated-logout")`, acusa. Em
+produção o sintoma é a [29](#29-sair-encerra-a-sessão-mas-o-token-segue-valendo), e só se
+alguém testar o token depois de sair.
+
+**Sem sessão, o `id_token` vivo revoga sem pergunta.** Com `ALWAYS_PROMPT` falsa, a view só
+pergunta a quem tem sessão. Um `GET /o/logout/` sem cookie e com o `id_token_hint` vivo de
+alguém revoga os tokens do dono daquela `Application` e redireciona, sem tela nenhuma. A linha
+`tokens_revogados` da trilha registra a revogação com o `sub` do dono, seguida de
+`user_logged_out` com `sub` nulo.
+
+**O hint sem linha redireciona sem revogar.** A segunda saída, numa outra aba, encontra o hint
+já revogado. O hint é autêntico e não tem linha, e a subclasse o trata como ausente: sem
+sessão, o pedido vai ao destino com o `state`, e nada é revogado nem registrado em
+`tokens_revogados`. Os tokens que a conta tenha naquela `Application`, por um login posterior,
+sobrevivem a essa saída.
+
+**Um refresh em curso durante a saída sobrevive a ela.** O toolkit valida o `refresh_token` fora
+de trava e, ao gravar o par novo, não reconfere a revogação
+(`oauth2_provider/oauth2_validators.py:997-1038`). Se a RP renova o token no mesmo instante em
+que a pessoa sai, e a validação cai antes da revogação e a gravação depois, o par novo nasce
+vivo: a trilha registra `tokens_revogados`, e a RP segue com tokens válidos. Na ordem inversa, o
+refresh que sobra fica sem access token, e o toolkit o recusa. Fechar a janela exige mexer em
+`/o/token/`, fora da ADR 0029. O remédio, se acontecer, é revogar à mão, como em
+[Revogar o acesso de uma pessoa](#revogar-o-acesso-de-uma-pessoa).
+
+**Entrada forjada nova que dê 500.** A promessa de 400 em `/o/logout/` depende de enumerar, em
+`accounts/logout_rp.py`, as exceções que o toolkit e o driver levantam com entrada forjada
+(ADR 0030). Uma exceção nova num upgrade volta a sair como 500, com traceback no log, e isso é
+de propósito: a lista é fechada, e o 500 novo é defeito a registrar.
+
+**O `id_token` na query de `/o/logout/`.** O `id_token_hint` viaja na URL. Nenhum log deste
+projeto grava a URL completa: a linha de acesso tem `route`, o nome da rota, e não o caminho.
+Ligar um log de acesso com a URL completa, no Caddy ou num middleware, passa a gravar
+`id_token` em claro. O log de erro do Caddy, o `cloudflared` e a borda da Cloudflare não foram
+medidos.
+
+**O admin não valida `post_logout_redirect_uris`.** O campo vazio, em `http` atrás do proxy ou
+sem a barra final é gravado sem aviso. O defeito só aparece no primeiro "Sair" da RP, como a
+[28](#28-o-sair-da-rp-termina-na-tela-de-erro-do-idp).
+
+**`OIDC_RP_INITIATED_LOGOUT_STRICT_REDIRECT_URIS` sem efeito atrás do proxy.** Ela segue
+`BEHIND_TLS_PROXY` e recusa `http` para `Application` pública, o que atrás do proxy
+`ALLOWED_REDIRECT_URI_SCHEMES` já recusa. Removê-la não muda nada que se veja hoje; a
+declaração existe contra a mudança de default da 4.0 do toolkit.
+
 ### 15. O processo não sobe, e a mensagem cita `AUDIT_LOG_PATH`
 
 **Sintoma.** Nada sobe. Na jornada de construção, qualquer `manage.py` aborta antes de fazer o
@@ -721,8 +778,8 @@ diz qual dos dois respondeu**:
 - na tela de login, **HTTP 429 com corpo JSON** `{"error": "temporarily_unavailable", ...}` **e
   cabeçalho `Retry-After: 60`** — é `config/limites.py`, o mesmo mecanismo que barra em `/o/`.
   Nenhuma tentativa foi registrada: a requisição nem chegou a `authenticate()`;
-- em `/o/token/`, `/o/authorize/` ou `/o/device-authorization/`, **HTTP 429 com o mesmo corpo
-  JSON e o mesmo `Retry-After: 60`**.
+- em `/o/token/`, `/o/authorize/`, `/o/logout/` ou `/o/device-authorization/`, **HTTP 429 com o
+  mesmo corpo JSON e o mesmo `Retry-After: 60`**.
 
 Não há um quarto caso: o 429 do axes é sempre página HTML e nunca traz o cabeçalho; o do
 middleware é sempre JSON e sempre traz. Tudo o mais nesta seção depende de qual dos dois foi.
@@ -1105,6 +1162,89 @@ backup do `.env` antes ([Produção pelo túnel](#produção-pelo-túnel), item 
 O que a carga não recusa (destino errado mas bem formado, loopback em produção, divergência
 com `CORS_ALLOWED_ORIGINS`) está na [14](#14-as-falhas-que-não-produzem-sintoma-nenhum-hoje).
 
+### 28. O Sair da RP termina na tela de erro do IdP
+
+**Sintoma.** O "Sair" da relying party leva a pessoa a `/o/logout/`, e ela para ali, na tela
+"Não foi possível sair" do IdP, com HTTP 400, em vez de voltar à RP. A sessão e os tokens
+continuam como estavam.
+
+**Causa.** O IdP recusou o pedido, e a tela não diz por quê, deliberadamente: a descrição da
+biblioteca é em inglês e para quem integra. As causas, da mais provável à menos:
+
+- **destino não cadastrado.** O `post_logout_redirect_uri` enviado não está, literal, em
+  `post_logout_redirect_uris` da `Application`. O caso mais comum é a barra final: a
+  `nova_api_SPA` envia a landing com barra, e o cadastro sem ela não casa. O admin grava o campo
+  vazio sem aviso;
+- **`http` atrás do proxy.** Com `BEHIND_TLS_PROXY` verdadeiro, só `https` é aceito, mesmo que o
+  cadastro tenha `http`;
+- **hint assinado pela chave anterior.** Depois de [Trocar a chave RSA](#trocar-a-chave-rsa),
+  todo `id_token` emitido antes deixa de verificar, e o "Sair" com ele responde 400 até a pessoa
+  entrar de novo;
+- **`client_id` divergente do `aud` do hint**, e hint de outro issuer ou de assinatura inválida;
+- **entrada forjada** (ADR 0029): `client_id` inexistente ou com o caractere NUL; hint com carga
+  que não é JSON, com `aud` de `Application` sem algoritmo, com `aud` contendo NUL ou, se
+  assinado por segredo de cliente HS256, com `jti` que não é UUID; e `post_logout_redirect_uri`
+  que não se decompõe como URL, como um colchete aberto no host ou uma porta impossível.
+
+Em uso normal da SPA, nenhum destes dois últimos grupos acontece.
+
+**Verificação.** O destino não cadastrado, e só ele, sai no logger `oauth2_provider`, só em
+`DEBUG`: com `LOG_LEVEL=DEBUG` no `.env` e o `app` recriado, a linha diz qual URI foi enviada e
+por que nenhuma das cadastradas casou (`_log_registered_uri_mismatch`, chamada em
+`oauth2_provider/models.py:304`). A recusa de `http` atrás do proxy, seja por
+`STRICT_REDIRECT_URIS` ou por `ALLOWED_REDIRECT_URI_SCHEMES`, não loga nada em nível nenhum: a
+causa se confere lendo o cadastro. O hint recusado por entrada forjada deixa um WARNING no logger
+`accounts.logout_rp`, "logout pela RP: hint recusado", com só o nome da classe da exceção em
+`error_class`, e nunca o hint:
+
+```bash
+docker compose logs --no-color --no-log-prefix app | jq -R 'fromjson? | select(.logger=="accounts.logout_rp")'
+```
+
+Hint vencido, sozinho, não é causa: `ACCEPT_EXPIRED_TOKENS` é verdadeira, e a aba aberta há mais
+de dez horas sai.
+
+**Correção.** Cadastre em `/admin/oauth2_provider/application/`, no campo
+`post_logout_redirect_uris`, a URL que a RP envia, literal, com a barra final e em `https`
+atrás do proxy. Não há o que corrigir na chave anterior: a pessoa entra de novo, e o `id_token`
+novo sai com a chave nova. Volte `LOG_LEVEL` ao valor anterior depois.
+
+### 29. Sair encerra a sessão, mas o token segue valendo
+
+**Sintoma.** O "Sair" da RP volta à RP com o `state`, a raiz do IdP mostra "Nenhuma sessão
+ativa", e o `access_token` anterior continua recebendo 200 em `/o/userinfo/`.
+
+**Causa.** Uma de duas, e nenhuma dá erro:
+
+- **a rota-sombra não está atendendo.** Em `config/urls.py`, `o/logout/` precisa vir antes do
+  `include` de `o/`. Fora de ordem, ou com o caminho do toolkit renomeado num upgrade, quem
+  atende é a view original, que com `DELETE_TOKENS` falsa encerra a sessão e não revoga nada;
+- **o hint não tinha linha.** O `id_token` enviado já tinha sido revogado, numa saída anterior.
+  A subclasse o trata como ausente e não revoga. É comportamento decidido (ADR 0029), e não
+  defeito.
+
+Uma terceira causa não deixa sinal: o refresh em curso durante a saída, que grava um par novo
+depois da revogação ([14](#14-as-falhas-que-não-produzem-sintoma-nenhum-hoje)). Ali a trilha
+registra `tokens_revogados`, e o token que segue valendo é o novo.
+
+Se, ao contrário, as **outras** RPs perderam os tokens junto, a causa é
+`OIDC_RP_INITIATED_LOGOUT_DELETE_TOKENS` verdadeira.
+
+**Verificação.** Qual view atende, no container:
+
+```bash
+docker compose exec app python manage.py shell -c "from django.urls import resolve, reverse; print(resolve(reverse('oauth2_provider:rp-initiated-logout')).func.view_class)"
+```
+
+Tem de imprimir `accounts.logout_rp.LogoutPelaRPView`. Uma saída que revogou deixa a linha
+`tokens_revogados` na trilha, com o mesmo `request_id` do `user_logged_out` que vem logo depois;
+`user_logged_out` sem `tokens_revogados` antes é saída que não revogou nada.
+
+**Correção.** Rota fora de ordem é defeito de código: devolva `o/logout/` para antes do
+`include`, e a suíte volta a verde. `DELETE_TOKENS` verdadeira é defeito de configuração, e a
+chave volta a `False`. Os tokens que ficaram vivos se revogam à mão, como em
+[Revogar o acesso de uma pessoa](#revogar-o-acesso-de-uma-pessoa).
+
 ## Operação corrente
 
 ### Desbloquear uma conta ou uma origem
@@ -1171,6 +1311,10 @@ de emitir access token novo, anulando a revogação.
 O endpoint `/o/revoke_token/` (RFC 7009) existe sob o prefixo `o/`, mas exige apresentar o
 token que se quer revogar: é ferramenta da relying party, não de quem opera o IdP.
 
+O "Sair" de uma RP também revoga, pelo `end_session_endpoint`: os tokens da conta naquela
+`Application`, em todos os dispositivos (ADR 0029). Não substitui este procedimento. Depende de
+alguém pedir a saída, não alcança as outras `Application`s e não desativa a conta.
+
 ### Limpeza de tokens e de sessões
 
 Nenhum dos dois comandos está agendado. As tabelas do toolkit e a `django_session` crescem
@@ -1186,6 +1330,13 @@ stderr: sem `REFRESH_TOKEN_EXPIRE_SECONDS` — que este projeto não declara —
 nunca envelhecem, e o comando remove apenas os revogados e os órfãos. Access e ID tokens
 expirados, mas ainda vinculados a um refresh vivo, permanecem. Reduzir de verdade a tabela
 exige, hoje, revogar antes.
+
+**O `cleartokens` e o "Sair" da RP.** O comando só apaga o `id_token` vencido que já não tem
+access token ligado (`oauth2_provider/models.py:1296-1300`), e o hint dele, apresentado a
+`/o/logout/`, passa a ser tratado como ausente: sem sessão, o pedido vai ao destino e nada é
+revogado. Daquele login não resta o que revogar: o refresh que ficou sem access token é recusado
+pelo toolkit e apagado pelo mesmo comando. Ver a
+[14](#14-as-falhas-que-não-produzem-sintoma-nenhum-hoje).
 
 `clearsessions` apaga as linhas expiradas de `django_session`. A sessão vive no Postgres com
 cópia quente no Redis (`SESSION_ENGINE = cached_db`), e é a linha do Postgres que se acumula.
@@ -1244,20 +1395,25 @@ máquina, pelo nome público.
   ela também rejeita os `id_token` assinados com a chave **nova**. A janela ruim é dos dois
   lados, não de um;
 - `access_token` e `refresh_token` são opacos — linhas no Postgres, não artefatos assinados — e
-  sobrevivem à troca. Quem depende deles não percebe nada.
+  sobrevivem à troca. Quem depende deles não percebe nada;
+- todo `id_token_hint` em circulação passa a receber 400 em `/o/logout/`: o "Sair" da RP termina
+  na tela de erro do IdP até a pessoa entrar de novo
+  ([28](#28-o-sair-da-rp-termina-na-tela-de-erro-do-idp)).
 
-A primeira rotação será disruptiva por construção. O mesmo script gera a chave de
+A primeira rotação será disruptiva por construção. O toolkit oferece conjunto de rotação
+(`OIDC_RSA_PRIVATE_KEYS_INACTIVE`). Ligá-lo põe mais de uma chave no JWKS, que é contrato com a
+`nova_api_SPA`, e é tarefa própria, ainda não decidida. O mesmo script gera a chave de
 desenvolvimento e a de produção, em 3072 bits fixos, o nível de 128 bits de segurança do SHA-256
 que o RS256 (RSA com SHA-256) usa (ADR
 `docs/adr/0028-gerar-a-chave-de-assinatura-em-rsa-3072-pelo-gerador-unico-de-segredos.md`).
 
 ### A trilha de auditoria: onde fica e como lê-la
 
-Cinco eventos são registrados no instante em que acontecem: `user_logged_in`,
-`user_login_failed`, `user_logged_out`, `app_authorized` e `user_locked_out`, este último o
-bloqueio por tentativas em excesso. O arquivo é JSON por linha, no mesmo esquema do log
-operacional e com o mesmo `request_id`, o que permite casar uma linha de auditoria com o
-traceback do mesmo pedido.
+Seis eventos são registrados no instante em que acontecem: `user_logged_in`,
+`user_login_failed`, `user_logged_out`, `app_authorized`, `user_locked_out`, o bloqueio por
+tentativas em excesso, e `tokens_revogados`, a revogação no logout pela RP (ADR 0029). O
+arquivo é JSON por linha, no mesmo esquema do log operacional e com o mesmo `request_id`, o que
+permite casar uma linha de auditoria com o traceback do mesmo pedido.
 
 **O casamento por `request_id` tem janela.** Ele vale enquanto o container corrente não tiver sido
 recriado: o log operacional existe só em stdout e morre a cada `docker compose build` mais
@@ -1280,8 +1436,14 @@ docker compose exec app cat /var/log/nova_api/audit.log | jq -c 'select(.event==
 
 O `jq` roda no host: a imagem é `python:3.14-slim` e não o traz. Os campos de cada linha, além
 dos comuns, são `event` — que recebe o **nome do sinal**, para levar por `grep` até quem o emite
-—, `sub`, `ip`, `ip_src`, `ip_edge` e `outcome`; mais `client_id` em `app_authorized` e
-`identifier_sha256` em `user_login_failed` e em `user_locked_out`.
+—, `sub`, `ip`, `ip_src`, `ip_edge` e `outcome`; mais `client_id` em `app_authorized` e em
+`tokens_revogados`, e `identifier_sha256` em `user_login_failed` e em `user_locked_out`.
+
+`tokens_revogados` sai uma vez por "Sair" que revogou ao menos um token, antes do
+`user_logged_out` da mesma requisição e com o mesmo `request_id`. O `sub` é o dono dos tokens
+revogados, que pode não ser a conta da sessão: com o hint de outra conta, o `user_logged_out`
+seguinte traz o `sub` da sessão, e sem sessão, `sub` nulo. A linha não conta tokens nem os
+identifica.
 
 **`ip_src` diz de onde o `ip` daquela linha saiu**, e é o que torna o arquivo legível depois de
 `BEHIND_TLS_PROXY` mudar de valor: a trilha é append-only, o instante da troca não fica gravado
@@ -1401,8 +1563,9 @@ Três ressalvas de contagem e uma de durabilidade:
   contra a mesma conta e a mesma origem produzem oito `user_login_failed` e quatro
   `user_locked_out` — medido. Quem contar linhas para contar bloqueios contará errado, e é o
   `jq` da [seção 16](#16-http-429-conta-ou-origem-barrada-por-excesso) que conta essas linhas;
-- criação de Application e revogação de token **não** aparecem, por não existir sinal que as
-  emita;
+- criação de Application e revogação de token fora do logout pela RP **não** aparecem, por não
+  existir sinal que as emita: `/o/revoke_token/`, as ações do admin e o `cleartokens` revogam em
+  silêncio;
 - não há retenção nem poda — o arquivo cresce indefinidamente, e nada o monitora. Sob ataque
   sustentado ele cresce duas linhas por tentativa, que é a ressalva anterior cobrando o preço
   desta.

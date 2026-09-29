@@ -1,9 +1,10 @@
 """O que o IdP afirma sobre a pessoa: mapeamento do `accounts.User` para claims OIDC.
 
 Mora em `accounts` porque é o app dono da identidade — quem define o que um token
-afirma sobre a pessoa e quem possui a pessoa. Único ponto em que o comportamento do
-servidor de autorização é customizado (ADR 0002), e o contrato com a settings é por
-string, resolvido em runtime: caminho errado em OAUTH2_VALIDATOR_CLASS falha no boot.
+afirma sobre a pessoa e quem possui a pessoa. Único ponto de customização de claims
+(ADR 0002); o logout iniciado pela relying party (RP) é a subclasse da ADR 0030, em
+`accounts/logout_rp.py`. O contrato com a settings é por string, resolvido em runtime:
+caminho errado em OAUTH2_VALIDATOR_CLASS falha no boot.
 """
 
 from oauth2_provider.oauth2_validators import OAuth2Validator

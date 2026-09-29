@@ -40,7 +40,8 @@ identificador que correlaciona as linhas de um mesmo pedido e a linha de acesso;
 endereço é para o próprio processo, o seu gateway padrão ou não — resposta única do sistema,
 consumida pela trilha de auditoria, pelo limitador de taxa e pelo `django-axes` (ADRs 0015,
 0018 e 0020); e `config/limites.py`, o teto de requisições por origem em
-`/o/token/`, em `/o/authorize/`, em `/o/device-authorization/` e em `/accounts/login/`. Nenhum deles afirma nada sobre identidade: o limitador não conhece pessoa
+`/o/token/`, em `/o/authorize/`, em `/o/device-authorization/`, em `/o/logout/` e em
+`/accounts/login/`. Nenhum deles afirma nada sobre identidade: o limitador não conhece pessoa
 nem conta.
 
 `LOGIN_URL`, `LOGIN_REDIRECT_URL` e `LOGOUT_REDIRECT_URL` guardam nomes de rota (`"login"`,
@@ -52,10 +53,13 @@ falha ruidosa.
 
 - `accounts/models.py` — `User` herdando de `AbstractUser`, com `username = None` e e-mail
   único como identificador de login;
-- `accounts/oauth_validators.py` — `IdPOAuth2Validator`, o único ponto em que o comportamento
-  do servidor de autorização é customizado. Decide claims (`sub`, `name`, `email`); não toca
-  em fluxo;
-- `accounts/auditoria.py` — os cinco receptores de sinal e o que a trilha de auditoria afirma
+- `accounts/oauth_validators.py` — `IdPOAuth2Validator`, o único ponto de customização de
+  claims. Decide claims (`sub`, `name`, `email`); não toca em fluxo;
+- `accounts/logout_rp.py` — `LogoutPelaRPView`, a subclasse da view de logout do toolkit que
+  atende `/o/logout/`, e o sinal `tokens_revogados`. Decide o que o "Sair" de uma RP faz com os
+  tokens de uma pessoa: revoga só na `Application` que pede, e anuncia a revogação à trilha
+  (ADRs 0029 e 0030). É o único código deste projeto no caminho de um endpoint de protocolo;
+- `accounts/auditoria.py` — os seis receptores de sinal e o que a trilha de auditoria afirma
   sobre quem autenticou: `sub`, origem, a procedência dessa origem, o que ela é para o
   processo que a gravou (`ip_edge`) e o desfecho, nunca e-mail nem valor de token. Ligados em
   `AccountsConfig.ready()`. É o único ponto em que `accounts` importa de `config`: a função de
@@ -64,18 +68,24 @@ falha ruidosa.
 
 **`oauth2_provider` — o protocolo.** É dependência de terceiro, montada sob o prefixo `o/` em
 `config/urls.py`: três das cinco listas de rotas que o módulo exporta, as de protocolo, num
-`include` com o namespace `oauth2_provider` (ADR 0024). Nenhum método de protocolo é
-sobrescrito; a única peça substituída é o template da tela de consentimento,
-`templates/oauth2_provider/authorize.html`.
+`include` com o namespace `oauth2_provider` (ADR 0024). Uma rota é sombreada: `/o/logout/`,
+declarada em `config/urls.py` antes do `include` e atendida pela subclasse de `accounts`, com
+quatro métodos sobrescritos (ADR 0030). Fora dela, nenhum método de protocolo é sobrescrito, e as
+outras peças substituídas são templates: a tela de consentimento,
+`templates/oauth2_provider/authorize.html`, e a de confirmação e erro do logout,
+`templates/oauth2_provider/logout_confirm.html`.
 
 **`axes` — o teto da tela de login.** Também dependência de terceiro, e a única que entra no
 caminho de `authenticate()`: `AUTHENTICATION_BACKENDS` passa a existir por causa dela, com
 `AxesStandaloneBackend` antes do `ModelBackend` do Django. Conta tentativas falhas por conta e
 por origem, em tabela própria, e a origem que ela conta vem de `config/origem.py` (ADR 0016).
 
-O acoplamento entre `accounts` e o toolkit é uma chave só: `OAUTH2_VALIDATOR_CLASS`, no bloco
-`OAUTH2_PROVIDER` de `config/settings.py`. É contrato por string, resolvido no boot — caminho
-errado falha ali; chave ausente não dá erro nenhum e o `id_token` sai só com `sub`.
+O acoplamento entre `accounts` e o toolkit passa por dois pontos. O primeiro é a chave
+`OAUTH2_VALIDATOR_CLASS`, no bloco `OAUTH2_PROVIDER` de `config/settings.py`: contrato por
+string, resolvido no boot — caminho errado falha ali; chave ausente não dá erro nenhum e o
+`id_token` sai só com `sub`. O segundo é a rota-sombra de `/o/logout/`, que `config/urls.py`
+importa de `accounts`: fora de ordem, a view do toolkit volta a atender e o "Sair" deixa de
+revogar, também sem erro nenhum (ADR 0030).
 
 ## O caminho de um pedido
 
@@ -93,23 +103,26 @@ errado falha ali; chave ausente não dá erro nenhum e o `id_token` sai só com 
    `access_token`, `refresh_token` e `id_token`.
 7. A RP verifica a assinatura do `id_token` contra `/o/.well-known/jwks.json` e confere o
    `iss`, que é `{BASE_URL}/o`.
+8. No "Sair", a RP redireciona o navegador para `/o/logout/` com o `id_token_hint`, o
+   `post_logout_redirect_uri` cadastrado e o `state`. O IdP revoga os tokens da conta naquela
+   `Application`, encerra a sessão e devolve o navegador ao destino (ADR 0029).
 
 A superfície HTTP própria do projeto é curta: `/`, `/health` (sem barra final, porque é a URL
 da sonda do container), `/accounts/login/`, `/accounts/logout/` (só POST) e `/admin/`. Tudo o
-mais vem do toolkit sob `/o/`: `authorize/`, `token/`, `userinfo/`,
-`.well-known/openid-configuration` e `.well-known/jwks.json`, e junto com eles o fluxo de device
-grant, a revogação e a introspecção — rotas que este projeto não usa, mas que estão nas mesmas
-listas. A gestão de Applications e de tokens e o registro dinâmico de client não são montados:
-`/o/applications/`, `/o/authorized_tokens/` e `/o/register/` respondem 404, e a gestão é do
-admin (ADR 0024). `/accounts/password_reset/` é um 404 deliberado, explicado no comentário de
-`config/urls.py`.
+mais vem do toolkit sob `/o/`: `authorize/`, `token/`, `userinfo/`, `logout/`, este atendido
+pela subclasse de `accounts`, `.well-known/openid-configuration` e `.well-known/jwks.json`, e
+junto com eles o fluxo de device grant, a revogação e a introspecção — rotas que este projeto
+não usa, mas que estão nas mesmas listas. A gestão de Applications e de tokens e o registro
+dinâmico de client não são montados: `/o/applications/`, `/o/authorized_tokens/` e
+`/o/register/` respondem 404, e a gestão é do admin (ADR 0024). `/accounts/password_reset/` é um
+404 deliberado, explicado no comentário de `config/urls.py`.
 
 ## Onde mora o estado
 
 | Lugar | O que guarda |
 | --- | --- |
 | Postgres | contas, Applications, grants, tokens, `django_session` e as tentativas de login que o `axes` conta; volume `pgdata` |
-| Redis | cópia quente da sessão, a chave da sonda do `/health` e os contadores de taxa dos quatro caminhos limitados; volume `redisdata` |
+| Redis | cópia quente da sessão, a chave da sonda do `/health` e os contadores de taxa dos cinco caminhos limitados; volume `redisdata` |
 | Ambiente do processo | a chave privada RSA e a `SECRET_KEY`, fora do banco e da imagem |
 | Cookie do navegador | apenas o identificador da sessão |
 | Arquivo, no container | a trilha de auditoria; volume `auditlog`, montado em `/var/log/nova_api` |
@@ -132,11 +145,12 @@ config/
   observabilidade.py   como uma linha de log é escrita e como duas linhas se ligam
   origem.py            de que endereço veio a requisição, e de onde esse valor saiu
   limites.py           o teto de requisições por origem em /o/token/, /o/authorize/,
-                       /o/device-authorization/ e /accounts/login/
+                       /o/device-authorization/, /o/logout/ e /accounts/login/
   wsgi.py              ponto de entrada do gunicorn
 accounts/
   models.py            o que é uma pessoa aqui: e-mail único, sem username
   oauth_validators.py  o que um token afirma sobre a pessoa
+  logout_rp.py         o que o "Sair" de uma RP faz com os tokens da pessoa
   auditoria.py         o que a trilha afirma sobre quem autenticou
   admin.py             a tela de administração de contas
   apps.py              registro do app
@@ -149,6 +163,7 @@ templates/
   registration/login.html            a tela de login
   registration/bloqueio.html         a tela de quem foi barrado por excesso de tentativas
   oauth2_provider/authorize.html     a tela de consentimento (override de template, não de view)
+  oauth2_provider/logout_confirm.html  a confirmação e o erro do logout pela RP
 static/css/idp.css     a aparência das telas
 docker/entrypoint.sh   a sequência de boot do container
 docker/Caddyfile       o nome que o proxy atende, o certificado, o destino interno e a confiança no conector
@@ -219,7 +234,7 @@ As decisões de arquitetura, uma por arquivo em `docs/adr/`:
 | Assunto | ADR |
 | --- | --- |
 | Plataforma: Django 5.2 sobre Python 3.14 | `0001-adotar-django-5-2-lts-sobre-python-3-14.md` |
-| O toolkit como servidor de autorização — **emendada pela 0024** | `0002-usar-django-oauth-toolkit-como-servidor-de-autorizacao.md` |
+| O toolkit como servidor de autorização — **emendada pela 0024 e pela 0030** | `0002-usar-django-oauth-toolkit-como-servidor-de-autorizacao.md` |
 | `User` customizado com e-mail como identificador | `0003-modelar-identidade-em-user-customizado-com-email-como-identificador.md` |
 | RS256 e a custódia da chave privada | `0004-assinar-tokens-com-rs256-e-custodiar-a-chave-privada-no-ambiente.md` |
 | A sessão SSO em `cached_db` | `0005-manter-a-sessao-sso-em-sessao-django-com-backend-cached-db.md` |
@@ -241,11 +256,13 @@ As decisões de arquitetura, uma por arquivo em `docs/adr/`:
 | O consentimento pulado na `Application` de primeira parte, por `skip_authorization` | `0021-pular-o-consentimento-na-application-de-primeira-parte-por-skip-authorization.md` |
 | O CORS por origem exata, uma por ambiente; previews da Vercel fora | `0022-liberar-o-cors-por-origem-exata-e-deixar-os-previews-da-vercel-fora.md` |
 | Sem cadastro nem edição de perfil nesta fase; contas criadas no admin | `0023-nao-oferecer-cadastro-nem-perfil-nesta-fase-e-manter-a-criacao-de-contas-no-admin.md` |
-| A montagem sob `/o/` só das listas de protocolo do toolkit — emenda a **0002** | `0024-montar-sob-o-so-as-listas-de-protocolo-do-django-oauth-toolkit.md` |
+| A montagem sob `/o/` só das listas de protocolo do toolkit — emenda a **0002**; **emendada pela 0030** | `0024-montar-sob-o-so-as-listas-de-protocolo-do-django-oauth-toolkit.md` |
 | O issuer de produção congelado na forma `https://<PUBLIC_HOST>/o` — cumpre a condição da **0007** | `0025-congelar-o-issuer-de-producao-na-forma-https-public-host-barra-o.md` |
 | A exposição na AWS (Amazon Web Services) por um salto de proxy só, com ACME (Automatic Certificate Management Environment) e 80/443 fora de loopback por override de compose — emenda a **0017**; **substituída pela 0027** | `0026-expor-o-idp-na-aws-por-um-salto-de-proxy-so-com-acme-e-80-443-fora-de-loopback.md` |
 | O IdP de produção servido da máquina do dono pelo Cloudflare Tunnel, sem porta de entrada — substitui a **0026**; emenda a **0017** e a **0020** | `0027-servir-o-idp-de-producao-da-maquina-local-pelo-cloudflare-tunnel-sem-porta-de-entrada.md` |
 | A chave de assinatura em RSA 3072, pelo gerador único de segredos — emenda a **0004**; proposta | `0028-gerar-a-chave-de-assinatura-em-rsa-3072-pelo-gerador-unico-de-segredos.md` |
+| O logout iniciado pela RP ligado, com revogação restrita à `Application` e retorno só a destino cadastrado — amplia a **0013**; proposta, aceita com a ADR 0019 da `nova_api_SPA` | `0029-ligar-o-logout-iniciado-pela-rp-com-revogacao-restrita-a-application.md` |
+| A rota de logout do toolkit sombreada por uma subclasse da view, montada antes do `include` — emenda a **0002** e a **0024**; proposta | `0030-sombrear-a-rota-de-logout-do-toolkit-com-uma-subclasse-da-view.md` |
 
 ADR aceita é imutável: decisão que mudou vira ADR nova. O formato está em
 `docs/adr/template-adr.md`.

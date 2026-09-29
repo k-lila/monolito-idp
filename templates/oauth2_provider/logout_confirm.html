@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% comment %}
+Override de template do DOT, nunca da view: quem atende /o/logout/ é a subclasse da ADR 0030,
+e ela herda o template. O que vem do original é estrutural e não pode ser reescrito: o ramo de
+erro, o csrf, o laço de campos ocultos e o name="allow", só no botão que confirma. Sem os
+ocultos, a confirmação perde o destino e o state e devolve a pessoa à raiz do IdP.
+
+O erro é dito pelo código, error.error, e nunca por error.description: a descrição é texto em
+inglês da biblioteca, escrito para quem integra, e não para quem sai.
+{% endcomment %}
+
+{% block title %}IdP — sair{% endblock %}
+
+{% block content %}
+    <div class="cartao">
+        {% if not error %}
+            <form id="authorizationForm" method="post">
+                <h1>Sair?</h1>
+                {% csrf_token %}
+
+                {% for field in form %}
+                    {% if field.is_hidden %}
+                        {{ field }}
+                    {% endif %}
+                {% endfor %}
+
+                {% if application %}
+                    <p>{{ application.name }} pediu o encerramento da sua sessão.</p>
+                    <ul class="permissoes">
+                        <li>A sessão deste navegador no IdP termina.</li>
+                        <li>Os acessos de {{ application.name }} são revogados: os da conta
+                            indicada no pedido, que pode não ser a sua; se o pedido não indicar
+                            conta, ou se a indicação já tiver sido usada ou descartada, os da
+                            sua.</li>
+                    </ul>
+                {% else %}
+                    <p>A sessão deste navegador no IdP termina. Nenhum acesso é revogado.</p>
+                {% endif %}
+
+                {{ form.errors }}
+                {{ form.non_field_errors }}
+
+                <div class="acoes">
+                    <input type="submit" value="Cancelar"/>
+                    <input type="submit" class="primario" name="allow" value="Sair"/>
+                </div>
+            </form>
+        {% elif error.error == "logout_denied" %}
+            <h1>Saída cancelada</h1>
+            <p>Sua sessão continua ativa.</p>
+            <p><a href="{% url 'home' %}">Voltar ao início</a></p>
+        {% else %}
+            <h1>Não foi possível sair</h1>
+            <p>O pedido de saída não pôde ser verificado, ou o destino de retorno não está
+                cadastrado. Nada foi encerrado nem revogado.</p>
+            <p><a href="{% url 'home' %}">Voltar ao início</a></p>
+        {% endif %}
+    </div>
+{% endblock %}

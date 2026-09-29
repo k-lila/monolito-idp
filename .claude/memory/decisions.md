@@ -24,7 +24,7 @@
 | Data | Decisão | ADR |
 | --- | --- | --- |
 | 2026-08-29 | Django 5.2 LTS sobre Python 3.14 como plataforma do monólito | [0001](../../docs/adr/0001-adotar-django-5-2-lts-sobre-python-3-14.md) |
-| 2026-08-29 | django-oauth-toolkit como servidor de autorização OAuth2/OIDC — **emendada pela 0024** | [0002](../../docs/adr/0002-usar-django-oauth-toolkit-como-servidor-de-autorizacao.md) |
+| 2026-08-29 | django-oauth-toolkit como servidor de autorização OAuth2/OIDC — **emendada pelas 0024 e 0030** | [0002](../../docs/adr/0002-usar-django-oauth-toolkit-como-servidor-de-autorizacao.md) |
 | 2026-08-29 | Identidade em `User` customizado com e-mail como identificador | [0003](../../docs/adr/0003-modelar-identidade-em-user-customizado-com-email-como-identificador.md) |
 | 2026-08-29 | Assinar tokens com RS256, chave privada no ambiente | [0004](../../docs/adr/0004-assinar-tokens-com-rs256-e-custodiar-a-chave-privada-no-ambiente.md) |
 | 2026-08-29 | Sessão SSO em sessão Django com backend `cached_db` sobre Redis | [0005](../../docs/adr/0005-manter-a-sessao-sso-em-sessao-django-com-backend-cached-db.md) |
@@ -35,7 +35,7 @@
 | 2026-09-01 | Isentar `/health` do redirecionamento para HTTPS | [0010](../../docs/adr/0010-isentar-health-do-redirecionamento-para-https.md) |
 | 2026-09-01 | Dar teto de tempo ao `/health` e derivar o `HEALTHCHECK` dele | [0011](../../docs/adr/0011-dar-teto-de-tempo-ao-health-e-derivar-o-healthcheck-dele.md) |
 | 2026-09-08 | Emitir o log operacional em JSON, com identificador de requisição — **emendada pela 0014** | [0012](../../docs/adr/0012-emitir-o-log-operacional-em-json-com-identificador-de-requisicao.md) |
-| 2026-09-08 | Registrar a trilha de auditoria dos quatro sinais em arquivo durável — **estendida pela 0018** | [0013](../../docs/adr/0013-registrar-a-trilha-de-auditoria-dos-quatro-sinais-em-arquivo-duravel.md) |
+| 2026-09-08 | Registrar a trilha de auditoria dos quatro sinais em arquivo durável — **estendida pela 0018; ampliada pela 0029** | [0013](../../docs/adr/0013-registrar-a-trilha-de-auditoria-dos-quatro-sinais-em-arquivo-duravel.md) |
 | 2026-09-08 | Manter o identificador de requisição até a requisição seguinte; emenda à 0012 | [0014](../../docs/adr/0014-manter-o-identificador-de-requisicao-ate-a-requisicao-seguinte.md) |
 | 2026-09-10 | Resolver a origem do cliente num ponto único — a chave de contagem | [0015](../../docs/adr/0015-resolver-a-origem-do-cliente-num-ponto-unico.md) |
 | 2026-09-10 | Limitar a taxa na superfície de autenticação: axes no login, middleware próprio nos três caminhos | [0016](../../docs/adr/0016-limitar-a-taxa-na-superficie-de-autenticacao.md) |
@@ -46,11 +46,13 @@
 | 2026-09-17 | Pular o consentimento na `Application` de primeira parte por `skip_authorization`; default global intocado — contraparte: SPA 0014 | [0021](../../docs/adr/0021-pular-o-consentimento-na-application-de-primeira-parte-por-skip-authorization.md) |
 | 2026-09-17 | Liberar o CORS por origem exata, uma por ambiente; previews da Vercel fora — contraparte: SPA 0016 | [0022](../../docs/adr/0022-liberar-o-cors-por-origem-exata-e-deixar-os-previews-da-vercel-fora.md) |
 | 2026-09-17 | Não oferecer cadastro nem perfil nesta fase; contas criadas no admin — contraparte: SPA 0012 | [0023](../../docs/adr/0023-nao-oferecer-cadastro-nem-perfil-nesta-fase-e-manter-a-criacao-de-contas-no-admin.md) |
-| 2026-09-22 | Montar sob `/o/` só as listas de protocolo do toolkit (metadata, base, oidc); emenda à 0002 | [0024](../../docs/adr/0024-montar-sob-o-so-as-listas-de-protocolo-do-django-oauth-toolkit.md) |
+| 2026-09-22 | Montar sob `/o/` só as listas de protocolo do toolkit (metadata, base, oidc); emenda à 0002 — **emendada pela 0030** | [0024](../../docs/adr/0024-montar-sob-o-so-as-listas-de-protocolo-do-django-oauth-toolkit.md) |
 | 2026-09-23 | Congelar a forma do issuer de produção em `https://<PUBLIC_HOST>/o`, sem literal de domínio versionado; cumpre a condição da 0007 — contraparte: SPA 0017 | [0025](../../docs/adr/0025-congelar-o-issuer-de-producao-na-forma-https-public-host-barra-o.md) |
 | 2026-09-23 | Expor na AWS por um salto de proxy só, ACME, 80/443 fora de loopback por override invocado com `-f`; emenda à 0017 — contraparte: SPA 0016 | [0026](../../docs/adr/0026-expor-o-idp-na-aws-por-um-salto-de-proxy-so-com-acme-e-80-443-fora-de-loopback.md) |
 | 2026-09-24 | Servir o IdP de produção da máquina do dono pelo Cloudflare Tunnel, sem porta de entrada, com zona própria e túnel entregue por quem opera; **proposta** — substitui a 0026 e emenda a 0017 e a 0020 quando aceita — contraparte: SPA 0018 | [0027](../../docs/adr/0027-servir-o-idp-de-producao-da-maquina-local-pelo-cloudflare-tunnel-sem-porta-de-entrada.md) |
 | 2026-09-28 | Gerar a chave de assinatura em RSA 3072 pelo gerador único de segredos (`scripts/gen_env_secrets.sh`); emenda à 0004; **proposta** — aceite depende do AC-07 da TASK-025 (login da SPA com a chave nova) | [0028](../../docs/adr/0028-gerar-a-chave-de-assinatura-em-rsa-3072-pelo-gerador-unico-de-segredos.md) |
+| 2026-09-29 | Ligar o logout iniciado pela RP em `/o/logout/`: revogação restrita à Application, retorno só a destino cadastrado, `end_session_endpoint` publicado, evento `tokens_revogados` na trilha (amplia a 0013); **proposta** — aceite quando a SPA 0019 existir — contraparte: SPA 0019 (a gravar) | [0029](../../docs/adr/0029-ligar-o-logout-iniciado-pela-rp-com-revogacao-restrita-a-application.md) |
+| 2026-09-29 | Sombrear a rota de logout do toolkit com `LogoutPelaRPView`, subclasse com quatro métodos montada antes do include; emenda à 0002 e à 0024 só para `/o/logout/`; **proposta** — aceite depende do AC-15 (jornada de container) | [0030](../../docs/adr/0030-sombrear-a-rota-de-logout-do-toolkit-com-uma-subclasse-da-view.md) |
 
 ---
 
@@ -472,3 +474,61 @@ repetir o valor. Tokens de `static/css/idp.css` na paleta neutral da SPA. Testes
 
 ---
 
+## [2026-09-29] TASK-027 · Modificação B de `../retoques.md`, lado do IdP: logout iniciado pela RP
+
+Rota `/feature` completa, aberta e encerrada em 2026-09-29: product-manager, architect (três
+passadas), writer, QA (três passagens), tester e senso-critico. `/o/logout/` é atendido por
+`accounts.logout_rp.LogoutPelaRPView`, montada numa rota-sombra antes do include
+(`config/urls.py`), com as cinco chaves `OIDC_RP_INITIATED_LOGOUT_*` declaradas
+(`DELETE_TOKENS` e `ALWAYS_PROMPT` falsas, `STRICT_REDIRECT_URIS = BEHIND_TLS_PROXY`), teto de
+120/min, tela `logout_confirm.html` em português e o sexto receptor da trilha
+(`registrar_revogacao`). ADRs 0029 e 0030, ambas em Proposto. Suíte na jornada de construção:
+208 OK (eram 161, com a guarda antiga de ausência do `end_session_endpoint` invertida). AC-01 a
+AC-19; o AC-15 fica parcial até a jornada de container.
+
+- **Decisões do usuário:** P1 (a) STRICT segue `BEHIND_TLS_PROXY`; P2 (b) evento de revogação
+  na trilha; P3 (b) hint autêntico sem linha tratado como ausente; P4 (b) revogação só na
+  Application que pediu; P5 (a) 0029 Proposta até a 0019 da SPA; P6 e A1 (b) toda entrada
+  forjada conhecida dá 400, com a cerca da 0030 alargada a quatro métodos
+  (`validate_post_logout_redirect_uri`) e `DataError`/`ValidationError` capturados sob
+  savepoint; A2 a corrida do refresh fica como silêncio, sem laço de releitura (o architect
+  mostrou que o refresh órfão já é recusado pelo toolkit e que a ordem inversa só se fecha em
+  `/o/token/`).
+- **Decisão (architect):** a 0030 é ADR nova, no precedente da 0024; a ampliação da 0013 é
+  seção da 0029, no precedente da 0016. A 0030 passa a Aceito quando o AC-15 for constatado; a
+  0029, quando a SPA gravar a 0019 e o caminho dela entrar na seção Decisão.
+- **Constatado pelo QA e pelo tester:** o psycopg 3 recusa NUL no cliente e não aborta a
+  transação, então os casos com NUL provam o 400 e não o savepoint; a prova do savepoint é
+  `SavepointDaEntradaForjadaTests` (T-22), com `SELECT 1/0` do servidor e mutação por caso (sem
+  o savepoint sai `InternalError`, transação abortada).
+- **Silêncios aceitos (registrados nas ADRs, `seguranca.md` e runbook §14):**
+  `ACCEPT_EXPIRED_TOKENS` vale só enquanto a linha do `IDToken` existir; o `id_token_hint`
+  viaja na query string e fica num campo oculto da tela; o log de erro do Caddy, o `cloudflared`
+  e a borda não foram medidos; trocar a chave RSA faz os hints em circulação darem 400; o admin
+  não valida `post_logout_redirect_uris`; a revogação alcança todos os dispositivos da conta
+  naquela Application; um refresh validado antes da saída e gravado depois nasce vivo.
+- **Adiado, dívida aceita pelo usuário:** a tela de confirmação sai sem
+  `Cache-Control: no-store`, e o `id_token` fica no cache do navegador (sem sessão, é credencial
+  de revogação naquela Application); corrigir exige um quinto método ou middleware.
+- **Adiado:** os dois "Sair" com efeitos diferentes (o do topo, `/accounts/logout/`, não revoga)
+  — unificação é decisão à parte; `nova_api_SPA/docs/contrato-frontend.md:38` e as ADRs 0004,
+  0010 e 0014 da SPA ainda afirmam a ausência de `end_session_endpoint` — tarefa da SPA;
+  `../pre-deploy.md` sem o cadastro de `post_logout_redirect_uris` — passada 2 da TASK-024;
+  separar dos commits das TASK-024 e TASK-026 os arquivos desta tarefa.
+- **Pendente, com dono (usuário):** a jornada de container (AC-15), com nome de projeto
+  explícito: `docker compose -p nova_api exec app python manage.py test`, depois de conferir que
+  o container de dev tem o código atual. O `.env` deste diretório tem
+  `COMPOSE_PROJECT_NAME=nova_api_prod`, e o projeto de produção roda a partir daqui:
+  `docker compose` sem `-p` atinge a produção. `post_logout_redirect_uris` cadastrado em dev
+  (`http://localhost:5173/`) e em produção (`https://<spa>/`, com a barra final) antes da SPA
+  usar o endpoint.
+- **Aceitos e resolvidos na tarefa:** `seguranca.md:78` ("logout só por POST") reescrito; AC
+  reemitidos (AC-16 a AC-19 novos, AC-18 ampliado); texto da tela para hint de outra conta e para
+  hint sem linha ("usada ou descartada"); comentário de `TRUSTED_PROXY_COUNT`; docstrings do
+  runner; premissa do `cleartokens` corrigida em teste e docs; âncora do T-21; `jti` não-UUID na
+  cerca; índice de `docs/arquitetura.md` com a 0028.
+- **Rejeitados, com justificativa:** argumento "o sinal mora com o emissor, como
+  `app_authorized`" impreciso (o do toolkit vive em `signals.py`), sem consequência;
+  divergências de `../retoques.md` (cita `settings.py:347` e `DELETE_TOKENS True`) — documento
+  de trabalho, superado pela decisão P4.
+- **Tipo:** decisão, pendência com dono e tech-debt.

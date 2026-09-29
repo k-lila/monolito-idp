@@ -20,13 +20,13 @@ Verificado no código. É contrato público: mudar qualquer linha quebra a RP; n
 | Item | Como está | Onde |
 | --- | --- | --- |
 | Issuer | `{BASE_URL}/o`, sem barra final; em produção `https://<PUBLIC_HOST>/o` | ADRs 0007 e 0025 |
-| Descoberta | `{issuer}/.well-known/openid-configuration`, com os endpoints `authorization`, `token`, `userinfo` e `jwks_uri` | `tests/test_discovery.py` |
+| Descoberta | `{issuer}/.well-known/openid-configuration`, com os endpoints `authorization`, `token`, `userinfo`, `end_session` e `jwks_uri` | `tests/test_discovery.py` |
 | PKCE (Proof Key for Code Exchange) | obrigatório, só `S256` | `PKCE_REQUIRED` |
 | Scopes | exatamente `openid`, `profile`, `email` | `OAUTH2_PROVIDER["SCOPES"]` |
 | Claims | `sub` (string), `name` (**pode ser `""`**), `email`; sem `email_verified` | `accounts/oauth_validators.py` |
 | Assinatura | RS256, uma chave RSA (Rivest–Shamir–Adleman) com `kid` no JWKS (JSON Web Key Set) | `tests/test_jwks.py` |
 | `userinfo` | mesmas claims; token inválido → **401** | oauthlib |
-| Logout pela RP | desligado; sem `end_session_endpoint` | `OIDC_RP_INITIATED_LOGOUT_ENABLED=False` |
+| Logout pela RP | ligado; `end_session_endpoint` = issuer + `/logout/`; revoga os tokens da conta na `Application` que pede | ADRs 0029 e 0030 |
 | `redirect_uri` | igualdade exata | `tests/test_authorize_guards.py` |
 | Tempos de vida | `code` 60 s; `access_token` e `id_token` 10 h; `refresh_token` sem expiração | defaults do django-oauth-toolkit (DOT) 3.4.1 |
 | `CorsMiddleware` | no topo do `MIDDLEWARE` | `config/settings.py` |
@@ -48,16 +48,22 @@ conta com o cookie de sessão do IdP (`SameSite=Lax`) para voltar sem senha. Ign
 | Origem no CORS (Cross-Origin Resource Sharing) | `https://<spa>` | `http://localhost:5173` |
 | `redirect_uri` | `https://<spa>/callback` | `http://localhost:5173/callback` |
 | `SPA_URL`, destino do botão da home do IdP | `https://<spa>` | `http://localhost:5173` |
+| `post_logout_redirect_uri` | `https://<spa>/` | `http://localhost:5173/` |
 
-A SPA entrega origem e `redirect_uri` literais; este projeto devolve `issuer` e `client_id`.
+A SPA entrega origem, `redirect_uri` e `post_logout_redirect_uri` literais; este projeto devolve
+`issuer` e `client_id`. O `post_logout_redirect_uri` é a landing **com a barra final**, e não tem
+a forma de `SPA_URL`, que é origem sem barra.
 
 ### 2.2 Uma `Application` por ambiente
 
 Pelo admin: `client_type` `public`; `authorization_grant_type` `authorization-code`; `algorithm`
 `RS256` (vazio emite o `code` e não o `id_token`, em silêncio); **uma** `redirect_uri`;
-`skip_authorization=True`. Nunca as duas `redirect_uris` na mesma `Application`: produção não
-aceita retorno em `localhost`, e `ALLOWED_REDIRECT_URI_SCHEMES = ["https"]` sob
-`BEHIND_TLS_PROXY` recusaria o `http` de qualquer forma.
+`skip_authorization=True`; **um** `post_logout_redirect_uris`, o da §2.1, com a barra final. O
+admin não valida esse último campo: vazio, em `http` atrás do proxy ou sem a barra, ele é gravado
+sem aviso, e o "Sair" da SPA termina na tela de erro do IdP. Nunca as duas `redirect_uris` na
+mesma `Application`: produção não aceita retorno em `localhost`, e
+`ALLOWED_REDIRECT_URI_SCHEMES = ["https"]` sob `BEHIND_TLS_PROXY` recusaria o `http` de qualquer
+forma.
 
 ### 2.3 CORS
 
@@ -425,8 +431,8 @@ Pronto quando:
 
 - [ ] `namei -l <clone>/cloudflared/credenciais.json` mostra ao menos um diretório ancestral
       sem permissão para "outros" (pré-condição do 6.1)
-- [ ] descoberta externa 200; `issuer` byte a byte igual a `VITE_OIDC_ISSUER`; `S256`; sem
-      `end_session_endpoint`
+- [ ] descoberta externa 200; `issuer` byte a byte igual a `VITE_OIDC_ISSUER`; `S256`; com
+      `end_session_endpoint` = issuer + `/logout/`
 - [ ] certificado aceito sem aviso; `http` → 301 para `https`
 - [ ] medição de origem do passo 4 repetida
 - [ ] varredura externa do IP residencial em 80, 443, 5432 e 6379: nada responde
@@ -446,8 +452,12 @@ Pronto quando:
 
 Responsável: quem opera.
 
-- `Application` de produção pelo admin, como na §2.2, com `https://<spa>/callback`.
+- `Application` de produção pelo admin, como na §2.2, com `https://<spa>/callback` e
+  `post_logout_redirect_uris` igual a `https://<spa>/`.
 - Entregar à SPA `issuer` e `client_id` de produção.
+- A ordem importa: o IdP com o logout ligado e o cadastro de `post_logout_redirect_uris` vêm antes
+  de a SPA de produção passar a usar o `end_session_endpoint`. Na ordem inversa, o "Sair" da SPA
+  termina na tela de erro do IdP.
 
 Pronto quando:
 
@@ -457,6 +467,11 @@ Pronto quando:
       consentimento na segunda vez
 - [ ] `/o/userinfo/` com token inválido → 401 com cabeçalho de CORS
 - [ ] SPA de produção faz login e chega a `/app` com as claims (critério da raiz)
+- [ ] `fetch` de navegador a `/o/token/` sem desafio da borda (só `curl` no ensaio)
+- [ ] `GET /o/logout/` com o `id_token_hint` de um login à mão, `post_logout_redirect_uri` igual a
+      `https://<spa>/` e um `state` → 302 para `https://<spa>/?state=<state>`, sem confirmação;
+      depois, `/o/userinfo/` com o `access_token` daquele login → 401, e a raiz do IdP mostra
+      "Nenhuma sessão ativa"
 
 ### Depois do primeiro deploy
 
@@ -482,9 +497,9 @@ Responsável: quem opera; a normalização de IPv6, se vier, é código do proje
 
 ## 6. Verificação sem a SPA
 
-Em cada ambiente, com `curl` e navegador: descoberta com o `issuer` entregue, `S256` e sem
-`end_session_endpoint`; `jwks_uri` com uma chave RSA com `kid`; CORS como na §2.3; fluxo PKCE à
-mão fechando sem consentimento repetido; `/o/userinfo/` inválido → 401.
+Em cada ambiente, com `curl` e navegador: descoberta com o `issuer` entregue, `S256` e com
+`end_session_endpoint` = issuer + `/logout/`; `jwks_uri` com uma chave RSA com `kid`; CORS como
+na §2.3; fluxo PKCE à mão fechando sem consentimento repetido; `/o/userinfo/` inválido → 401.
 
 ---
 
@@ -513,6 +528,17 @@ Dívidas da ADR 0021 (TASK-018), sensíveis com a exposição; cada uma é taref
 - `SESSION_COOKIE_SAMESITE`, `SESSION_COOKIE_AGE` e `SESSION_EXPIRE_AT_BROWSER_CLOSE` não
   declarados: uma atualização do Django pode trocá-los em silêncio.
 - `REFRESH_TOKEN_EXPIRE_SECONDS` sem valor finito (`docs/robustez-info.md` §2.8).
+
+Fora delas:
+
+- Segunda RP: o "Sair" de uma RP revoga só os tokens dela, mas encerra a sessão do IdP inteira,
+  e a outra perde a volta sem senha (ADR 0029). A entrada de uma segunda RP é o gatilho para rever
+  esse alcance, e ela precisa do próprio `post_logout_redirect_uris`.
+
+- Rotação da chave sem disrupção por `OIDC_RSA_PRIVATE_KEYS_INACTIVE`, que o toolkit já oferece:
+  publica mais de uma chave no JWKS, e isso muda a §1 deste plano, contrato com a SPA. Precisa de
+  ADR nos dois projetos (a 0004 e o Status da 0028 fixam a chave única), de leitura de lista no
+  `.env` e da correção dos testes que fixam uma chave (`docs/robustez-info.md` §2.11).
 
 ---
 

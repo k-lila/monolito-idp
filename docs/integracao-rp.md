@@ -52,9 +52,10 @@ só sob `/o/`, e nenhuma é montada na raiz. A decisão do prefixo está registr
 `docs/adr/0024-montar-sob-o-so-as-listas-de-protocolo-do-django-oauth-toolkit.md`.
 
 **Derive todo endpoint da descoberta, não os codifique.** O documento traz
-`authorization_endpoint`, `token_endpoint`, `userinfo_endpoint` e `jwks_uri`, e são eles que
-sobrevivem a uma mudança de `BASE_URL` sem que ninguém precise avisar a RP. Os caminhos citados
-adiante estão aqui para tornar o texto legível, não para serem copiados para dentro da RP.
+`authorization_endpoint`, `token_endpoint`, `userinfo_endpoint`, `end_session_endpoint` e
+`jwks_uri`, e são eles que sobrevivem a uma mudança de `BASE_URL` sem que ninguém precise avisar
+a RP. Os caminhos citados adiante estão aqui para tornar o texto legível, não para serem
+copiados para dentro da RP.
 
 ## 3. Registrar a Application
 
@@ -74,6 +75,7 @@ consentimento, e um sexto, se o "Sair" da RP volta a ela:
 | `algorithm` | `RS256` | sem ele não há `id_token` |
 | `redirect_uris` | a URL de retorno da RP | comparada por igualdade exata |
 | `skip_authorization` | `True` só para RP de primeira parte; `False` (default) para qualquer terceiro | pula a tela de consentimento; `docs/adr/0021-pular-o-consentimento-na-application-de-primeira-parte-por-skip-authorization.md` |
+| `post_logout_redirect_uris` | a URL para onde o "Sair" volta, literal, com a barra final | comparada como `redirect_uris`; sem ela, o "Sair" termina na tela de erro do IdP (seção 4.3) |
 
 **A comparação de `redirect_uri` é por igualdade exata, nunca por prefixo.** Uma barra final a
 mais na URL enviada em `/o/authorize/` já basta para o servidor recusar antes de emitir
@@ -82,6 +84,13 @@ de retorno da RP tem de estar registrada literalmente, com esquema, host, porta 
 esquema aceito depende da implantação: atrás do proxy de terminação TLS, só `https`; na jornada
 de construção, `http` também, o que permite registrar uma RP de desenvolvimento em
 `localhost`.
+
+**`post_logout_redirect_uris` é conferido do mesmo jeito, e só no primeiro "Sair".** A
+comparação é a de `redirect_uris`, por igualdade exata, e o esquema segue a mesma regra: atrás
+do proxy, só `https`. O valor é o que a RP envia em `post_logout_redirect_uri`, literal, e para
+a `nova_api_SPA` é a landing com a barra final, não a origem. O admin não valida o campo: um
+cadastro esquecido, em `http` ou sem a barra, é gravado sem aviso e só aparece quando alguém
+tenta sair.
 
 O `algorithm` deixado em branco não impede a autorização: o código é emitido normalmente e a
 falha só aparece na troca, sem `id_token` nenhum. O sintoma e o diagnóstico estão em
@@ -143,6 +152,55 @@ Cliente público: **não existe `client_secret`**, e o `code_verifier` é a prov
 que impede que um código interceptado seja trocado por token por outra parte. A resposta traz
 `access_token`, `refresh_token` e, quando o scope inclui `openid`, `id_token`.
 
+### 4.3 Encerrar a sessão
+
+`GET` no `end_session_endpoint` (`/o/logout/`), com o navegador da pessoa. É o OpenID Connect
+RP-Initiated Logout 1.0, com as decisões de
+`docs/adr/0029-ligar-o-logout-iniciado-pela-rp-com-revogacao-restrita-a-application.md`. Só
+`GET` vale para a RP; o `POST` na mesma rota é o da tela de confirmação do próprio IdP.
+
+| Parâmetro | Valor |
+| --- | --- |
+| `id_token_hint` | o `id_token` que a RP recebeu na troca, mesmo vencido |
+| `post_logout_redirect_uri` | uma das cadastradas em `post_logout_redirect_uris`, literal |
+| `state` | valor imprevisível gerado pela RP; volta no retorno |
+| `client_id` | opcional; se vier com o hint, tem de ser o do `aud` dele |
+
+Com o hint vivo da conta que tem sessão no navegador, não há pergunta: o IdP encerra a sessão,
+revoga os tokens e responde 302 para `post_logout_redirect_uri?state=<state>`. Há tela de
+confirmação quando o hint falta, é de outra conta ou já não tem registro no IdP; ela é em
+português, e só um `POST` com o token CSRF (Cross-Site Request Forgery) a confirma. Sem sessão no
+navegador, não há o que perguntar, e o IdP segue direto ao destino.
+
+O `state` volta inalterado; compará-lo com o que foi gerado é obrigação da RP, como na seção
+4.1.
+
+**De onde vem a Application, e o que se revoga.**
+
+| Pedido | Application | O que se revoga | Sessão |
+| --- | --- | --- | --- |
+| hint vivo (com ou sem `client_id` igual) | a do `id_token` | os tokens da conta do hint, só nessa Application | termina |
+| hint vivo e `client_id` diferente | — | nada; 400 | intacta |
+| hint autêntico sem registro | a do `aud`; `client_id` diferente dá 400 | com sessão e confirmação, os tokens da conta da sessão nessa Application; sem sessão, nada | termina |
+| só `client_id` | a dele; inexistente dá 400 | com sessão e confirmação, os tokens da conta da sessão nessa Application; sem sessão, nada | termina |
+| nenhum dos dois, com `post_logout_redirect_uri` | nenhuma | nada; 400 | intacta |
+| nenhum dos dois, sem destino | nenhuma | nada; com sessão, pede confirmação | termina; 302 à raiz do IdP |
+
+Revogar é apagar `access_token`, `refresh_token` e `id_token` da conta **naquela Application,
+em todos os dispositivos da conta**, e não só os desta aba. Os tokens da mesma conta em outra
+RP sobrevivem, mas a sessão do IdP termina inteira, e a volta sem senha acaba para todas.
+
+**O hint sem registro é tratado como ausente.** Um hint com assinatura válida e `iss` deste IdP,
+cujo registro já sumiu, vem de uma saída anterior, por exemplo numa segunda aba, ou da limpeza
+de tokens vencidos. Sem sessão, o pedido vai ao destino com o `state` e nada é revogado; com
+sessão, o IdP pergunta.
+
+**O que termina na tela de erro, com 400, e sem encerrar nem revogar nada:** destino não
+cadastrado, destino em `http` atrás do proxy, destino que não se decompõe como URL, hint de
+assinatura inválida, de outro issuer, malformado ou assinado por uma chave anterior à troca, e
+`client_id` inexistente, com o caractere NUL ou divergente do hint. A RP não recebe redireção
+nesses casos: a pessoa fica no IdP, com um link para o início dele.
+
 ## 5. O que o `id_token` afirma
 
 Três claims de identidade, e nenhuma além delas:
@@ -179,9 +237,6 @@ recebe e, portanto, precisa obter de outro lugar ou dispensar por escrito.
 - **Não há `email_verified`.** A claim não aparece no `id_token` nem em `/o/userinfo/`, sob
   scope nenhum, porque não existe fluxo de verificação de e-mail nesta fase. A RP não pode
   presumir que o endereço recebido pertence a quem se autenticou.
-- **Não há `end_session_endpoint`.** O logout iniciado pela relying party está desligado, e a
-  chave está ausente do documento de descoberta. Encerrar a sessão na RP não encerra a sessão
-  no IdP: a próxima ida a `/o/authorize/` reautentica sem pedir senha.
 - **Nada além de `name` e `email`.** Não há grupos, papéis, telefone, foto nem atributo
   organizacional. O `claims_supported` da descoberta é exatamente `sub`, `name`, `email`, e o
   acoplamento entre ele e o que o servidor emite está verificado em

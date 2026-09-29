@@ -7,9 +7,10 @@ receita de subir o stack, no `docs/receita.md`.
 
 ## O que a suíte é
 
-Arquivos `test_*.py` num pacote só, `tests/`, na raiz do repositório, mais dois módulos que não
+Arquivos `test_*.py` num pacote só, `tests/`, na raiz do repositório, mais três módulos que não
 são teste e sim a infraestrutura que a suíte usa: `tests/oauth_helpers.py`, que os testes de
-fluxo reusam, e `tests/runner.py`, o executor.
+fluxo reusam, `tests/logout_helpers.py`, que os do logout pela relying party (RP) reusam, e
+`tests/runner.py`, o executor.
 
 O pacote é da raiz, e não de dentro de `accounts/`, porque a suíte quase toda exercita
 superfícies que `accounts` não possui: rotas declaradas em `config/urls.py`, views do toolkit
@@ -93,6 +94,10 @@ pura, ou o estado que ela confere já foi montado antes de o primeiro caso rodar
 - a classe `ResumoDoIdentificadorTests`, em `tests/test_auditoria.py` — aqui não há portador
   nenhum a falsificar: `_resumo_do_identificador` é função pura, entra uma string e sai um
   hexadecimal;
+- as classes `RotaDoLogoutTests` e `ConstantesDeProducaoDoLogoutTests`, em
+  `tests/test_logout_rp.py` — a primeira confere a resolução de `/o/logout/` contra o URLConf,
+  sem requisição; a segunda lê as cinco chaves `OIDC_RP_INITIATED_LOGOUT_*` do dicionário que o
+  executor guardou antes de neutralizar `OAUTH2_PROVIDER`;
 - a classe `TrilhaIsoladaDuranteASuiteTests`, em `tests/test_auditoria.py` — a exceção ao
   critério, e deliberada: o que ela confere é o handler `audit` **real**, já redirecionado pelo
   executor, e a escrita que ela faz é em arquivo de verdade. Nada disso pede banco, e falsificar
@@ -121,22 +126,22 @@ nível fim-a-fim neste projeto.
 | Assunto | Arquivo | Nível |
 | --- | --- | --- |
 | Claims emitidas pelo validador, por combinação de scope | `tests/test_oauth_validators.py` | sem banco |
-| Os dois documentos de descoberta, o do OpenID Connect (OIDC) e o da Request for Comments (RFC) 8414: `issuer`, o valor exato de cada endpoint, o que não deve aparecer; e o `alg` da chave publicada em `/o/.well-known/jwks.json` | `tests/test_discovery.py` | com banco |
+| Os dois documentos de descoberta, o do OpenID Connect (OIDC) e o da Request for Comments (RFC) 8414: `issuer`, o valor exato de cada endpoint, `end_session_endpoint` inclusive, só no do OIDC, o que não deve aparecer; e o `alg` da chave publicada em `/o/.well-known/jwks.json` | `tests/test_discovery.py` | com banco |
 | JWKS (JSON Web Key Set) publicado: uma chave RSA (Rivest–Shamir–Adleman) com `kid` | `tests/test_jwks.py` | com banco |
 | Authorization Code + PKCE fechado de ponta a ponta | `tests/test_authorization_code_flow.py` | com banco |
 | Guardas de `/o/authorize/`: PKCE obrigatório, `redirect_uri`, método `plain` | `tests/test_authorize_guards.py` | com banco |
 | Tela de consentimento e o ramo de recusa | `tests/test_authorize_consent.py` | com banco |
 | Anônimo interrompido em `/o/authorize/` e resgatado pelo login | `tests/test_login_authorize_bridge.py` | com banco |
 | Tela de login: renderização, sucesso e falha de credencial | `tests/test_login_view.py` | com banco |
-| Logout por POST, e a recusa do GET | `tests/test_logout_view.py` | com banco |
+| Logout local por POST, a recusa do GET, e o logout local que encerra a sessão sem revogar token nem gravar `tokens_revogados` (`LogoutLocalNaoRevogaTokensTests`) | `tests/test_logout_view.py` | com banco |
 | Ausência das rotas de recuperação de senha | `tests/test_password_reset_urls.py` | com banco |
-| Comentário de template vazando para o corpo da página | `tests/test_template_comment_leak.py` | com banco |
+| Comentário de template vazando para o corpo da página: login, home, consentimento, e a confirmação e o erro do logout pela RP | `tests/test_template_comment_leak.py` | com banco |
 | Prontidão de banco e de cache, e a isenção de HTTPS | `tests/test_health.py` | misto |
-| Esquema da linha de log, correlação por `request_id` e a linha de acesso: campos, e o `/health` fora dela | `tests/test_observabilidade.py` | misto |
-| Trilha de auditoria: os cinco eventos — `user_logged_in`, `user_login_failed`, `user_logged_out` e `app_authorized`, da ADR 0013, e `user_locked_out`, da ADR 0016 —, a tripla `ip`, `ip_src` e `ip_edge` presente em cada um deles, a ausência de segredo e o isolamento sob a suíte | `tests/test_auditoria.py` | misto |
+| Esquema da linha de log, correlação por `request_id` e a linha de acesso: campos, o `/health` fora dela, e a de `/o/logout/` com `route` igual a `logout_rp` e sem a query | `tests/test_observabilidade.py` | misto |
+| Trilha de auditoria: os cinco eventos — `user_logged_in`, `user_login_failed`, `user_logged_out` e `app_authorized`, da ADR 0013, e `user_locked_out`, da ADR 0016 —, a tripla `ip`, `ip_src` e `ip_edge` presente em cada um deles, a ausência de segredo, o `id_token_hint` válido e o forjado do logout pela RP inclusive, e o isolamento sob a suíte; o sexto evento, `tokens_revogados`, é provado em `tests/test_logout_rp.py` | `tests/test_auditoria.py` | misto |
 | Endereço de origem do cliente: a tabela inteira de `origem_da_requisicao`, o par de `origem_e_procedencia` — endereço e rótulo de procedência — nos quatro desfechos, com e sem proxy declarado, e a tripla de `origem_completa`, com `ip_edge` nos três valores contra uma tabela de rotas de fixture, mais `_alcance_do_endereco` | `tests/test_origem.py` | sem banco |
 | Limite do login: o bloqueio do `django-axes` por conta, por origem e o prazo; o teto de requisição da mesma porta; o que o 429 não diz e o que distingue os dois 429; e a linha `user_locked_out` na trilha, com a origem igual à que o axes contou | `tests/test_limite_login.py` | com banco |
-| Limite de `/o/token/`, `/o/authorize/` e `/o/device-authorization/`: o teto, o corpo do 429, a linha de log; em `/o/device-authorization/`, uma linha de `DeviceGrant` por POST abaixo do teto e nenhuma a mais no POST recusado com 429 (`LimiteDeDeviceAuthorizationTests`); e o dicionário de produção alcançando os quatro caminhos, `/accounts/login/` inclusive | `tests/test_limite_oauth.py` | com banco |
+| Limite de `/o/token/`, `/o/authorize/`, `/o/device-authorization/` e `/o/logout/`: o teto, o corpo do 429, a linha de log; em `/o/device-authorization/`, uma linha de `DeviceGrant` por POST abaixo do teto e nenhuma a mais no POST recusado com 429 (`LimiteDeDeviceAuthorizationTests`); em `/o/logout/`, o 429 acima do teto (`LimiteDoLogoutPelaRPTests`); e o dicionário de produção alcançando os cinco caminhos, `/accounts/login/` inclusive | `tests/test_limite_oauth.py` | com banco |
 | Falha aberta do limitador: com o Redis inalcançável, a requisição segue e uma linha `WARNING` registra o silêncio | `tests/test_falha_aberta_limites.py` | com banco |
 | As cinco chaves do endurecimento de transporte e `ALLOWED_REDIRECT_URI_SCHEMES` seguindo `BEHIND_TLS_PROXY` — as duas que o executor neutraliza, lidas do valor que ele guardou —; e o cache do toolkit alcançado pela neutralização | `tests/test_endurecimento_transporte.py` | sem banco |
 | Admin de `Application`: esquema de `redirect_uris` recusado e aceito sob `["https"]` e sob o valor neutro da suíte, com o efeito em `/o/authorize/`; as quatro views de gestão; e o 500 do "View on site", dívida aceita pela ADR 0024 | `tests/test_admin_oauth2_application.py` | com banco |
@@ -149,6 +154,7 @@ nível fim-a-fim neste projeto.
 | A chave de `--so-chave-rsa`, desescapada como `env.str(..., multiline=True)` a desfaz, publicada no JWKS (JSON Web Key Set): uma chave RSA, `RS256`, `kid` presente, 3072 bits e `n` igual ao módulo da chave gerada (TASK-025/T-02) | `tests/test_gen_env_secrets_jwks.py` | com banco |
 | `SPA_URL` na carga das settings, por `runpy`: a ausência derruba a carga nomeando a variável; as recusas (esquema, credenciais, caminho, barra final, query, fragmento, barra invertida, espaço em branco, porta vazia ou ilegível, `http://` fora de loopback sob `BEHIND_TLS_PROXY`) nomeiam a variável e o motivo sem repetir o valor; e os aceitos, `https://` sob proxy, loopback em `http://` com e sem proxy, e porta explícita | `tests/test_spa_url.py` | sem banco |
 | Home com e sem sessão: o link "Ir para a aplicação" com `href` igual a `SPA_URL`, sem `target` e sem query, mais os textos de sessão que já existiam; e a tela de login sem o link e sem o valor de `SPA_URL` | `tests/test_home.py` | com banco |
+| Logout iniciado pela RP em `/o/logout/` (TASK-027): a rota sombreada resolvendo para a subclasse; as cinco chaves de produção; a saída com hint vivo, que revoga só na `Application` do hint, encerra a sessão e grava `tokens_revogados` antes de `user_logged_out`, com o mesmo `request_id`; o destino não cadastrado, sem a barra ou em `http`; a confirmação, o CSRF, o cancelar e o hint de outra conta; os hints forjados e as entradas que davam 500, agora 400, com a lista fechada da ADR 0029 em `EntradaForjadaAmpliadaTests` (NUL em `client_id` e em `aud`, destino que não se decompõe como URL, `jti` que não é UUID num hint HS256), e o savepoint de cada trecho que consulta com entrada do pedido em `SavepointDaEntradaForjadaTests`; o hint vencido; o hint autêntico sem linha; e as funções `_revogar` e `_aplicacao_do_hint_sem_linha` isoladas | `tests/test_logout_rp.py` | misto |
 | Nenhum recurso de terceiro nas páginas do IdP, por leitura estática: nem `@import` nem `url(` em `static/css/idp.css`; nem `<script>`, nem `href` ou `src` com endereço absoluto (`http://`, `https://` ou `//`) em qualquer tag de `templates/**/*.html`, e um `<link>` só, o da folha de estilo local | `tests/test_sem_recurso_de_terceiro.py` | sem banco |
 
 As linhas que o nome do arquivo não explica sozinho:
@@ -168,8 +174,10 @@ subdeclarando em silêncio.
 
 **Descoberta.** Compara o `issuer` por igualdade exata, nunca por substring, porque tanto o
 `{BASE_URL}` sem o sufixo `/o` quanto uma barra final indevida passariam numa comparação
-frouxa. E afirma a **ausência** de `end_session_endpoint`, cujo default na biblioteca está
-programado para inverter numa versão futura. Cada endpoint dos dois documentos é comparado por
+frouxa. E afirma a **presença** de `end_session_endpoint` no documento do OIDC, com o valor
+exato, o issuer mais `/logout/`: com `OIDC_RP_INITIATED_LOGOUT_ENABLED` falsa, o toolkit omite o
+campo sem erro nenhum (ADR 0029). No documento da RFC 8414 a mesma chave tem de estar ausente,
+porque aquele vocabulário não a declara. Cada endpoint dos dois documentos é comparado por
 valor, o issuer mais o sufixo literal, e nunca por `reverse()`, que resolveria contra o mesmo
 URLConf sob prova. No documento da RFC 8414 essa comparação é a única guarda: a view do toolkit
 engole o `NoReverseMatch` de um endpoint sem rota e omite a chave com 200, e é o que acusaria
@@ -213,6 +221,61 @@ isenção é a segunda mutação silenciosa possível ali. O caso de controle, c
 isenta recebendo 301, é o que distingue "a isenção funciona" de "o redirecionamento nunca
 esteve ligado".
 
+**Logout pela RP.** `tests/test_logout_rp.py` lê a trilha pelo arquivo real para onde o
+executor a redireciona, e não por `assertLogs`, que não vê o `request_id` posto pelo filtro do
+handler: é o que prova que `tokens_revogados` e `user_logged_out` saem da mesma requisição. O
+alcance da revogação é conferido pelo efeito, `/o/userinfo/` e o refresh em `/o/token/`, e não
+só pela contagem de linhas. O caso de controle de `SaidaComHintVivoTests` liga
+`OIDC_RP_INITIATED_LOGOUT_DELETE_TOKENS` e vê os tokens da outra `Application` caírem: é ele que
+distingue "a revogação é restrita" de "a outra `Application` nunca teria sido tocada". Todo
+destino de fixture é `https`, porque o executor não neutraliza
+`OIDC_RP_INITIATED_LOGOUT_STRICT_REDIRECT_URIS`, e um destino `http` passaria na jornada de
+construção e cairia na de container; o `http` só aparece em `DestinoTests`, sob
+`override_settings`. Os hints forjados são assinados no próprio teste, com a chave do IdP ou com
+uma gerada ali, para variar uma condição de cada vez.
+
+`EntradaForjadaAmpliadaTests` cobre o AC-18 ampliado: as entradas que o toolkit deixaria chegar a
+500 e que a subclasse recusa com 400. São quatro casos:
+- `test_ii`, `client_id` com o caractere NUL;
+- `test_v`, hint com `aud` igual a NUL;
+- `test_vi_e_vii`, destino que não se decompõe como URL, em três `subTest`s: colchete aberto no
+  host, porta acima de 65535 e porta não numérica;
+- `test_viii`, hint HS256 com `jti` que não é UUID, assinado com o segredo de uma `Application`
+  confidencial criada no caso. O `client_secret` da fixture passa de 32 bytes, porque o jwcrypto
+  exige 256 bits de chave para HS256.
+
+Todo caso confere, depois do 400, que a sessão, os tokens e a trilha ficaram intactos, e faz um
+`GET /` autenticado, que consulta o banco. Em `test_ii` e `test_v` essa consulta **não** prova o
+savepoint: o psycopg 3 recusa o NUL no cliente, antes de a consulta chegar ao servidor, e a
+conexão não fica marcada. Os dois casos passam com ou sem savepoint; o que eles provam é o 400.
+
+A prova do savepoint é `SavepointDaEntradaForjadaTests` (T-22). A classe roda num `TestCase`,
+isto é, dentro de um bloco atômico externo, e provoca um `DataError` que só o servidor levanta,
+uma divisão por zero (`SELECT 1/0`), dentro de cada um dos três trechos que a view envolve em
+`transaction.atomic()`. O erro entra por `mock.patch` no método do toolkit que o `super()`
+resolve, ou na API privada do validador:
+- `test_a`, no `super()` de `get_request_application`;
+- `test_b`, no `super()` de `validate_logout_request_user`;
+- `test_c`, no corpo de `_aplicacao_do_hint_sem_linha`, pela consulta de `aud`
+  (`_get_client_by_audience`), com um hint autêntico e sem linha. Um segundo patch faz o
+  `super()` de `validate_logout_request_user` levantar `InvalidIDTokenError`, para que o erro
+  passe só por este savepoint.
+
+Cada caso passa por um savepoint só e cai se o `transaction.atomic()` dele for removido. Depois do
+400, o `GET /` seguinte tem de funcionar, e sessão, tokens e trilha têm de estar intactos. Sem o
+savepoint, o erro do servidor aborta a transação no Postgres sem que o Django saiba, e o `GET /`
+seguinte levanta `InternalError` ("current transaction is aborted"), constatado por mutação.
+
+O caso do hint autêntico sem linha (T-14) foi adaptado. O desenho pedia afirmar que o
+`refresh_token` sobrevive e continua utilizável depois da saída. Para fabricar o hint sem linha, o
+próprio teste apaga o `IDToken`; o `cleartokens` não faria isso, porque só apaga `IDToken` sem
+access token ligado (`oauth2_provider/models.py:1296-1300`). Apagar o `IDToken` apaga em cascata
+o `AccessToken` ligado, e o toolkit recusa o refresh que ficou órfão com `invalid_grant`, por
+conta própria e não por decisão da view. O teste afirma,
+então, que o refresh **não foi revogado**, pela linha sem `revoked`, e não que ele ainda troca
+por token. O 200 no refresh é afirmado em outro caso, o do hint sem linha de outra conta, em
+que o `jti` da linha é trocado em vez de apagado e os tokens do dono seguem inteiros.
+
 **Correlação por `request_id`.** A classe `RequestIdCorrelationTests`, em
 `tests/test_observabilidade.py`, é a prova de regressão da ADR (Architecture Decision Record)
 `docs/adr/0014-manter-o-identificador-de-requisicao-ate-a-requisicao-seguinte.md`: é o caso que
@@ -235,10 +298,16 @@ forjado. A asserção não é de conveniência: é o fechamento desse vetor, e e
 
 **O comentário de template que vaza.** `{# ... #}` é comentário de uma linha só no Django; com
 o `#}` em outra linha, o texto sai renderizado no corpo da página.
-`tests/test_template_comment_leak.py` cobre as três telas e assere pelos
+`tests/test_template_comment_leak.py` cobre as três telas originais e assere pelos
 delimitadores, nunca pelo texto de um comentário — o texto muda, os delimitadores nunca podem
-aparecer numa resposta. É uma classe de defeito que nenhuma leitura de código pega: só aparece
-na tela renderizada.
+aparecer numa resposta. A tela do logout pela RP, na confirmação e no erro, confere também o
+começo do texto do comentário: ela se documenta num `{% comment %}`, cuja forma de vazar é virar
+texto solto, sem delimitador nenhum. A procura por texto só vale enquanto o texto procurado
+existir no template, e por isso ela tem âncora:
+`test_ancora_o_texto_esta_no_bloco_comment_do_template` lê a fonte do template e confere que o
+trecho está entre `{% comment %}` e `{% endcomment %}`. Se a redação do comentário mudar, a
+âncora fica vermelha, e a ausência do texto na tela deixa de passar sem provar nada. É uma
+classe de defeito que nenhuma leitura de código pega: só aparece na tela renderizada.
 
 ## `tests/runner.py`, e por que a suíte tem executor próprio
 
@@ -297,6 +366,11 @@ independente de ordem. A neutralização é incondicional, como a do terceiro va
 provar que o de produção segue `BEHIND_TLS_PROXY`, e o outro confere que o cache do toolkit
 chegou a `["http", "https"]`, o que só o sinal garante.
 
+A cópia troca só `ALLOWED_REDIRECT_URI_SCHEMES`. `OIDC_RP_INITIATED_LOGOUT_STRICT_REDIRECT_URIS`,
+que também segue `BEHIND_TLS_PROXY`, não é neutralizada: na jornada de container ela recusa
+destino de logout em `http` para `Application` pública, e por isso as fixtures do logout usam
+`https`.
+
 ## `tests/oauth_helpers.py`
 
 O inventário do que já existe pronto para quem for escrever teste novo de fluxo. Reusar daqui
@@ -327,6 +401,24 @@ Duas dessas peças existem por um motivo que não se lê na assinatura:
 `authorize_and_get_code` devolve `code` igual a `None` quando o servidor recusa antes de emitir
 — é o que permite às guardas distinguir uma recusa de um código de verdade, e por isso a função
 também devolve a resposta bruta.
+
+## `tests/logout_helpers.py`
+
+A infraestrutura do logout pela RP, reusada por `tests/test_logout_rp.py` e pelos arquivos que
+a TASK-027 estendeu. Constrói sobre `tests/oauth_helpers.py`, sem duplicá-lo.
+
+| Peça | O que entrega |
+| --- | --- |
+| `DESTINO` | o `post_logout_redirect_uri` das fixtures, `https` e com a barra final |
+| `criar_application(dono, nome, post_logout_redirect_uris)` | Application pública RS256, sem `skip_authorization`, com destino de logout cadastrado |
+| `emitir_tokens(usuario, aplicacao, client)` | sessão da pessoa e tokens pelo fluxo real, Authorization Code com PKCE; devolve `(client, corpo)` |
+| `status_userinfo(access_token)` e `status_refresh(aplicacao, refresh_token)` | o status de `/o/userinfo/` e do grant de refresh em `/o/token/`, a prova da revogação pelo efeito |
+| `tamanho_da_trilha()` e `linhas_da_trilha_desde(tamanho)` | as linhas que a trilha ganhou desde um ponto, lidas do arquivo para onde o executor a redireciona |
+| `partes_do_token`, `b64`, `claims_de_hint`, `assinar`, `chave_do_idp`, `gerar_chave_rsa` | a montagem de hints: partir um `id_token` real, assinar claims com a chave do IdP ou com outra |
+| `adulterar_assinatura(id_token)` | troca um caractere do meio da assinatura |
+
+`adulterar_assinatura` troca o caractere do meio, e nunca o último: o final da assinatura em
+base64 carrega bits de preenchimento, e trocá-lo pode deixar a assinatura válida.
 
 ## A convenção de rastreabilidade
 
@@ -383,9 +475,13 @@ relatório de ferramenta — vale como inventário, não como percentual.
 - **Carga e concorrência.** Nada. Nenhum teste com mais de um cliente simultâneo, nenhuma
   medição de tempo de resposta.
 - **Expiração de token.** O ciclo de vida de `access_token` e `refresh_token` não é exercitado:
-  a suíte emite e usa, nunca espera vencer nem tenta usar vencido.
+  a suíte emite e usa, nunca espera vencer nem tenta usar vencido. A única exceção é o
+  `id_token` que `tests/test_logout_rp.py` emite já vencido, por `ID_TOKEN_EXPIRE_SECONDS`
+  negativo, para provar que a aba aberta há mais de dez horas sai.
 - **Verificação criptográfica da assinatura.** `decode_jwt` lê o `id_token` sem validá-lo. O que
-  se prova é que o `kid` do cabeçalho é o publicado no JWKS, não que a assinatura confere.
+  se prova é que o `kid` do cabeçalho é o publicado no JWKS, não que a assinatura confere. No
+  logout pela RP a verificação é da view, e a suíte prova que ela recusa assinatura adulterada
+  ou de outra chave, mas não verifica por conta própria a assinatura do que o IdP emite.
 - **`docker/entrypoint.sh`.** A sequência de boot — `migrate`, `collectstatic`,
   `exec gunicorn` — não tem teste nenhum.
 - **O `BASE_URL` de uma implantação.** As duas asserções de issuer que existem — uma em
