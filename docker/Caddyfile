@@ -3,10 +3,11 @@
 	# A origem do cliente na produção servida pelo túnel da Cloudflare (ADR 0027). Em
 	# produção, toda requisição chega pela mesma conexão, a do conector `cloudflared`, e o
 	# endereço dessa conexão seria o de todos os clientes. O endereço real vem em
-	# `CF-Connecting-IP`, cabeçalho que a borda da Cloudflare sobrescreve e que só vale vindo
-	# dela. Por isso a confiança cabe neste /32 e em nenhum outro endereço: de qualquer outro
-	# par, `CF-Connecting-IP` e `X-Forwarded-For` são forjáveis, e o Caddy os ignora em favor
-	# do endereço da conexão.
+	# `CF-Connecting-IP`, cabeçalho que a borda da Cloudflare escreve e que recusa vindo do
+	# cliente (403, `error code: 1000`, medido), e que só vale vindo dela. Por isso a
+	# confiança cabe neste /32 e em nenhum outro endereço: de qualquer outro par,
+	# `CF-Connecting-IP` e `X-Forwarded-For` são forjáveis, e o Caddy os ignora em favor do
+	# endereço da conexão.
 	#
 	# O literal é o `ipv4_address` do `cloudflared` na rede `borda` e vive também em
 	# `docker-compose.prod.yml`, sincronizado à mão. Não há variável que una os dois: um

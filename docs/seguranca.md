@@ -2,8 +2,8 @@
 
 Escrito para quem decide expor este provedor de identidade (IdP, Identity Provider) a alguém.
 Diz o que ele protege hoje, com a evidência no código; o que não protege; e o que muda ao sair
-de `localhost` — exposição decidida pelas ADRs (Architecture Decision Records) 0025 e 0026 e
-aplicada nos passos 2 a 7 de `docs/plano-implantacao.md`.
+de `localhost` — exposição decidida pelas ADRs (Architecture Decision Records) 0025 e 0027 e
+aplicada nos passos 1 a 7 de `docs/plano-implantacao.md`.
 
 ## 1. A premissa de ambiente
 
@@ -13,30 +13,28 @@ Tudo aqui descansa sobre uma premissa única, declarada no `README.md` e em
 - host único, orquestrado por `docker-compose.yml`;
 - uma réplica da aplicação — premissa da migração no entrypoint;
 - Postgres e Redis publicados em `127.0.0.1`; a aplicação não publica porta nenhuma;
-- o proxy publicado em `127.0.0.1` em desenvolvimento e na jornada de container. Em produção ele
-  é a exceção declarada: a ADR 0026 o publica em 80 e 443 fora de loopback por um arquivo de
-  override do compose, `docker-compose.prod.yml`, que quem opera a instância da AWS (Amazon Web
-  Services) invoca com `docker compose -f docker-compose.yml -f docker-compose.prod.yml`, com um
-  salto de proxy só. O security group da instância é a única barreira de rede — pré-condição que
-  vive fora do repositório e que nada nele verifica: só 80 e 443 da internet, SSH (Secure Shell)
-  restrito ao endereço de quem opera;
-- TLS (Transport Layer Security) terminado nesse proxy: certificado de uma autoridade
-  certificadora (CA) local, que nenhum cliente de fora conhece, na jornada de container em
-  `idp.localhost`, e certificado público, por ACME (Automatic Certificate Management
-  Environment), em produção (ADR 0026). O Gunicorn fala texto claro na rede interna, e só o proxy
-  o alcança;
+- o proxy publicado em `127.0.0.1` em desenvolvimento e na jornada de container. Em produção
+  nada é publicado: a ADR 0027 serve o IdP da máquina do dono por um túnel nomeado da
+  Cloudflare, e o override `docker-compose.prod.yml`, invocado com os dois `-f`, zera as portas
+  e declara o conector, o `cloudflared`. Não há porta de entrada no host nem no roteador, e quem
+  controla a conta da Cloudflare ou as credenciais do túnel controla a entrada — pré-condição que
+  vive fora do repositório e que nada nele verifica;
+- TLS (Transport Layer Security) do navegador terminado, em produção, na borda da Cloudflare, com
+  o certificado Universal da zona do IdP; na jornada de container em `idp.localhost`, no proxy,
+  com certificado de uma autoridade certificadora (CA) local, que nenhum cliente de fora conhece.
+  O Caddy mantém `tls internal` nos dois ambientes, e o Gunicorn fala texto claro na rede
+  interna, alcançado só pelo proxy;
 - pessoas usuárias com conta criada no admin (ADR 0023), além de quem opera a máquina.
 
-O override e o certificado público entram no passo 3 de `docs/plano-implantacao.md`; até
-lá, o proxy publica em `127.0.0.1` e o `docker/Caddyfile` emite pela CA interna (`tls internal`).
-
 **As escolhas descritas adiante são coerentes com esta premissa e só com ela.** Não são
-posturas defensáveis em geral. Até o passo 3 de `docs/plano-implantacao.md`, a única coisa
-que alcança o IdP é um processo na mesma máquina; a partir do passo 6, a internet o alcança pela
-instância. Nesse dia, o que a seção 6 ainda listar como aberto deixa de ser inventário e passa a
-ser dívida vencida. Só dois itens estão aceitos como risco da exposição, nas Consequências da
-ADR 0026: o `refresh_token` sem expiração e os cookies com a política do default. O mesmo vale
-se a premissa for quebrada por outro caminho — um túnel ou um proxy à frente.
+posturas defensáveis em geral. Até o passo 6 de `docs/plano-implantacao.md`, fora do ensaio do
+passo 4, a única coisa que alcança o IdP é um processo na mesma máquina; a partir dele, a
+internet o alcança pelo túnel. Nesse dia, o que a seção 6 ainda listar como aberto deixa de ser
+inventário e passa a ser dívida vencida. Os riscos aceitos da exposição estão nas Consequências
+da ADR 0027: a borda da Cloudflare, que lê tudo o que passa por ela ("Um terceiro vê tudo");
+produção e desenvolvimento sob o mesmo usuário ("Mesmo privilégio"); e, mantidos da 0026, o
+`refresh_token` sem expiração e os cookies com a política do default. O mesmo vale se a premissa
+for quebrada por outro caminho — outro túnel ou um proxy à frente.
 
 ## 2. O que o IdP protege hoje
 
@@ -101,6 +99,11 @@ Publicado em `127.0.0.1`, e apenas ali: o proxy nas portas 80 e 443, o Postgres 
 Redis na 6379, conforme `docker-compose.yml`. **A aplicação não publica porta nenhuma** — o
 proxy é o único caminho até ela, e é isso, e não vigilância, que impede um cliente do host de
 desligar o redirecionamento para HTTPS escrevendo `X-Forwarded-Proto` (ADR 0017).
+
+Em produção, nenhuma dessas portas é publicada: o override `docker-compose.prod.yml` zera por
+`!reset []` as três listas, e a entrada é o túnel, cujo conector só disca para fora e alcança só
+o proxy, pela rede `borda` (ADR 0027). O que chega da internet passa pela borda da Cloudflare,
+pelo conector e pelo Caddy, nessa ordem.
 
 Superfície própria do projeto, em `config/urls.py`: `/`, `/health`, `/accounts/login/`,
 `/accounts/logout/`, `/admin/`, e tudo sob `/o/`. O `/health` é público e sem sessão, e revela
@@ -173,13 +176,12 @@ Cada item é uma ausência conhecida, com o risco que ela deixa aberto.
   As contas de teste de desenvolvimento têm senha que a política recusaria, e ficam assim até o
   passo 6 de `docs/plano-implantacao.md`; nenhuma conta nova nasce com essa senha. Numa
   conta dessas, o teto de cinco tentativas volta a supor um espaço de busca que não existe.
-- **Certificado de uma CA local, e só.** O transporte é TLS desde a ADR 0017, e o
-  endurecimento — cookie `Secure`, HSTS (HTTP Strict Transport Security), redirecionamento e
-  `SECURE_PROXY_SSL_HEADER` — está ligado na jornada de container. O que falta é um certificado
-  que um cliente de fora aceite: o de hoje sai da CA interna do Caddy, e confiar nela é passo
-  manual de quem opera. A jornada de construção segue em texto claro, com
-  `BEHIND_TLS_PROXY=False` — e essa variável, configurada de forma incoerente com o ambiente,
-  não emite sinal de alerta; o sintoma e o procedimento estão em `docs/runbook.md`.
+- **`BEHIND_TLS_PROXY` incoerente com o ambiente não emite alerta.** O transporte é TLS desde a
+  ADR 0017, e o endurecimento — cookie `Secure`, HSTS (HTTP Strict Transport Security),
+  redirecionamento e `SECURE_PROXY_SSL_HEADER` — está ligado na jornada de container e em
+  produção. A jornada de construção segue em texto claro, com `BEHIND_TLS_PROXY=False` — e essa
+  variável, configurada de forma incoerente com o ambiente, não emite sinal de alerta; o sintoma
+  e o procedimento estão em `docs/runbook.md`.
 - **Sem mecanismo que confira a senha do Redis repetida no `.env`.** O `requirepass` e a
   `REDIS_URL` do container saem da mesma variável, e o `${REDIS_PASSWORD:?}` do compose aborta
   o `up` com ela ausente e com ela vazia: não há como este Redis subir sem autenticação. O que
@@ -188,7 +190,9 @@ Cada item é uma ausência conhecida, com o risco que ela deixa aberto.
   em `docs/runbook.md`.
 - **Chave RSA única, sem conjunto de rotação.** Não há como rotacionar
   sem invalidar a verificação de todo token vivo, o que significa que a resposta a uma suspeita
-  de vazamento da chave é disruptiva por construção (ADR 0004).
+  de vazamento da chave é disruptiva por construção (ADR 0004). O toolkit oferece o conjunto por
+  `OIDC_RSA_PRIVATE_KEYS_INACTIVE`. Ligá-lo põe mais de uma chave no JWKS (JSON Web Key Set), que
+  é contrato com a SPA, e é tarefa própria, com ADR nos dois projetos, ainda não decidida.
 - **A trilha de auditoria não cobre dois eventos, e não tem retenção decidida.** Criação de
   Application e revogação de token continuam sem registro, e por ausência de sinal: a primeira
   exigiria um `post_save` no modelo devolvido por `get_application_model()`, e a segunda nem
@@ -214,11 +218,24 @@ cliente. O que continua em claro é o trecho interno, entre o proxy e o Gunicorn
 do compose.
 
 **Alguém com acesso ao host.** Lê o `.env` e com ele obtém a `SECRET_KEY`, a chave privada RSA
-e as senhas do Postgres e do Redis. A credencial do superusuário saiu desse conjunto com a
+e as senhas do Postgres e do Redis; no clone de produção, lê também as credenciais do túnel, com
+que recebe o tráfego do domínio do IdP. A credencial do superusuário saiu desse conjunto com a
 ADR 0019: ela é digitada num prompt e não fica em arquivo nenhum. Quem tem a chave privada é o
 IdP, para todos os efeitos: pode emitir identidade em nome dele para qualquer RP integrada.
 Não há controle que mitigue isso nesta fase; o bind em loopback apenas limita quem alcança o
 serviço.
+
+**A borda da Cloudflare.** Em produção, termina o TLS do navegador e lê em texto claro senhas,
+`code`, os tokens e o cookie `sessionid`, inclusive o do superusuário, e poderia servir qualquer
+conteúdo sob o domínio. Quem capture esse cookie entra no `/admin/` e cria uma `Application` com
+`redirect_uri` própria e `skip_authorization=True`, que persiste depois da captura e não aparece
+na trilha. Risco aceito pelo dono, com gatilho de revisão (ADR 0027, "Um terceiro vê tudo").
+
+**Um processo do usuário de desenvolvimento.** Produção divide a máquina, o daemon do Docker e o
+usuário com o desenvolvimento. Qualquer processo desse usuário — pacote de `npm` ou `pip`
+comprometido, extensão de editor, agente com shell — lê o `.env` e as credenciais do túnel do
+clone de produção e, pelo grupo `docker`, alcança os volumes de produção. Risco aceito pelo dono,
+com gatilho de revisão (ADR 0027, "Mesmo privilégio").
 
 **RP registrada e maliciosa.** Recebe `id_token` apenas das pessoas que consentiram com ela, e
 não pode forjar token nem verificar o de outra RP — a assinatura é assimétrica e o `aud` a
@@ -240,27 +257,23 @@ TLS com `BEHIND_TLS_PROXY=True` e `ALLOWED_HOSTS` composto pelo compose (ADR 001
 `requirepass` no Redis e o `USER` dedicado com a posse de `/var/log/nova_api` — esses dois sem
 ADR —, e a criação de superusuário fora do `.env` (ADR 0019). Saiu também a restrição de quem
 pode registrar Application, fechada pela ADR 0024. A confirmação da forma do issuer que a ADR
-0007 pedia saiu com a ADR 0025.
+0007 pedia saiu com a ADR 0025. Saíram, fechados pela ADR 0027, o certificado emitido por uma
+autoridade que o cliente já conheça, que em produção é o Universal da borda da Cloudflare, e a
+publicação de produção, que deixou de existir: o override zera as portas, e a entrada é o túnel.
 A ordem do que restou é decisão pendente, registrada na seção 7.
 
-- certificado emitido por uma autoridade que o cliente já conheça, no lugar da CA interna do
-  Caddy: o certificado público por ACME é o que a ADR 0026 decide, e o passo 3 de
-  `docs/plano-implantacao.md` condiciona a diretiva `tls internal` de `docker/Caddyfile`
-  por ambiente. Retirá-la sem expor faz o Caddy tentar ACME contra a internet e falhar
-  (`docs/runbook.md`, seção 19); mantê-la ao expor serve um certificado que nenhum cliente
-  aceita;
-- publicar o proxy fora de `127.0.0.1`, pelo override `docker-compose.prod.yml` invocado à mão
-  com `-f` na instância, e não por variável — é a decisão que este bloco inteiro existe para
-  preparar (ADRs 0017 e 0026), aplicada no passo 3 de `docs/plano-implantacao.md`;
 - conferir `TRUSTED_PROXY_COUNT` contra a topologia real, e as marcas de origem da trilha
-  junto. O sinal do próprio dia é `ip_edge`: enquanto toda linha disser `gateway`, o
-  `docker-proxy` continua no caminho e o `ip` não identifica cliente nenhum — ou a exposição
-  não tomou efeito, ou o tráfego que se está olhando veio do próprio host, que atravessa o
-  `docker-proxy` mesmo depois de a porta sair de `127.0.0.1`. A primeira linha `peer` é o que
-  prova que a origem real chegou. `remote_addr_fallback` NÃO é sinal deste dia e não
-  aparecerá: com o Caddy à frente o cabeçalho sempre chega, e aquele rótulo denuncia proxy mal
-  configurado, em qualquer dia (ADRs 0018 e 0020);
-- conjunto de rotação de chave RSA;
+  junto. Sob o túnel, `peer` não prova nada: o colapso no conector também sai `peer` (ADR 0027,
+  emenda à 0020). O sinal é o de dois clientes de redes sabidamente distintas aparecerem na
+  trilha com `ip` distintos entre si; o mesmo `ip` em todas as linhas, com `ip_src` `forwarded`
+  e `ip_edge` `peer`, é o colapso (`docs/runbook.md`, seção 22). Na jornada de container,
+  enquanto toda linha disser `gateway`, o `docker-proxy` continua no caminho e o `ip` não
+  identifica cliente nenhum. `remote_addr_fallback` NÃO é sinal deste dia e não aparecerá: com o
+  Caddy à frente o cabeçalho sempre chega, e aquele rótulo denuncia proxy mal configurado, em
+  qualquer dia (ADRs 0018 e 0020);
+- conjunto de rotação de chave RSA. O toolkit o oferece por `OIDC_RSA_PRIVATE_KEYS_INACTIVE`.
+  Ligá-lo põe mais de uma chave no JWKS, que é contrato com a SPA, e é tarefa própria, com ADR
+  nos dois projetos, ainda não decidida;
 - coleta externa de log;
 - pin das dependências transitivas, unificando os dois pontos de resolução;
 - agendamento de `cleartokens` e `clearsessions`, hoje inexistente;
@@ -311,7 +324,10 @@ plano.
 | Bloqueio por tentativa falha em `/accounts/login/` e `/admin/login/` | `config/settings.py`, bloco `AXES_*` | ADR 0016 |
 | Teto de requisição por origem em `/accounts/login/`, `/o/token/` e `/o/authorize/` | `config/settings.py`, `RATE_LIMIT_POR_CAMINHO`; o mecanismo, `config/limites.py` | ADR 0016 |
 | Teto de requisição por origem em `/o/device-authorization/` | `config/settings.py`, `RATE_LIMIT_POR_CAMINHO`; o mecanismo, `config/limites.py` | sem ADR; a rota, ADR 0024 |
-| Terminação TLS no proxy, e só ele publicado em `127.0.0.1` | `docker-compose.yml`, `docker/Caddyfile` | ADR 0017, emenda à 0006 |
+| Terminação TLS no proxy, e só ele publicado em `127.0.0.1` | `docker-compose.yml`, `docker/Caddyfile` | ADR 0017, emenda à 0006; emendada pela 0027 |
+| Nenhuma porta em produção; entrada pelo túnel | `docker-compose.prod.yml` | ADR 0027 |
+| `CF-Connecting-IP` confiado só do /32 do conector | `docker/Caddyfile` | ADR 0027 |
+| `DEBUG` fixado em `False` em produção | `docker-compose.prod.yml` | sem ADR |
 | Uma réplica, migração no boot, endurecimento por variável | `docker-compose.yml`, `Dockerfile` | ADR 0006 |
 | Procedência do endereço em cada linha da trilha | `config/origem.py`, `accounts/auditoria.py` | ADR 0018 |
 | Alcance do endereço em cada linha da trilha | `config/origem.py`, `accounts/auditoria.py` | ADR 0020, emenda à 0018 |

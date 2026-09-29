@@ -32,10 +32,26 @@ Provider*) e da operação corrente. Os demais documentos apontam para cá em ve
 | O nome público não resolve, ou o certificado é recusado | [18](#18-o-nome-público-não-resolve-ou-o-certificado-não-é-aceito) |
 | O proxy não atende, ou devolve 502 | [19](#19-o-proxy-não-atende-ou-responde-502) |
 | Toda requisição do `runserver` falha, com erro de autenticação do Redis | [20](#20-authenticationerror-do-redis-na-jornada-de-construção) |
+| Produção: a borda responde 1033 | [21](#21-produção-a-borda-responde-1033) |
+| Produção: a trilha inteira com o mesmo `ip`, e o login trancado para todos | [22](#22-produção-a-trilha-inteira-com-o-mesmo-ip-e-o-login-trancado-para-todos) |
+| Produção: `Found orphan containers` com o `cloudflared`, ou erro de bind | [23](#23-produção-found-orphan-containers-com-o-cloudflared-ou-erro-de-bind) |
+| Produção: o `up` para com `Pool overlaps` | [24](#24-produção-o-up-para-com-pool-overlaps) |
+| Produção: a descoberta responde 200 com o issuer de outro nome | [25](#25-produção-a-descoberta-responde-200-com-o-issuer-de-outro-nome) |
+| Produção: `http://` do nome público responde 200 com a tela de login | [26](#26-produção-http-do-nome-público-responde-200-com-a-tela-de-login) |
+| Produção: `invalid_grant` intermitente | [Migração com um conector só](#5-migração-com-um-conector-só) |
 
 A operação do dia a dia — desbloquear conta, revogar acesso, limpar tabela, trocar chave, subir
 versão — está em
-[Operação corrente](#operação-corrente).
+[Operação corrente](#operação-corrente). Os roteiros próprios do clone de produção — invocação,
+backup, restauração, migração, pin, rotação do túnel, vazamento e renovação do domínio — estão em
+[Produção pelo túnel](#produção-pelo-túnel).
+
+**No clone de produção, todo comando deste documento leva
+`-f docker-compose.yml -f docker-compose.prod.yml`** (ADR — Architecture Decision Record — 0027,
+alínea *Invocação*). Os comandos aparecem na forma curta, a do desenvolvimento; os roteiros de
+produção os trazem por extenso. Um comando sem os dois arquivos no clone de produção recria os
+serviços só com o arquivo base, e a borda responde 502
+([23](#23-produção-found-orphan-containers-com-o-cloudflared-ou-erro-de-bind)).
 
 ## Onde olhar primeiro
 
@@ -47,6 +63,9 @@ nenhum serviço declara `container_name` e o nome real do container é gerado pe
 ```bash
 docker compose ps
 ```
+
+Em produção são cinco: o quinto é o conector do túnel, o `cloudflared`, e nenhum dos cinco
+publica porta no host.
 
 `app`, `postgres` e `redis` precisam estar `healthy`. Um `postgres` ou um `redis` fora de
 `healthy` explica sozinho um `app` que nem subiu: a espera pelos dois é do `depends_on` com
@@ -62,6 +81,14 @@ docker compose logs proxy
 
 Ali estão a emissão do certificado, o nome que ele atende e o erro de quem não consegue
 alcançar `app:8000`.
+
+Em produção, o `cloudflared` também aparece como `running`, e nunca `healthy`: a imagem não tem
+shell com que sondar. O log dele mostra, na linha `Settings:`, cada flag que o conector aceitou, e
+é o único lugar do host em que aparece a falha de o conector alcançar o `proxy`:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml logs cloudflared
+```
 
 **2. O log da aplicação.**
 
@@ -333,9 +360,13 @@ as únicas portas da aplicação — o `app` deixou de publicar a 8000 (ADR 0017
 
 **Correção.** Libere a porta, ou edite as duas publicações no `docker-compose.yml`, mantendo o
 endereço `127.0.0.1`. Não são variáveis, e isso é deliberado: o endereço de publicação é a
-decisão que separa "só este host" de "exposto", e não deve caber num valor de ambiente. Expor
-também não é editar o arquivo base: é o override `docker-compose.prod.yml`, invocado com `-f`
-na instância (ADR 0026).
+decisão que separa "só este host" de "exposto", e não deve caber num valor de ambiente.
+
+Produção não publica porta nenhuma: o override `docker-compose.prod.yml` zera o `ports:` de
+`proxy`, `postgres` e `redis` (ADR 0027). Erro de bind no clone de produção é comando sem os dois
+`-f`, que recriou os serviços só com o arquivo base
+([23](#23-produção-found-orphan-containers-com-o-cloudflared-ou-erro-de-bind)). Na máquina do
+dono, a 80 já é ocupada por outro servidor web, e o `up` do base falha ruidosamente ali.
 
 **O que este sintoma deixou de ser.** Um `runserver` de pé na 8000 já não colide com nada: as
 duas jornadas convivem na mesma máquina, uma em `localhost:8000` e a outra em
@@ -533,7 +564,7 @@ Com o Redis fora, portanto, a senha errada continua contada e bloqueada, e a sen
 500.
 
 **A origem colapsa numa só, e com ela o bloqueio por origem alcança todo mundo.** O limitador
-do login conta pela origem que `config/origem.py` devolve, e três arranjos fazem essa função
+do login conta pela origem que `config/origem.py` devolve, e quatro arranjos fazem essa função
 devolver o mesmo endereço para toda requisição externa.
 
 O primeiro é o do cabeçalho que não chega: com `BEHIND_TLS_PROXY` **verdadeiro** atrás de um
@@ -554,12 +585,17 @@ O Caddy recebe todas as conexões do gateway da bridge e escreve esse endereço 
 toda requisição vinda do host chega à trilha e ao limitador como um cliente só. Nada acusa: a
 linha sai com `ip_src: "forwarded"` e um endereço plausível, que é o que uma implantação
 correta também produz. Nada no caminho está errado; o endereço real foi perdido antes de
-chegar. Sob publicação fora de loopback o DNAT preserva a origem e o defeito não ocorre, o que
-significa que ele existe justamente no modo em que se verifica (ADR 0017).
+chegar. Em produção nada é publicado, e o `ip` vem de `CF-Connecting-IP`, lido só do conector do
+túnel (ADR 0027): esse arranjo não ocorre ali.
 
 O terceiro é o de antes do proxy, e vale para a jornada de construção quando alguém sobe o
 `app` sem o `proxy`: com a variável **falsa**, `REMOTE_ADDR` é o gateway da bridge,
 `172.18.0.1`, para tudo que vem de fora. Verificado à mão.
+
+O quarto é o de produção. O conector do túnel entrega todas as requisições pela mesma conexão, e
+se a confiança do `docker/Caddyfile` no endereço dele falhar, todo cliente vira o conector. A
+procedência não o distingue, porque a linha sai com a forma de uma correta, e ele tem entrada
+própria, na [seção 22](#22-produção-a-trilha-inteira-com-o-mesmo-ip-e-o-login-trancado-para-todos).
 
 A procedência distingue o primeiro dos outros dois. Toda linha da trilha carrega `ip_src`
 desde a ADR 0018, e `remote_addr_fallback` em toda linha é o cabeçalho que não chega — o único
@@ -575,10 +611,11 @@ de fora do container — espalhadas por contas diferentes, de modo que quem cont
 bloqueiam aquele endereço e, **com ele, a tela de login para todo o tráfego externo**, por
 quinze minutos de prazo móvel: cada nova tentativa, inclusive as que já chegam barradas,
 recomeça a contagem do prazo. O campo `ip` da trilha registra o mesmo endereço em todas essas
-linhas. Sem erro, sem log, com a suíte verde. O alcance é um host, e não a internet: as únicas
-portas publicadas são as do `proxy`, em `127.0.0.1:80` e `127.0.0.1:443`, de modo que "de fora
-do container" quer dizer, hoje, de dentro do próprio host — o que muda o tamanho do dano, não
-o mecanismo. A verificação é olhar uma linha da trilha vinda de fora do container: se o `ip`
+linhas. Sem erro, sem log, com a suíte verde. Fora de produção, o alcance é um host, e não a
+internet: as únicas portas publicadas são as do `proxy`, em `127.0.0.1:80` e `127.0.0.1:443`, de
+modo que "de fora do container" quer dizer de dentro do próprio host — o que muda o tamanho do
+dano, não o mecanismo. Em produção, o colapso no conector tranca a internet inteira
+([seção 22](#22-produção-a-trilha-inteira-com-o-mesmo-ip-e-o-login-trancado-para-todos)). A verificação é olhar uma linha da trilha vinda de fora do container: se o `ip`
 for o gateway da bridge, ou o endereço do proxy, é isto (ADR — Architecture Decision Record —
 `docs/adr/0015-resolver-a-origem-do-cliente-num-ponto-unico.md`). A saída é o `axes_reset_ip`
 daquele endereço, em
@@ -623,8 +660,9 @@ lugar do de quem chamou. A segunda é a silenciosa: um `header_up X-Forwarded-Fo
 {header.X-Forwarded-For}` no `docker/Caddyfile`, ou um `trusted_proxies` que declare confiável
 quem vem de fora, faz o valor do cliente atravessar — e com ele a chave do limitador de taxa e
 o `ip` da trilha passam a ser escolhidos por quem chama. Nada acusa: as linhas continuam saindo
-com `ip_src: "forwarded"` e endereços plausíveis. O `docker/Caddyfile` de hoje não traz nenhuma
-das duas diretivas, e é assim que deve ficar.
+com `ip_src: "forwarded"` e endereços plausíveis. O `docker/Caddyfile` traz `trusted_proxies`
+só para o /32 do conector e `header_up X-Forwarded-For {client_ip}`, e é assim que deve ficar.
+O perigo é o `trusted_proxies` além do /32 e o `header_up` com `{header.X-Forwarded-For}`.
 
 **O HSTS de um ano marca o navegador pelo nome de exemplo.** Sob `BEHIND_TLS_PROXY`,
 `SECURE_HSTS_SECONDS` vale 31536000, e o primeiro acesso por navegador ao nome de `PUBLIC_HOST`
@@ -743,6 +781,10 @@ vindas de fora do container (cerca de trinta tentativas, pelas duas requisiçõe
 custa) recusam o login para todo o tráfego externo, e aí a espera é de segundos, não de quinze
 minutos.
 
+Em produção, o `ip` colapsado é o do conector do túnel — o literal do `docker/Caddyfile` ou o
+endereço real do conector —, e o que ele tranca é a internet inteira. A verificação e a correção
+estão na [seção 22](#22-produção-a-trilha-inteira-com-o-mesmo-ip-e-o-login-trancado-para-todos).
+
 **E se nenhum 429 aparecer**, por mais requisições que se faça, o limitador do middleware está
 falhando aberto por queda do Redis: a entrada "A queda do Redis desliga o teto de requisição dos
 quatro caminhos" da [seção 14](#14-as-falhas-que-não-produzem-sintoma-nenhum-hoje) diz como
@@ -754,10 +796,10 @@ continua valendo.
 **Sintoma.** O container `app` não sobe. A mensagem é de permissão negada ao abrir
 `/var/log/nova_api/audit.log`, emitida na configuração do `logging`, antes de qualquer view.
 
-**Causa.** O processo deixou de rodar como `root` — é o usuário `nova_api`, de UID e GID 10001
-— e o volume `auditlog` **já existente** continua sendo de `root`. O Docker copia dono e modo
-da imagem apenas para volume **vazio**; em volume populado não recopia nada, e a posse antiga
-sobrevive ao rebuild. Ambiente novo não vê isto.
+**Causa.** O processo deixou de rodar como `root` — é o usuário `nova_api`, de UID (identificador
+de usuário) e GID (identificador de grupo) 10001 — e o volume `auditlog` **já existente** continua
+sendo de `root`. O Docker copia dono e modo da imagem apenas para volume **vazio**; em volume
+populado não recopia nada, e a posse antiga sobrevive ao rebuild. Ambiente novo não vê isto.
 
 **Correção**, uma vez só:
 
@@ -799,6 +841,12 @@ curl --cacert ./ca-local.crt https://$PUBLIC_HOST/health
 **Se o certificado era aceito e deixou de ser**, a CA foi regerada: ela vive no volume
 `caddydata`, e `docker compose down -v` o destrói junto dos outros quatro. Extraia a raiz nova.
 
+**Em produção**, nada disso se aplica. O navegador vê o certificado Universal da borda da
+Cloudflare, que os clientes já conhecem, e não há CA local a extrair nem linha de `/etc/hosts` a
+escrever. Um nome que não resolve é a rota de DNS (Domain Name System) do túnel, que é do dono do
+domínio. Um `PUBLIC_HOST` mais fundo que um subdomínio de primeiro nível fica fora do certificado
+Universal, e o navegador o recusa (ADR 0027, alínea *Certificado*).
+
 ### 19. O `proxy` não atende, ou responde 502
 
 **Sintoma.** Três formas, com causas distintas.
@@ -808,6 +856,10 @@ publicado, e um `app` morto vira 502 na borda. A causa está em `docker compose 
 [seções 15](#15-o-processo-não-sobe-e-a-mensagem-cita-audit_log_path) e
 [17](#17-o-app-morre-no-boot-com-erro-de-permissão-em-varlognova_api) cobrem os dois motivos
 mais prováveis de ele não subir.
+
+Em produção, o 502 vem da borda da Cloudflare, e tem mais duas causas: o `proxy` fora da rede
+`borda`, por um `up` sem os dois `-f` (medido no ensaio), e o conector de pé sem `proxy` a
+alcançar, depois de um `down` sem os dois `-f`. As duas estão na [seção 23](#23-produção-found-orphan-containers-com-o-cloudflared-ou-erro-de-bind).
 
 **Resposta nenhuma, e o log do proxy fala de desafio ou de conta ACME.** A diretiva `tls
 internal` saiu do `docker/Caddyfile`, ou foi trocada por engano. Sem ela o Caddy tenta emitir
@@ -847,6 +899,170 @@ docker compose exec redis sh -c 'unset REDISCLI_AUTH; redis-cli ping'
 **Correção.** Repita a `REDIS_PASSWORD` do `.env` dentro da `REDIS_URL` do mesmo arquivo, em
 `redis://:SENHA@localhost:6379/0` — usuário vazio, senha depois dos dois pontos. O `runserver`
 lê a URL no boot: reinicie-o, e nada mais precisa ser recriado.
+
+### 21. Produção: a borda responde 1033
+
+**Sintoma.** O nome público responde com a página de erro 1033 da Cloudflare: nenhum conector
+está ligado ao túnel da rota.
+
+**Causa.** Cinco casos:
+
+- o `cloudflared` parado: `stop`, `down` com os dois `-f`, daemon do Docker fora, máquina
+  desligada ou suspensa;
+- o `cloudflared` em laço de reinício: o JSON de credenciais em `0600`, que o uid 65532 da imagem
+  não lê; um `TUNNEL_ID` que não casa com as credenciais; ou uma flag que o nível não declara, que
+  sai com `flag provided but not defined` e código 0, de modo que o código de saída mostra
+  sucesso enquanto a política de reinício o repete;
+- o contêiner nem criado: sem o diretório `cloudflared/`, o `up` para com `bind source path does
+  not exist`, de forma ruidosa;
+- o `.200` da `borda` tomado pelo `proxy` num recreate ou num reboot, e o conector sem endereço
+  para subir. O T-02 de `tests/test_borda_do_tunel.py` guarda a relação entre os valores do
+  arquivo, e não o que o daemon faz;
+- a rota de DNS apontando para um túnel sem conector, como ficou o nome de ensaio depois da
+  desmontagem do passo 4 do plano (medido).
+
+**Verificação.** O estado, a contagem de reinícios e o log do conector:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml ps -a cloudflared
+docker inspect --format '{{.RestartCount}}' \
+  "$(docker compose -f docker-compose.yml -f docker-compose.prod.yml ps -aq cloudflared)"
+docker compose -f docker-compose.yml -f docker-compose.prod.yml logs cloudflared
+```
+
+Contagem que cresce entre duas leituras é laço, e o log nomeia a flag recusada. Contêiner que não
+aparece nem com `-a` nunca foi criado.
+
+**Correção.** Por caso: `up -d --wait` com os dois `-f`; `chmod 0644 cloudflared/credenciais.json`;
+conferir com o dono o `TUNNEL_ID` e as credenciais do mesmo túnel; a flag de volta ao nível que a
+declara, como diz o comentário do `docker-compose.prod.yml`; o `cloudflared/` restaurado do
+backup ([Produção pelo túnel](#produção-pelo-túnel), item 3); a rota de DNS, com o dono.
+
+### 22. Produção: a trilha inteira com o mesmo `ip`, e o login trancado para todos
+
+**Sintoma.** Ninguém entra, de conta nenhuma, ou o 429 chega a todos ao mesmo tempo. Lida, a
+trilha mostra o mesmo `ip` em todas as linhas.
+
+**Causa.** O colapso no conector (ADR 0027, *Colapso silencioso*). A confiança do
+`docker/Caddyfile` no /32 do conector falhou — literal divergente do override, conector em outro
+endereço, borda sem o cabeçalho, ou uma subida de pin do Caddy ou do `cloudflared` que mudou um
+comportamento medido —, e todo cliente vira o conector. O `ip` é o literal quando só falta o
+cabeçalho, e o endereço real do conector nos outros casos. O limitador e o `django-axes` contam a
+internet inteira numa chave só, e o primeiro atacante tranca todos.
+
+**Verificação.**
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml exec app \
+  cat /var/log/nova_api/audit.log | jq -c '[.ip, .ip_src, .ip_edge]' | sort | uniq -c
+```
+
+- O colapso é o mesmo `ip` em todas as linhas, com `ip_src` `forwarded` e `ip_edge` `peer`, e cada
+  linha tem a forma de uma correta. Comparar o `ip` com o literal do `docker/Caddyfile` não basta,
+  porque dois dos três casos não o mostram.
+- A prova só vale com dois clientes em redes sabidamente distintas, um login falho de cada, e as
+  duas linhas com `ip` distintos. O segundo cliente é um celular em dados móveis, com o Wi-Fi
+  desligado, e não outra máquina da mesma rede local, que divide com a primeira o IPv4 (versão
+  4 do IP, de _Internet Protocol_) público e o /64.
+- Sob o Pseudo IPv4 da zona, um endereço de `240.0.0.0/4` é normal: é o IPv4 de classe E que a
+  borda põe no lugar de um cliente IPv6 (versão 6 do IP).
+- O endereço real do conector lê-se na rede, e a igualdade dos dois literais, na suíte
+  (`tests/test_borda_do_tunel.py`):
+
+  ```bash
+  docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' \
+    "$(docker compose -f docker-compose.yml -f docker-compose.prod.yml ps -q cloudflared)"
+  ```
+
+- `CF-Connecting-IP` mandado de fora recebe 403 com `error code: 1000`. É o esperado, medido no
+  ensaio, e não falha.
+
+**Correção.** O `docker/Caddyfile` é a fonte do valor, e o override volta a ele, e não o
+contrário. O `proxy` só relê o Caddyfile montado num `restart`, e o `up` recria o que o override
+mudou. Depois, o desbloqueio da origem colapsada; o teto do limitador expira sozinho em sessenta
+segundos:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml restart proxy
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --wait
+docker compose -f docker-compose.yml -f docker-compose.prod.yml exec app \
+  python manage.py axes_reset_ip <ip colapsado>
+```
+
+### 23. Produção: `Found orphan containers` com o `cloudflared`, ou erro de bind
+
+**Sintoma.** No clone de produção, um `up` avisa de contêiner órfão, o `cloudflared`, para com erro
+de bind, ou deixa a borda respondendo 502. Depois de um `down`, nada avisa, e o `ps` com os dois
+`-f` mostra só o `cloudflared`.
+
+**Causa.** Comando sem os dois `-f` (ADR 0027, *Esquecer o `-f`*). Medido no ensaio: o `up` sem
+`-f` recria `app` e `proxy` só com o arquivo base, sem `restart:` e com o `proxy` fora da rede
+`borda`, e a borda responde 502. Com o desenvolvimento de pé, o `postgres` nem sobe, porque o
+arquivo base o publica na `127.0.0.1:5432` que o desenvolvimento ocupa. O aviso de órfão vem
+nesse `up`. O `down` sem `-f` remove os quatro serviços do base e a rede `default` sem aviso
+nenhum; o `cloudflared` fica de pé, sem `proxy` a alcançar, e a política de reinício o traz de
+volta depois de um reboot. Nos dois casos, a falha é fechada para a internet.
+
+**Correção.** O mesmo comando, com os dois arquivos:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --wait
+```
+
+### 24. Produção: o `up` para com `Pool overlaps`
+
+**Sintoma.** O `up` com os dois `-f` para ao criar a rede, com `Pool overlaps`.
+
+**Causa.** Uma segunda rede `borda` com a mesma sub-rede, `10.203.14.0/24`. Dois caminhos: um
+`COMPOSE_PROJECT_NAME` exportado no shell com outro valor, que prevalece sobre o do `.env` e faz o
+compose criar um segundo projeto; ou um ensaio e a produção de pé na mesma máquina.
+
+**A falha é guarda.** A sub-rede fixa impede, ruidosamente, dois conectores do mesmo túnel no
+host. Passar a `borda` para sub-rede dinâmica apagaria essa guarda em silêncio, e não se faz.
+
+**Correção.** Ver os projetos de pé, limpar o shell e repetir o `up` com os dois `-f`:
+
+```bash
+docker compose ls
+unset COMPOSE_PROJECT_NAME
+```
+
+### 25. Produção: a descoberta responde 200 com o issuer de outro nome
+
+**Sintoma.** A descoberta do nome público responde 200, e o `issuer` não é
+`https://<nome público>/o`. A SPA recusa o login pelo issuer divergente.
+
+**Causa.** `PUBLIC_HOST` errado no `.env` do clone de produção, por exemplo esquecido no valor de
+desenvolvimento, `idp.localhost`. O conector entrega `PUBLIC_HOST` na indicação de nome do
+servidor (SNI, de _Server Name Indication_) e no `Host`, e o Caddy e o Django atendem o nome que
+recebem: a cadeia inteira responde 200, coerente com o nome errado, em vez de 400 (ADR 0027,
+*Nome errado, resposta coerente*). A guarda é conferir o issuer, de fora:
+
+```bash
+curl -s https://<nome público>/o/.well-known/openid-configuration | jq -r .issuer
+```
+
+**Correção.** Backup do `.env` antes ([Produção pelo túnel](#produção-pelo-túnel), item 3);
+`PUBLIC_HOST` corrigido no lugar da linha existente; e o `up` com os dois `-f`:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --wait
+```
+
+### 26. Produção: `http://` do nome público responde 200 com a tela de login
+
+**Sintoma.** `http://<nome público>/` responde 200 com a tela de login, em vez de redirecionar.
+
+**Causa.** O "Always Use HTTPS" da zona do IdP não vale. A origem não tem como perceber: o trecho
+do conector ao Caddy é HTTPS, e o redirecionamento do Django nunca é acionado. A zona é a única
+barreira (medido no ensaio).
+
+**Correção.** Na zona, pelo dono do domínio, ligando a opção. A conferência é a resposta 301, com
+`Location` em `https://`:
+
+```bash
+curl -sI http://<nome público>/
+```
 
 ## Operação corrente
 
@@ -944,11 +1160,40 @@ como `\n`. A opção faz a saída conter só essa linha, para que colá-la não 
 `SECRET_KEY` e as senhas. **Cole-a você mesmo no `.env`.** O script não escreve no arquivo de propósito:
 escrita automática sobrescreveria sem confirmação uma chave possivelmente em uso.
 
+**No lugar da linha que já existe, nunca acrescentada ao fim** (`>> .env`). Com a linha
+duplicada, as duas jornadas divergem em silêncio: o `django-environ` da jornada de construção
+fica com a primeira ocorrência, porque o `read_env` usa `setdefault`, e o `env_file` do compose
+fica com a última. A conferência conta as linhas sem imprimi-las, e tem de dar 1:
+
+```bash
+grep -c '^OIDC_RSA_PRIVATE_KEY=' .env
+```
+
 Depois de colar, recrie o container — o `.env` é lido na criação, não a cada reinício:
 
 ```bash
-docker compose up -d --force-recreate app
+docker compose up -d --force-recreate --wait app
 ```
+
+No clone de produção, com os dois arquivos, sem exceção: sem eles, o `app` é recriado só com o
+arquivo base, sem `DEBUG` fixo em `False`, sem `restart:` e com o `proxy` fora da `borda` (ADR
+0027, *Esquecer o `-f`*):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --force-recreate --wait app
+```
+
+Confira que a troca chegou ao que as relying parties leem. O `kid` publicado, antes e depois,
+dá valores diferentes, e o tamanho do módulo dá 512 caracteres, que são 3072 bits (ADR 0028):
+
+```bash
+curl -s <base>/o/.well-known/jwks.json | jq -r '.keys[].kid'
+curl -s <base>/o/.well-known/jwks.json | jq '.keys[].n | length'
+```
+
+`<base>` é o endereço da jornada em uso, com o `--cacert` da
+[convenção](#sintoma-causa-verificação) na de container. Em produção, a consulta é de fora da
+máquina, pelo nome público.
 
 **O que a troca quebra.** Existe uma única chave ativa, sem conjunto de rotação (ADR
 `docs/adr/0004-assinar-tokens-com-rs256-e-custodiar-a-chave-privada-no-ambiente.md`):
@@ -1040,7 +1285,7 @@ A primeira das três vale por construção, e não por memória de alguém: `BEH
 foi ligado em ambiente nenhum antes de `ip_src` existir, porque a ADR 0015 o proibia
 nominalmente.
 
-**A verificação do dia em que o `proxy` sair de `127.0.0.1` é à mão, e é esta.** A suíte não
+**A verificação do `gateway`, na jornada de container, é à mão, e é esta.** A suíte não
 alcança o caso `gateway`: ela constrói requisições sintéticas, e a tabela de rotas de verdade
 não é a do cenário. Provoque uma falha de login pelo endereço publicado — três comandos, porque
 a tela exige CSRF (Cross-Site Request Forgery) — e leia a última linha da trilha:
@@ -1054,11 +1299,14 @@ curl -sk -b /tmp/cookies.txt -e https://127.0.0.1/accounts/login/ \
 docker compose exec app tail -n 1 /var/log/nova_api/audit.log | jq -c '[.ip, .ip_src, .ip_edge]'
 ```
 
-Do próprio host sai `["172.18.0.1","forwarded","gateway"]`, antes e depois da exposição: quem
-chega pelo loopback atravessa o `docker-proxy` de todo modo. **A primeira linha `peer` é o que
-prova que a origem real chegou**, e ela virá de outra máquina. A tentativa conta para o
-`django-axes`, que bloqueia na quinta — ver
-[Desbloquear uma conta ou uma origem](#desbloquear-uma-conta-ou-uma-origem).
+Do próprio host sai `["172.18.0.1","forwarded","gateway"]`: quem chega pelo loopback atravessa
+o `docker-proxy` de todo modo. A tentativa conta para o `django-axes`, que bloqueia na quinta —
+ver [Desbloquear uma conta ou uma origem](#desbloquear-uma-conta-ou-uma-origem).
+
+Em produção, nada sai de loopback: o proxy não publica porta, e a entrada é o túnel (ADR 0027,
+que emendou a 0020). Sob o túnel, `peer` não prova nada, porque o colapso no conector também sai
+`peer`. A verificação de produção é a da [seção 22](#22-produção-a-trilha-inteira-com-o-mesmo-ip-e-o-login-trancado-para-todos), com dois clientes de redes sabidamente
+distintas. Os `curl` acima continuam valendo para a jornada de container.
 
 **Nenhum e-mail é gravado, e nenhum valor de token.** A pessoa aparece pelo `sub`, que é a chave
 primária do usuário — a mesma claim `sub` de todo `id_token`. Numa falha de autenticação não há
@@ -1099,9 +1347,8 @@ publicada em loopback, e o endereço que ele apresenta é o dele. Duas pessoas n
 aparecem com o mesmo endereço, o do gateway da bridge. Quem marca esse colapso na linha é
 `ip_edge`, e não `ip_src`: `gateway` é exatamente o endereço em que o `docker-proxy` faz
 convergir tudo que vem do host, e `peer` é o endereço que não convergiu ali — sem afirmar que
-identifique um cliente único (ADR 0020). Sob publicação fora de loopback
-o DNAT preserva a origem e o valor passa a ser o real — o defeito existe justamente no modo em
-que se verifica (ADR 0017). Na jornada de construção, com o `runserver` no host e sem proxy, o
+identifique um cliente único (ADR 0020). Em produção, o `ip` vem de `CF-Connecting-IP`, lido
+só do conector do túnel (ADR 0027). Na jornada de construção, com o `runserver` no host e sem proxy, o
 endereço é o real e `ip_src` é `remote_addr`.
 
 Três ressalvas de contagem e uma de durabilidade:
@@ -1142,6 +1389,10 @@ pessoa.
 É seguro enquanto nenhuma relying party tiver integrado. Deixa de ser no dia em que a primeira
 integrar, e nada no sistema marca esse dia.
 
+Em produção, `down -v` é proibido ([Produção pelo túnel](#produção-pelo-túnel), item 2). O
+`caddydata` de produção não guarda nada caro: o navegador vê o certificado da borda, e o
+conector não verifica a CA interna.
+
 ### Subir versão nova
 
 ```bash
@@ -1162,6 +1413,299 @@ Três coisas a saber antes:
 
 Falhou o `migrate`? O container não sobe, e a mensagem está em `docker compose logs app` — o
 `set -euo pipefail` do entrypoint garante que ele pare ali em vez de seguir para o gunicorn.
+
+## Produção pelo túnel
+
+Os roteiros do clone de produção, cada um ancorado numa alínea da ADR 0027. São passos de quem
+opera: criar, trocar ou apagar túnel, zona e rota de DNS é do dono do domínio, fora do
+repositório, e agente nenhum opera no diretório de produção. Os comandos vão por extenso, com os
+dois arquivos. Nenhum imprime segredo: a conferência de uma linha do `.env` é por `grep -c`, que
+conta sem mostrar.
+
+### 1. Os dois `-f`
+
+Todo comando `docker compose` no clone de produção leva os dois arquivos, digitados, sem exceção
+(ADR 0027, *Invocação*):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --wait
+```
+
+Não há script, `COMPOSE_FILE` nem link que os lembre: o que sobe o IdP no boot é a política de
+reinício, declarada no override. Num diretório de desenvolvimento, nunca `up` com o override. O
+que o esquecimento produz está na
+[seção 23](#23-produção-found-orphan-containers-com-o-cloudflared-ou-erro-de-bind).
+
+### 2. O que nunca se roda em produção
+
+- `git clean -xd`: apaga o `.env` e o `cloudflared/`, que são untracked, e nenhum `reset` os
+  devolve;
+- `down -v`, `docker volume prune` e `docker system prune --volumes`: apagam o `pgdata` e o
+  `auditlog`, e com eles contas, tokens, `Application` e a trilha, e reciclam o par `(iss, sub)`
+  ([Os volumes nomeados](#os-volumes-nomeados-e-por-que-down--v-é-grave));
+- agente com shell no diretório de produção (`docs/plano-implantacao.md`, §7);
+- a saída inteira de `docker compose config`: ela expande o `env_file` e imprime a
+  `OIDC_RSA_PRIVATE_KEY`, a `SECRET_KEY` e as senhas. Lê-se por campo, com
+  `config --format json | jq` do campo, e compara-se por `sha256sum`;
+- `grep` sem `-c` sobre uma linha de segredo do `.env`, que a imprime.
+
+### 3. Backup
+
+O que entra, cifrado e fora da máquina (ADR 0027, *Backup*):
+
+- o `.env` e o `cloudflared/`, a cada mudança de qualquer dos dois;
+- o dump do `pgdata` e a trilha do `auditlog`, no mínimo por mês e depois de cada mudança de conta
+  ou de `Application`.
+
+O dump guarda o hash das senhas, as sessões, as `Application` e os `access_token` e
+`refresh_token` vivos: é segredo da mesma classe do `.env`, e não toca o disco em claro. A cifra
+abaixo é a simétrica do `gpg`, que pede a frase-senha no terminal; qualquer outra que cifre no
+pipe serve. Com a entrada vinda do pipe, o `gpg` só acha o terminal em que pedir a frase-senha
+por `GPG_TTY`, exportado antes. `AAAAMMDD` é a data do backup.
+
+```bash
+export GPG_TTY=$(tty)
+tar -c .env cloudflared | gpg --symmetric -o env-AAAAMMDD.tar.gpg
+docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T postgres \
+  sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB"' | gpg --symmetric -o pgdata-AAAAMMDD.sql.gpg
+docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T app \
+  cat /var/log/nova_api/audit.log | gpg --symmetric -o audit-AAAAMMDD.log.gpg
+```
+
+Os três arquivos saem da máquina depois de cifrados, e a cópia local é apagada em seguida: na
+máquina, ela estaria ao alcance do mesmo processo de que o backup protege.
+
+```bash
+rm env-AAAAMMDD.tar.gpg pgdata-AAAAMMDD.sql.gpg audit-AAAAMMDD.log.gpg
+```
+
+Um backup anterior a uma rotação — da chave,
+da `SECRET_KEY`, das senhas ou do túnel — fica marcado como inválido: restaurá-lo traria de volta
+o segredo trocado.
+
+### 4. Restauração ensaiada
+
+Uma restauração ensaiada antes do primeiro login real, e nesta ordem (ADR 0027, *Restauração*).
+Cada passo diz o dano que evita.
+
+1. **O desenvolvimento derrubado**, no diretório dele, com `docker compose down`, sem `-v`. O
+   arquivo base publica em `127.0.0.1` as mesmas portas do desenvolvimento, e o ensaio não subiria
+   ao lado dele.
+2. **Um clone de ensaio**, com o `.env` decifrado do backup, e `COMPOSE_PROJECT_NAME` trocado por
+   um nome que não é o de produção nem o de desenvolvimento, **antes de qualquer comando
+   `docker compose`**. Com o nome de produção, o compose adota os contêineres e os volumes de
+   `nova_api_prod`, e o `down -v` do fim apaga o `pgdata` de produção, sem aviso.
+3. **Só o arquivo base, sem o override.** Com ele, um segundo conector com o `TUNNEL_ID` de
+   produção passaria a receber parte do tráfego.
+4. **`docker compose ls` antes de subir**, para ver o nome do ensaio, e não o de produção.
+5. **A carga do dump, e a conferência.** O `postgres` sobe sozinho, recebe o dump, e só depois
+   sobem `redis` e `app`, cujo `migrate` encontra o esquema já carregado. O `proxy` fica fora: a
+   conferência não precisa dele, e na máquina do dono a 80 já está ocupada.
+
+   ```bash
+   docker compose up -d --wait postgres
+   gpg -d pgdata-AAAAMMDD.sql.gpg | docker compose exec -T postgres \
+     sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+   docker compose up -d --wait redis app
+   docker compose exec app python manage.py shell -c \
+     "from django.contrib.auth import get_user_model; print(get_user_model().objects.count())"
+   ```
+
+6. **`docker compose ls` de novo, antes do `down -v`**, que é a única tecla deste roteiro capaz de
+   apagar produção se o nome estiver errado:
+
+   ```bash
+   docker compose ls
+   docker compose down -v
+   ```
+
+7. **Produção intacta, por fim**: `nova_api_prod` de pé em `docker compose ls`, e os volumes dele
+   em `docker volume ls --filter name=nova_api_prod`. O clone de ensaio é apagado, e com ele o
+   `.env` decifrado e o que mais do backup tiver sido decifrado ali, que são segredos de
+   produção fora do clone de produção. O desenvolvimento volta a subir no diretório dele.
+
+### 5. Migração com um conector só
+
+Levar o IdP a outro host é mover o clone, as credenciais do túnel e os volumes, sem mudar DNS nem
+issuer (ADR 0027, *Migração*). Dois conectores com o mesmo `TUNNEL_ID` repartem as requisições
+entre dois bancos, e um `code` emitido num volta `invalid_grant` no outro, de forma intermitente:
+esse é o sintoma da migração feita fora de ordem.
+
+1. Na origem, `down` com os dois `-f`, sem `-v`, antes do dump final. Para o dump, sobe só o
+   `postgres`, que não tem conector nem porta:
+
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml down
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --wait postgres
+   ```
+
+2. O dump final e a trilha, com o `app` parado. A trilha sai por um contêiner descartável do
+   `app`, que monta o volume `auditlog` e roda só o `cat`, sem a sequência de boot e, por
+   `--no-deps`, sem subir mais nada. Depois, o `down` de novo:
+
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T postgres \
+     sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB"' | gpg --symmetric -o pgdata-AAAAMMDD.sql.gpg
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm --no-deps -T app \
+     cat /var/log/nova_api/audit.log | gpg --symmetric -o audit-AAAAMMDD.log.gpg
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml down
+   ```
+
+3. O clone, com o `.env` e o `cloudflared/`, e os dois arquivos cifrados levados ao destino.
+4. No destino, onde o volume nasce vazio, o `postgres` sozinho, a carga do dump e o resto:
+
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --wait postgres
+   gpg -d pgdata-AAAAMMDD.sql.gpg | docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T postgres \
+     sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --wait
+   ```
+5. As verificações do passo 6 de `docs/plano-implantacao.md`.
+6. Os volumes da origem ficam como cópia fria até o destino passar por elas.
+
+### 6. Pin do `cloudflared` e do Caddy
+
+A versão fixada do `cloudflared` sai da janela de suporte da Cloudflare numa data que quem opera
+acompanha fora do repositório; o pin sobe antes dela (ADR 0027, *Manutenção*). A tag muda no
+`docker-compose.prod.yml`, que é arquivo versionado.
+
+Subir o pin do `cloudflared` é remedir, e não ler a nota de versão:
+
+- o `--help` de `tunnel` e de `tunnel run`, para o nível de cada flag, e o usuário da imagem, que
+  lê as credenciais:
+
+  ```bash
+  docker run --rm cloudflare/cloudflared:<versão> tunnel --help
+  docker run --rm cloudflare/cloudflared:<versão> tunnel run --help
+  docker image inspect --format '{{.Config.User}}' cloudflare/cloudflared:<versão>
+  ```
+
+- as medições de origem do ensaio: o Caddy recusa o handshake com SNI `proxy` ou sem SNI;
+  `CF-Connecting-IP` forjado em três formas — valor único, linha duplicada e lista separada por
+  vírgula — recebe 403 da borda; dois clientes de redes distintas chegam com `ip` distintos
+  ([seção 22](#22-produção-a-trilha-inteira-com-o-mesmo-ip-e-o-login-trancado-para-todos)); e
+  nenhuma linha da trilha traz o literal do conector.
+
+Subir o pin do Caddy é remedir os dois comportamentos que o comentário do serviço `proxy` no
+`docker-compose.yml` registra: o `header_up` prevalece sobre o cabeçalho que o `reverse_proxy`
+monta, e `{client_ip}` só lê `CF-Connecting-IP` do par declarado.
+
+A medição do passo 2 do plano, numa rede temporária `10.203.14.0/24`, não roda com produção de
+pé, porque a sub-rede está ocupada pela `borda`: usa-se outro literal num Caddyfile de teste, ou
+produção fica fora durante a medição.
+
+### 7. Rotação do túnel
+
+Para vazamento das credenciais do túnel (ADR 0027, *Vazamento das credenciais do túnel*):
+
+1. Backup cifrado do `.env` e do `cloudflared/` antes de tocar neles (item 3).
+2. O dono cria o túnel novo, passa para ele a rota de DNS de `PUBLIC_HOST` e entrega o
+   `TUNNEL_ID` e o JSON de credenciais novos.
+3. `TUNNEL_ID` no lugar da linha existente, e o JSON em `cloudflared/credenciais.json`, em `0644`:
+
+   ```bash
+   chmod 0644 cloudflared/credenciais.json
+   grep -c '^TUNNEL_ID=' .env
+   ```
+
+   A contagem tem de dar 1.
+4. O `up` troca o conector:
+
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --wait
+   ```
+
+5. A descoberta responde 200 de fora, com o issuer do nome público
+   ([seção 25](#25-produção-a-descoberta-responde-200-com-o-issuer-de-outro-nome)).
+6. O dono apaga o túnel antigo.
+7. Os backups do `.env` e do `cloudflared/` anteriores à troca ficam marcados como inválidos.
+
+### 8. Vazamento da chave, ou processo comprometido na máquina
+
+A ordem é a da ADR 0027, alínea *Vazamento da `OIDC_RSA_PRIVATE_KEY`, ou processo comprometido
+na máquina*. A troca é disruptiva: sem conjunto de rotação, a SPA falha todo login por até 1 a
+2 h.
+
+1. **Limpar a máquina.** Fora do escopo deste documento, e antes de todo o resto.
+2. **Os segredos novos**, num terminal, sem redirecionar para arquivo; as seis linhas ficam à
+   vista só até serem coladas:
+
+   ```bash
+   ./scripts/gen_env_secrets.sh
+   ```
+
+3. **A senha nova do Postgres, primeiro no banco**, que não a relê do `.env` depois de criado o
+   volume. O `\password` pede a senha num prompt que não a ecoa e não a deixa no histórico do
+   shell nem na lista de processos, como deixaria um `ALTER ROLE ... PASSWORD` na linha de
+   comando:
+
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml exec postgres \
+     sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+   ```
+
+   Dentro do `psql`, `\password`, e a senha nova, que é a da linha `POSTGRES_PASSWORD` impressa
+   no passo 2. Sem esse passo, o `app` sobe com a senha nova na `DATABASE_URL` e cai no sintoma
+   da [seção 8](#8-password-authentication-failed-com-as-duas-strings-idênticas).
+4. **Cada uma das seis linhas no lugar da linha existente do `.env`**, nunca com `>>`. Cada
+   contagem tem de dar 1:
+
+   ```bash
+   for v in SECRET_KEY OIDC_RSA_PRIVATE_KEY POSTGRES_PASSWORD REDIS_PASSWORD DATABASE_URL REDIS_URL; do
+     printf '%s ' "$v"; grep -c "^$v=" .env
+   done
+   ```
+
+   Uma cópia do `.env` antigo serve só até a conferência do passo 9, e depois é apagada; os
+   backups anteriores ficam inválidos.
+5. **A rotação do túnel**, pelo item 7.
+6. **O `up` com os dois `-f`.** A `SECRET_KEY` nova derruba as sessões, e o Redis é recriado e
+   sobe com a senha nova, porque o `--requirepass` vem do `.env` na criação:
+
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --wait
+   ```
+
+7. **O `kid` conferido de fora**, diferente do anterior, e o módulo com 512 caracteres:
+
+   ```bash
+   curl -s https://<nome público>/o/.well-known/jwks.json | jq -r '.keys[].kid'
+   curl -s https://<nome público>/o/.well-known/jwks.json | jq '.keys[].n | length'
+   ```
+
+8. **Restauração só com o marco.** Pode-se restaurar o dump de `pgdata` mais recente anterior ao
+   primeiro indício de acesso à máquina; sem esse marco, não se restaura. Nenhuma restauração traz
+   de volta a chave, a `SECRET_KEY`, as senhas nem as credenciais antigas. O volume de produção
+   tem dados, e um dump carregado por cima deixaria um banco misto: o banco é recriado vazio
+   dentro do mesmo volume, sem `down -v`, com o `app`, o `proxy` e o `cloudflared` parados, para
+   que nada o use durante a troca. O `ON_ERROR_STOP` faz a carga parar no primeiro erro, em vez
+   de deixar um banco pela metade com código de saída de sucesso:
+
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml stop app proxy cloudflared
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml exec postgres \
+     sh -c 'dropdb -U "$POSTGRES_USER" "$POSTGRES_DB" && createdb -U "$POSTGRES_USER" "$POSTGRES_DB"'
+   gpg -d pgdata-AAAAMMDD.sql.gpg | docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T postgres \
+     sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --wait
+   ```
+9. **A revisão do banco em uso**, restaurado ou não: revogar os `access_token` e `refresh_token`
+   vivos ([Revogar o acesso de uma pessoa](#revogar-o-acesso-de-uma-pessoa)); rever pelo admin as
+   `Application`, cuja criação não entra na trilha; rever as contas com `is_staff` ou
+   `is_superuser`. A conta que o dono não reconhece sai, e as outras recebem senha nova. A
+   restauração não dispensa essa revisão: o acesso pode ter começado antes do primeiro indício.
+10. **A SPA fora por 1 a 2 h**, até o cache do JWKS dela vencer.
+
+### 9. Renovação do domínio
+
+O issuer depende de o domínio continuar registrado: um domínio expirado pode ser registrado por
+outro, que passa a servir descoberta e JWKS sob o issuer que a SPA aceita (ADR 0027, negativa
+*Renovação do domínio*). A defesa fica no registrador:
+
+- renovação automática ligada;
+- segundo fator na conta do registrador, como na da Cloudflare;
+- a data de expiração, conferida por quem opera no painel do registrador. Ela não se escreve
+  aqui, por decisão registrada na ADR 0027.
 
 ## As duas jornadas, e como não misturá-las
 

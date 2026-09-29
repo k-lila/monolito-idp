@@ -4,7 +4,7 @@
 | --- | --- |
 | Origem | síntese, em 2026-09-24, de `contrato-backend.md`, `plano-contrato-backend.md` e `cloudflare.md` (apagados; ver §9) |
 | Contraparte | projeto `nova_api_SPA` (relying party, RP), que recebe o `contrato-frontend.md` |
-| Rota | provedor de identidade (IdP, de _Identity Provider_) de produção na máquina do dono, publicado por Cloudflare Tunnel sob domínio próprio, pela ADR (Architecture Decision Record) 0027, proposta, em `docs/adr/0027-servir-o-idp-de-producao-da-maquina-local-pelo-cloudflare-tunnel-sem-porta-de-entrada.md`; aplicação de página única (SPA, de _Single-Page Application_) na Vercel |
+| Rota | provedor de identidade (IdP, de _Identity Provider_) de produção na máquina do dono, publicado por Cloudflare Tunnel sob domínio próprio, pela ADR (Architecture Decision Record) 0027, aceita em 2026-09-28, em `docs/adr/0027-servir-o-idp-de-producao-da-maquina-local-pelo-cloudflare-tunnel-sem-porta-de-entrada.md`; aplicação de página única (SPA, de _Single-Page Application_) na Vercel |
 | Critério de pronto | todos os itens "Pronto quando" da §5 marcados, cada um verificado contra o código ou o ambiente, nunca contra um documento |
 
 Este documento diz o que o IdP `nova_api` preserva e o que ainda precisa fazer para que a SPA
@@ -84,14 +84,19 @@ aceita retorno em `localhost`, e `ALLOWED_REDIRECT_URI_SCHEMES = ["https"]` sob
 - **Endurecimento:** `AUTH_PASSWORD_VALIDATORS`, rotas de gestão do DOT fora do URLConf (ADR 0024),
   `ALLOWED_REDIRECT_URI_SCHEMES` condicionada, `CORS_URLS_REGEX` (antigo passo 5).
 - **ADRs:** 0021 a 0023 (cruzadas com a SPA), 0025 (issuer congelado) e 0026 (instância da AWS, de
-  _Amazon Web Services_, a ser substituída pela 0027).
+  _Amazon Web Services_), substituída pela 0027 em 2026-09-28.
+- **Túnel:** ADR 0027 aceita em 2026-09-28; Caddyfile, override e conector (passos 2 e 3); ensaio
+  (passo 4) com três verificações levadas aos passos 6 e 7. A aceitação da 0018 da SPA e a
+  documentação da SPA e do `../pre-deploy.md` ficam para a segunda passada do passo 5.
+- **Gerador único dos segredos:** `scripts/gen_env_secrets.sh`, RSA 3072 (TASK-025; ADR 0028,
+  proposta).
 
 ---
 
 ## 4. Regras de todos os passos
 
 - Relatório antes de alterar código; pergunta antes de tocar mais de dois arquivos.
-- ADR aceita não se edita: emenda ou substituição. A 0026 vale até a 0027 ser aceita.
+- ADR aceita não se edita: emenda ou substituição.
 - `.env` untracked e sem cópia: backup antes de qualquer edição.
 - `PUBLIC_HOST` não é visitado por navegador antes do passo 6: o HSTS (HTTP Strict Transport
   Security, sobre o HTTP, de _Hypertext Transfer Protocol_) de um ano do Django marca o nome na
@@ -178,8 +183,8 @@ Arquivos: `docker-compose.prod.yml` (novo), `docker-compose.yml` (só comentári
 
 Decidido e fechado na TASK-023, em 2026-09-24:
 
-- Pin `cloudflare/cloudflared:2026.9.3`, lançada em 2026-09-24. A imagem roda como uid
-  (identificador de usuário) 65532:65532, e o entrypoint é `cloudflared --no-autoupdate`.
+- Pin `cloudflare/cloudflared:2026.9.3`. A imagem roda como uid (identificador de usuário)
+  65532:65532, e o entrypoint é `cloudflared --no-autoupdate`.
 - As flags da origem ficam depois de `run` por escolha: o `tunnel --help` desta versão também as
   aceita, mas o nível documentado do comando que as usa é o `tunnel run`. O `TUNNEL_ID` fica por
   último por necessidade, porque o parser para de ler flags no primeiro argumento posicional.
@@ -250,26 +255,64 @@ de credenciais desse túnel.
 
 Pronto quando:
 
-- [ ] descoberta responde 200 com o issuer do nome de ensaio (se `--url` não servir, decidir o
-      `config.yml` com `ingress:` antes do aceite)
+- [x] descoberta responde 200 com o issuer do nome de ensaio (se `--url` não servir, decidir o
+      `config.yml` com `ingress:` antes do aceite). Medido em 2026-09-28: 200, `issuer`
+      o do nome de ensaio, só `S256`, sem `end_session_endpoint`; o `--url` serve
 - [ ] dois clientes de redes distintas aparecem com os próprios IPs; `CF-Connecting-IP` forjado
       não aparece, em três formas: valor único, cabeçalho em linha duplicada e lista separada
       por vírgula. O Caddy junta as linhas e toma o primeiro IP válido da esquerda: se a borda
       anexar em vez de sobrescrever, o valor do cliente vence. Nenhuma linha com o IP do
-      `cloudflared`
-- [ ] anotado o que chega em `ip` de um cliente IPv6 (IP versão 6)
-- [ ] `fetch` cross-origin a `/o/token/` recebe o Django com CORS, não desafio da borda
-- [ ] `restart proxy` não derruba o login; `up`/`down` sem `-f` falham fechados
+      `cloudflared`. Medido em 2026-09-28: a borda recusa com 403 `error code: 1000`, antes da
+      origem, toda requisição que traga `CF-Connecting-IP`, nas três formas e em qualquer caixa;
+      `X-Forwarded-For` e `True-Client-IP` forjados não aparecem; nenhuma linha com
+      `10.203.14.200`. Medido: a borda nem anexa nem sobrescreve; recusa. Falta o cliente de uma
+      segunda rede → Passo 6
+- [x] anotado o que chega em `ip` de um cliente IPv6 (IP versão 6). Medido em 2026-09-28, com o
+      Pseudo IPv4 em sobrescrita: chega um endereço de `240.0.0.0/4`, com
+      `ip_edge` `peer`, e é ele a chave do `axes` e do limitador. Antes de a opção valer, chegou
+      o IPv6 bruto, com `ip_edge` `unknown`
+- [ ] `fetch` cross-origin a `/o/token/` recebe o Django com CORS, não desafio da borda. Por
+      `curl`, em 2026-09-28: preflight e POST com a origem da SPA recebem a origem exata do
+      Django; falta o `fetch` de navegador → Passo 7
+- [x] `restart proxy` não derruba o login; `up`/`down` sem `-f` falham fechados. Medido em
+      2026-09-28: a sessão do `/admin/` sobreviveu ao `restart proxy`. O `up` sem `-f` recriou
+      `app` e `proxy` fora de `borda`, a borda respondeu 502, e o `postgres` não subiu porque o
+      de desenvolvimento ocupava `127.0.0.1:5432`. O aviso de contêiner órfão (`cloudflared`)
+      veio no `up`, não no `down`; o `down` sem `-f` deixou o `cloudflared` de pé, calado
 - [ ] `systemctl is-enabled docker` = `enabled`; depois de `sudo systemctl restart docker`, a
-      descoberta de ensaio volta sem comando
-- [ ] `docker compose run --rm` do `createsuperuser` (passo 6.3) funciona com `restart:` no
-      override, ou recusa com "Conflicting options" e o passo 6.3 é ajustado
+      descoberta de ensaio volta sem comando. `enabled` conferido em 2026-09-28; falta o restart,
+      e o operador relatou um "laço incorreto", sem detalhe, não investigado → Passo 6
+- [x] `docker compose run --rm` do `createsuperuser` (passo 6.3) funciona com `restart:` no
+      override, ou recusa com "Conflicting options" e o passo 6.3 é ajustado. Funcionou em
+      2026-09-28; o passo 6.3 fica como está
+- [x] `http://` do nome de ensaio redireciona para `https://` na borda. Em 2026-09-28 respondeu
+      200 com a tela de login: o "Always Use HTTPS" da zona não valia. A origem não tem como
+      perceber isso, porque o trecho do conector até o Caddy é HTTPS e o `SECURE_SSL_REDIRECT`
+      do Django nunca é acionado; a zona é a única barreira. Com a opção ligada, no mesmo dia:
+      301 para `https://`
 - [ ] ensaio desmontado: sem volumes nem redes de `nova_api_ensaio` e sem o clone; túnel de
-      ensaio e registro de DNS do nome de ensaio apagados pelo dono
-- [ ] indicação de nome do servidor (SNI, de _Server Name Indication_) e `Host` conferidos de
-      ponta a ponta: o ensaio isolado do Passo 3 não alcançou a borda
-- [ ] se o ensaio permitir distinguir, conferido que as flags de origem são de fato aplicadas, e
-      não só aceitas e listadas na linha `Settings:` do log
+      ensaio e registro de DNS do nome de ensaio apagados pelo dono. Ficaram, como pendência do
+      dono: a imagem; o clone de ensaio, com o `.env`, o `.env.bak` e as credenciais do túnel de
+      ensaio; e o registro do nome de ensaio, com a borda respondendo 1033
+- [x] indicação de nome do servidor (SNI, de _Server Name Indication_) e `Host` conferidos de
+      ponta a ponta: o ensaio isolado do Passo 3 não alcançou a borda. Medido em 2026-09-28: o
+      Caddy recusa o TLS com SNI `proxy` ou sem SNI e aceita só o nome de ensaio, e com `Host`
+      diferente não entrega a descoberta
+- [x] se o ensaio permitir distinguir, conferido que as flags de origem são de fato aplicadas, e
+      não só aceitas e listadas na linha `Settings:` do log. Distinguível só para o SNI: sem
+      ele o Caddy recusa o TLS, e a borda funciona. O `--http-host-header` não se distingue,
+      porque a borda já repassa o `Host` original
+
+Encerrado em 2026-09-28 por decisão do dono, com três verificações sem medição, que nenhum
+documento afirma e que passam aos passos 6 e 7, antes do primeiro login real:
+
+- dois clientes de redes distintas com `ip` distintos entre si, o sinal da emenda à ADR 0020
+  (→ Passo 6);
+- o `fetch` cross-origin de navegador a `/o/token/`, medido só por `curl` (→ Passo 7);
+- a volta depois de `sudo systemctl restart docker`, de que depende a alínea *Reinício* da ADR
+  0027, com o "laço incorreto" relatado pelo operador (→ Passo 6).
+
+A desmontagem ficou incompleta, e os resíduos são pendência do dono, sem ação do projeto.
 
 ### Passo 5 — Aceite e documentação
 
@@ -295,9 +338,8 @@ Responsável: projeto (documentação), com o que quem opera mediu no passo 4.
 - Também ao `docs/runbook.md` e aos documentos, vindos do Passo 3:
   - `--http-host-header` torna um `PUBLIC_HOST` esquecido como `idp.localhost` num 200 coerente
     com o nome errado, em vez de 400. A guarda é a conferência do issuer nos Passos 4 e 6.
-  - Na seção de pin do runbook, o prazo de suporte do pin do `cloudflared` como data-limite: a
-    Cloudflare suporta cada versão por uma janela contada da data de lançamento, 2026-09-24 para
-    a 2026.9.3.
+  - Na seção de pin do runbook, a subida do pin do `cloudflared` antes do fim da janela de suporte
+    da Cloudflare, sem data-limite: a data fica com quem opera, fora do repositório.
   - A sub-rede fixa da `borda` é uma segunda guarda, involuntária, contra `COMPOSE_PROJECT_NAME`
     trocado: um `export` esquecido no shell cria uma segunda `borda`, e o `up` para com "Pool
     overlaps", o que impede dois conectores do mesmo túnel no host. Trocar para sub-rede
@@ -308,15 +350,45 @@ Responsável: projeto (documentação), com o que quem opera mediu no passo 4.
   - O comentário das portas do `proxy` no `docker-compose.yml` ("Expor de verdade é editar estes
     dois endereços", ADR 0017), revisto depois do aceite da 0027.
 
+Decidido na TASK-024, em 2026-09-28:
+
+- O ensaio foi encerrado com as três verificações sem medição do passo 4, levadas aos passos 6
+  e 7; a ADR 0027 foi aceita assim, com a alínea *Reinício* sem a medição do restart do daemon.
+- O nome de ensaio e o endereço medido ficam fora dos arquivos versionados, trocados por
+  descrições (`o issuer do nome de ensaio`, `um endereço de 240.0.0.0/4`).
+- Os comentários do `docker-compose.yml`, do `docker-compose.prod.yml` e do `docker/Caddyfile`
+  trazem o medido. Só linhas de comentário mudaram: o `sha256sum` do `config` do base e o do
+  `config` com os dois `-f` saíram iguais antes e depois, e o `git diff` dos três arquivos não
+  tem linha fora de comentário.
+- A data de expiração do domínio e a data-limite de suporte do `cloudflared` não entram no
+  repositório. O comentário do pin no override deixou de trazer data.
+- O gerador dos segredos é um só, `scripts/gen_env_secrets.sh` (TASK-025).
+- `OIDC_RSA_PRIVATE_KEYS_INACTIVE` fica fora: é contrato com a SPA, e está na §8.
+- No `../pre-deploy.md`, os Goals 4 e 5 passam a superados pela 0027.
+
+Estado em 2026-09-28: a primeira passada, só no `nova_api`, gravou a 0027 aceita, o Status da
+0026, o índice, os documentos deste projeto e os comentários. Ficam para a segunda passada a
+aceitação da 0018 da SPA, os documentos da SPA (`CLAUDE.md`, `contrato-frontend.md`,
+`implementacao-contrato.md`, `spa-nucleo.md`) e o `../pre-deploy.md`. A checklist abaixo só se
+marca depois dela.
+
 Pronto quando:
 
-- [ ] `grep -rn "AWS\|security group\|ACME\|HTTP-01\|CADDY_TLS\|ip_edge.*peer" README.md CLAUDE.md docs/*.md`
-      só devolve menções históricas
+- [ ] `grep -rnE "AWS|security group|ACME|HTTP-01|CADDY_TLS|ip_edge.*peer|primeira linha .peer|instância|gen_dev_key" README.md CLAUDE.md docs/*.md`
+      só devolve os resíduos declarados: neste plano, a própria linha do grep e esta lista, a
+      §3, o passo 2 e o bloco da TASK-022, o bloco da TASK-023, o passo 4, o enunciado deste
+      passo e a §9; a seção 19 do runbook, sobre ACME, que vale nos dois ambientes; as linhas
+      do sinal de colapso, que trazem `ip_edge` `peer` por definição; "as instâncias
+      migrariam", no runbook, que são réplicas; as menções à 0026 substituída;
+      `docs/implementacao-robustez.md:147` e `docs/robustez-info.md:312`, históricos
+- [ ] nenhum literal do nome de ensaio nem do domínio em arquivo versionado, nos dois projetos e
+      no `../pre-deploy.md`
+- [ ] na SPA, `grep -rn "AWS" CLAUDE.md docs/*.md` não devolve nada
 - [ ] cada roteiro que este passo manda ao `docs/runbook.md` está lá, conferido no arquivo:
-      colapso no IP do conector, erro 1033, `-f` duplo, proibição de `prune`, backup, expiração
+      colapso no IP do conector, erro 1033, `-f` duplo, proibição de `prune`, backup, renovação
       do domínio, pin e rotação do túnel, vazamento da chave ou de processo comprometido,
       restauração com `COMPOSE_PROJECT_NAME` trocado e migração com um conector só
-- [ ] `manage.py test` verde; ramo integrado
+- [ ] `manage.py test` verde nas duas jornadas; ramo integrado
 
 ### Passo 6 — Produção
 
@@ -359,6 +431,10 @@ Pronto quando:
       produção não é afetada, porque o override zera `ports`
 - [ ] restauração ensaiada (6.4) com `COMPOSE_PROJECT_NAME` trocado; `docker compose ls`
       conferido antes do `down -v`; `nova_api_prod` com os volumes intactos depois
+- [ ] dois clientes de redes distintas aparecem com `ip` distintos (não medido no ensaio)
+- [ ] `sudo systemctl restart docker`: a descoberta volta sem comando e o `ps` fica estável, sem a
+      contagem de reinício crescendo (não medido; o operador relatou "laço incorreto")
+- [ ] JWKS de produção com `.keys[].n | length` = 512 (3072 bits)
 
 ### Passo 7 — `Application` de produção e SPA
 
@@ -381,7 +457,9 @@ Pronto quando:
 Responsável: quem opera; a normalização de IPv6, se vier, é código do projeto.
 
 - IPv6: se o Pseudo IPv4 não agregar o /64, normalizar por prefixo em `config/origem.py`, com ADR
-  própria (toca a ADR 0015).
+  própria (toca a ADR 0015). No ensaio, um segundo aparelho, provavelmente no Wi-Fi da mesma
+  casa, chegou com o mesmo endereço de classe E do primeiro: indício de agregação, não
+  confirmado, porque não se sabe se ele saiu por IPv6.
 - Subir o pin do `cloudflared` antes do fim do suporte, repetindo a medição de origem; idem para
   o Caddy. A medição do Passo 2 numa rede temporária `10.203.14.0/24` não roda com a produção de
   pé, porque a sub-rede está ocupada pela `borda`: usa-se outro literal num Caddyfile de teste, ou
@@ -446,6 +524,6 @@ antigo e blocos 1 a 8 do `cloudflare.md` → §5.
 
 O texto da ADR 0027 vive em
 `docs/adr/0027-servir-o-idp-de-producao-da-maquina-local-pelo-cloudflare-tunnel-sem-porta-de-entrada.md`,
-revisto em 2026-09-24; a contraparte, em
+aceita em 2026-09-28; a contraparte, em
 `../nova_api_SPA/docs/adr/0018-aceitar-o-idp-de-producao-servido-pelo-cloudflare-tunnel-com-o-contrato-inalterado.md`.
 Este plano não guarda cópia: quando os dois divergirem, vale o arquivo da ADR.

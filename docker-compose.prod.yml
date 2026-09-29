@@ -10,15 +10,16 @@
 # Não há script, `COMPOSE_FILE`, link nem unidade de sistema que os lembre (ADR 0027,
 # "Invocação"). Num diretório de desenvolvimento, nunca `up` com este arquivo.
 #
-# Esquecer o `-f` falha fechado para a internet, e não para o host:
+# Esquecer o `-f` falha fechado para a internet, e não para o host. Medido no ensaio:
 #
-# - `up` sem ele recria os quatro serviços só com o arquivo base: `postgres`, `redis` e `proxy`
-#   publicados em 127.0.0.1, os quatro sem `restart:`, e o `proxy` fora da rede `borda`. O
-#   conector deixa de alcançá-lo, e a borda da Cloudflare responde erro.
-# - `down` sem ele não conhece o `cloudflared`, e nada o para: o contêiner continua de pé,
-#   órfão, e a borda responde erro enquanto ele aponta para um `proxy` que não existe. A
-#   expectativa é que o Compose avise do contêiner órfão nesse `down`, mas isso não foi medido,
-#   porque exigiria um `up` com este arquivo.
+# - `up` sem ele recria `app` e `proxy` só com o arquivo base, sem `restart:` e com o `proxy`
+#   fora da rede `borda`, e a borda da Cloudflare responde 502. Com o desenvolvimento de pé, o
+#   `postgres` nem sobe, porque o arquivo base o publica na `127.0.0.1:5432` que o
+#   desenvolvimento ocupa. O único aviso é o de contêiner órfão, o `cloudflared`, e ele vem
+#   nesse `up`.
+# - `down` sem ele remove os quatro serviços do base e a rede `default` sem aviso nenhum. O
+#   `cloudflared` fica de pé porque nada o parou, e a política de reinício o traz de volta
+#   depois de um reboot, sem `proxy` a alcançar.
 #
 # O `name:` exige `COMPOSE_PROJECT_NAME`, e o `.env` de desenvolvimento não a tem. Rodar este
 # arquivo por engano num clone de desenvolvimento aborta antes de criar qualquer coisa, nomeando
@@ -80,11 +81,10 @@ services:
   cloudflared:
     # Pin de versão exata, pelo mesmo motivo do `caddy:2.11.4` no arquivo base: o nível de cada
     # flag abaixo e o uid (identificador de usuário) que lê as credenciais foram medidos nesta
-    # versão, e uma tag móvel os trocaria num `pull`, sem ninguém editar arquivo nenhum. A
-    # 2026.9.3 foi lançada em 2026-09-24, e a janela de suporte da Cloudflare conta a partir
-    # dessa data: o pin sobe antes de ela se fechar (ADR 0027, "Manutenção"). Subir o pin é
-    # remedir o `--help` de `tunnel` e de `tunnel run` e o `.Config.User` da imagem, e repetir
-    # as medições de origem do ensaio, e não ler a nota de versão.
+    # versão, e uma tag móvel os trocaria num `pull`, sem ninguém editar arquivo nenhum. O pin
+    # sobe antes do fim da janela de suporte da Cloudflare (ADR 0027, "Manutenção"). Subir o
+    # pin é remedir o `--help` de `tunnel` e de `tunnel run` e o `.Config.User` da imagem, e
+    # repetir as medições de origem do ensaio, e não ler a nota de versão.
     image: cloudflare/cloudflared:2026.9.3
     restart: unless-stopped
     # O entrypoint da imagem é `cloudflared --no-autoupdate`, e esta lista substitui só o
@@ -109,12 +109,14 @@ services:
     # um laço de reinício em que o código de saída mostra sucesso. A linha `Settings:` do log
     # mostra cada flag que o conector aceitou.
     #
-    # O silencioso é a flag que falta, e o que segue é expectativa, não medida: o ensaio não
-    # alcançou a borda. Sem `--origin-server-name`, o conector deve apresentar o nome `proxy` na
-    # indicação de nome do servidor (SNI, de _Server Name Indication_), e o Caddy, que só tem
-    # certificado para `PUBLIC_HOST`, deve recusar o handshake; a borda responderia erro sem
-    # sinal nenhum no host fora dos logs do conector. Quem vai conferir a cadeia de ponta a
-    # ponta é o Passo 4 de `docs/plano-implantacao.md`.
+    # O silencioso é a flag que falta. Medido no ensaio de 2026-09-28: o Caddy recusa o
+    # handshake com a indicação de nome do servidor (SNI, de _Server Name Indication_) `proxy`
+    # ou sem SNI e aceita só o nome público, e a borda entregou a descoberta; o
+    # `--origin-server-name` é aplicado. Sem ele, o conector apresentaria outro nome no SNI
+    # (esse default não foi medido), o Caddy recusaria, e a borda responderia erro sem sinal
+    # no host fora dos logs do conector. O `--http-host-header` não se distingue, porque a
+    # borda já repassa o `Host`. Com um `PUBLIC_HOST` errado, a resposta é 200 coerente com o
+    # nome errado (`docs/runbook.md`).
     #
     # A origem é `https://proxy:443` porque o site do Caddy só atende HTTPS (HTTP, de
     # _Hypertext Transfer Protocol_, sobre TLS, de _Transport Layer Security_) no nome público

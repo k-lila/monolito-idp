@@ -12,21 +12,16 @@ Tudo o que está decidido neste repositório descansa sobre uma premissa única:
 - host único, orquestrado por `docker-compose.yml`;
 - uma réplica da aplicação;
 - Postgres e Redis publicados em `127.0.0.1`; a aplicação não publica porta nenhuma;
-- o proxy publicado em `127.0.0.1` em desenvolvimento e na jornada de container. Em produção ele
-  é a exceção declarada: a ADR 0026 o publica em 80 e 443 fora de loopback por um arquivo de
-  override do compose, `docker-compose.prod.yml`, que quem opera a instância da AWS (Amazon Web
-  Services) invoca com `docker compose -f docker-compose.yml -f docker-compose.prod.yml`, com um
-  salto de proxy só. O security group da instância é a única barreira de rede — pré-condição que
-  vive fora do repositório e que nada nele verifica: só 80 e 443 da internet, SSH (Secure Shell)
-  restrito ao endereço de quem opera;
-- TLS (Transport Layer Security) terminado nesse proxy: certificado de uma autoridade
-  certificadora (CA) local na jornada de container em `idp.localhost`, e certificado público, por
-  ACME (Automatic Certificate Management Environment), em produção (ADR 0026). O Gunicorn
-  continua falando texto claro na rede interna, e só o proxy o alcança;
+- o proxy publicado em `127.0.0.1` em desenvolvimento e na jornada de container. Em produção
+  nada é publicado: a ADR (Architecture Decision Record) 0027 serve o IdP da máquina do dono por
+  um túnel nomeado da Cloudflare, e o override `docker-compose.prod.yml` zera por `!reset []` as
+  portas de `proxy`, `postgres` e `redis` e declara o conector, o `cloudflared`. A entrada é o
+  túnel, e quem controla a conta da Cloudflare ou as credenciais do túnel controla a entrada;
+- TLS (Transport Layer Security) do navegador terminado na borda da Cloudflare, com o certificado
+  Universal da zona, em produção, e no proxy, com certificado de uma autoridade certificadora
+  (CA) local, na jornada de container em `idp.localhost`. O Caddy mantém `tls internal` nos dois
+  ambientes, e o Gunicorn continua falando texto claro na rede interna, alcançado só pelo proxy;
 - pessoas usuárias com conta criada no admin (ADR 0023), além de quem opera a máquina.
-
-O override e o certificado público entram no passo 3 de `docs/plano-implantacao.md`; até
-lá, o proxy publica em `127.0.0.1` e o `docker/Caddyfile` emite pela CA interna (`tls internal`).
 
 Isso não é provisório por descuido: é premissa de várias decisões registradas. O que o IdP
 protege hoje, o que não protege e o que muda com a exposição está em `docs/seguranca.md`.
@@ -82,10 +77,10 @@ echo "127.0.0.1 $(grep '^PUBLIC_HOST=' .env | cut -d= -f2)" | sudo tee -a /etc/h
 ### Se você já tem um `.env`
 
 **Não rode o `cp` acima.** O `.env` é untracked e não tem cópia: ele guarda a única chave privada
-RSA e a única `SECRET_KEY` deste IdP, e sobrescrevê-lo destrói as duas sem que nenhum `git
+RSA e a única `SECRET_KEY` deste clone, e sobrescrevê-lo destrói as duas sem que nenhum `git
 reset` as devolva.
 
-O que falta ao seu arquivo são três linhas, acrescentadas **à mão e antes de subir**. Sem
+O que falta ao seu arquivo são quatro linhas, acrescentadas **à mão e antes de subir**. Sem
 qualquer uma delas nada sobe, e a mensagem nomeia a variável:
 
 ```
@@ -120,6 +115,43 @@ boot, com mensagem de permissão de arquivo que não menciona o volume.
 E, se o seu `.env` tinha `DJANGO_SUPERUSER_EMAIL` e `DJANGO_SUPERUSER_PASSWORD`, remova as
 duas: o boot deixou de lê-las, e a senha de administrador em texto claro num arquivo é
 justamente o que a ADR 0019 tirou do caminho.
+
+## Produção
+
+Produção roda num clone próprio, com os dois arquivos do compose em todo comando (ADR 0027). O
+procedimento completo é o passo 6 de `docs/plano-implantacao.md`, e a operação corrente está na
+seção "Produção pelo túnel" de `docs/runbook.md`. O que este arquivo registra, porque a ADR 0027
+o manda registrar aqui, é o que vive fora do repositório e nada nele verifica.
+
+A zona do IdP, na conta da Cloudflare:
+
+- "Always Use HTTPS" ligado, que leva todo acesso a HTTPS (_Hypertext Transfer Protocol Secure_,
+  o HTTP sobre TLS); TLS mínimo 1.2; Pseudo IPv4 (versão 4 do IP, de _Internet Protocol_) em modo
+  de sobrescrita;
+- Security Level no mínimo;
+- desligados: o HSTS (HTTP Strict Transport Security) da Cloudflare, Browser Integrity Check, Bot
+  Fight Mode, Always Online, Rocket Loader, Email Address Obfuscation, Automatic HTTPS Rewrites e
+  Web Analytics automático;
+- nenhuma regra de cache.
+
+A origem não percebe o "Always Use HTTPS" desligado: o trecho do conector ao Caddy é HTTPS, e o
+redirecionamento do Django nunca é acionado. Medido no ensaio, `http://` do nome público respondeu
+200 com a tela de login. A conferência é `http://` responder 301 para `https://`.
+
+O clone de produção:
+
+- fica fora da árvore de desenvolvimento, com ao menos um diretório ancestral fechado para
+  "outros";
+- ganha um `.env` novo a partir do `.env.example`, nunca copiado do de desenvolvimento. Nele, as
+  seis linhas impressas por `./scripts/gen_env_secrets.sh`, cada uma no lugar da linha do
+  exemplo, mais `PUBLIC_HOST`, `CORS_ALLOWED_ORIGINS`, `COMPOSE_PROJECT_NAME=nova_api_prod` e
+  `TUNNEL_ID`;
+- roda todo comando com `docker compose -f docker-compose.yml -f docker-compose.prod.yml`,
+  digitado, sem script, `COMPOSE_FILE` nem link.
+
+A conta da Cloudflare e a do registrador do domínio usam segundo fator. A data de expiração do
+domínio e a data-limite de suporte da versão fixada do `cloudflared` ficam com quem opera, fora do
+repositório.
 
 ## Os demais documentos
 

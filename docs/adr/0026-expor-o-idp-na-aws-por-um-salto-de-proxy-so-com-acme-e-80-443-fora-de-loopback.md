@@ -2,7 +2,7 @@
 
 ## Status
 
-Aceito — 2026-09-23
+Substituído por ADR-0027 — 2026-09-28
 
 Emenda à ADR (Architecture Decision Record) 0017, que **permanece aceita e em vigor**. Mudam
 duas alíneas dela. A publicação fora de loopback, que a 0017 previa como "editar esse endereço à

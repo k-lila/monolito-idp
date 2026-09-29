@@ -65,7 +65,7 @@ default `False` do `django-oauth-toolkit`. Não há como uma RP se auto-registra
 registrar-se por formulário fora do admin.
 
 Quatro campos decidem se a integração funciona; um quinto decide se a pessoa vê a tela de
-consentimento:
+consentimento, e um sexto, se o "Sair" da RP volta a ela:
 
 | Campo | Valor | Por quê |
 | --- | --- | --- |
@@ -255,13 +255,11 @@ Resource Sharing). A origem da RP precisa ser acrescentada à variável no IdP.
 O IdP tem TLS quando está atrás do proxy de terminação, e não tem quando roda em
 `http://localhost:8000` — é a mesma divisão da seção 2, e é o esquema do `issuer` que a
 denuncia. Em desenvolvimento, as duas implantações publicam em `127.0.0.1`, e o certificado da
-jornada de container sai da autoridade interna descrita abaixo. Em produção o proxy é publicado
-fora de loopback, pelo override de compose da ADR 0026, com certificado público por ACME
-(Automatic Certificate Management Environment), e o que segue sobre a autoridade interna não se
-aplica. O override e o certificado público entram no passo 3 de `docs/plano-implantacao.md`;
-até lá, o proxy publica em `127.0.0.1` e o `docker/Caddyfile` emite pela CA interna (`tls
-internal`), a descrita abaixo. O que o IdP protege e o que não protege quando exposto está em
-`docs/seguranca.md`.
+jornada de container sai da autoridade interna descrita abaixo. Em produção o certificado é o
+Universal da borda da Cloudflare, que os clientes já conhecem, e o que segue sobre a autoridade
+interna vale só para a jornada de container em `idp.localhost` (ADR 0027). A borda termina o TLS
+e vê em texto claro o que passa por ela, os tokens inclusive (ADR 0027, "Um terceiro vê tudo").
+O que o IdP protege e o que não protege quando exposto está em `docs/seguranca.md`.
 
 **O certificado do IdP sai de uma autoridade certificadora (CA) interna, que cliente nenhum
 conhece de fábrica.** O sintoma é a troca em `/o/token/` falhar antes de haver resposta, com

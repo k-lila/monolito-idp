@@ -68,7 +68,7 @@ cacheado em cada relying party (RP) que já integrou. O custo completo está no 
 documento, em "Produção — o que ainda não existe".
 
 **A forma do issuer de produção está congelada pela ADR 0025: `https://<PUBLIC_HOST>/o`.** O nome
-não entra no repositório: vive só no `.env` da instância e no painel da Vercel, e é escolhido no
+não entra no repositório: vive só no `.env` do clone de produção e no painel da Vercel, e é escolhido no
 passo 6 de `docs/plano-implantacao.md`. A partir do primeiro login de produção ele é
 permanente, porque o issuer fica cacheado do outro lado
 (`docs/adr/0007-fixar-o-issuer-do-idp-em-base-url-barra-o.md`).
@@ -473,9 +473,10 @@ tela de login devolve. Sintoma, causa e o resto do procedimento estão em `docs/
 
 ## Produção — o que ainda não existe
 
-**Nada nesta seção foi exercitado.** Não é procedimento: é a lista das diferenças já
-conhecidas e das decisões que o repositório ainda não tomou. Escrever um passo a passo de
-produção agora seria inventar um caminho que ninguém percorreu.
+**Esta seção não é procedimento.** O ensaio do passo 4 de `docs/plano-implantacao.md`
+exercitou parte do caminho de produção, e o procedimento está no passo 6 do plano e na seção
+"Produção pelo túnel" de `docs/runbook.md`. O que fica aqui é a lista das diferenças já
+conhecidas e das decisões que o repositório ainda não tomou.
 
 ### Diferenças de configuração já conhecidas
 
@@ -483,33 +484,38 @@ Quatro itens desta lista saíram dela com o proxy: `BASE_URL`, `BEHIND_TLS_PROXY
 `ALLOWED_HOSTS` passaram a ser derivados de `PUBLIC_HOST` pelo próprio compose, e a porta do
 `app` deixou de ser publicada. O que continua sendo diferença:
 
-- **O endereço de publicação do proxy.** Hoje `127.0.0.1:80` e `127.0.0.1:443`. Expor não é
-  editar esses dois endereços no `docker-compose.yml`, nem trocá-los por variável: é invocar, na
-  instância, o override `docker-compose.prod.yml` com `-f`
-  (`docs/adr/0026-expor-o-idp-na-aws-por-um-salto-de-proxy-so-com-acme-e-80-443-fora-de-loopback.md`,
-  que emenda a 0017). O override entra no passo 3 de `docs/plano-implantacao.md`.
-- **O certificado.** Sai da CA interna do Caddy, que nenhum cliente de fora conhece. O público
-  vem por ACME (ADR 0026), e o passo 7 do plano condiciona a diretiva `tls internal` de
-  `docker/Caddyfile` por ambiente. Retirá-la sem expor faz o Caddy tentar ACME contra a internet
-  e falhar (`docs/runbook.md`, seção 19); mantê-la ao expor serve em produção um certificado que
-  nenhum cliente aceita.
+- **A publicação.** Em desenvolvimento e na jornada de container, o proxy publica em
+  `127.0.0.1:80` e `127.0.0.1:443`. Em produção, nada é publicado: no clone de produção, todo
+  comando leva `-f docker-compose.yml -f docker-compose.prod.yml`, e o override zera as portas e
+  declara o conector do túnel da Cloudflare
+  (`docs/adr/0027-servir-o-idp-de-producao-da-maquina-local-pelo-cloudflare-tunnel-sem-porta-de-entrada.md`,
+  que substitui a 0026 e emenda a 0017).
+- **O certificado.** O navegador vê o certificado Universal da borda da Cloudflare, que os
+  clientes já conhecem. O Caddy mantém a CA interna (`tls internal`) nos dois ambientes, e o
+  conector não a verifica, porque o salto é interno à máquina (ADR 0027).
 - **O nome em `PUBLIC_HOST`.** Com ele muda o `issuer`, que é `{BASE_URL}/o` e fica cacheado em cada
   RP (`docs/adr/0007-fixar-o-issuer-do-idp-em-base-url-barra-o.md`). E o HSTS de um ano marca o
   navegador de quem visitar: trocar de nome depois exige limpar esse estado em cada navegador. A
-  forma está congelada pela ADR 0025, e o nome de produção é escolhido no passo 8, pelas regras
+  forma está congelada pela ADR 0025, e o nome de produção é escolhido no passo 6, pelas regras
   dela; a partir do primeiro login de produção, ele é permanente.
-- **`TRUSTED_PROXY_COUNT`.** Vale `1`, que é o certo com um proxy só. Cada intermediário
-  acrescentado à frente do Caddy soma um, e errar o número devolve à trilha e ao limitador de
-  taxa um endereço que não é o do cliente.
+- **`TRUSTED_PROXY_COUNT`.** Vale `1`, também em produção. A borda e o conector não somam
+  salto, porque o Caddy lê o cliente de `CF-Connecting-IP`, só vindo do conector, e reescreve o
+  `X-Forwarded-For` com `{client_ip}`, um valor só. O valor 2 é alternativa descartada pela ADR
+  0027. Errar o número devolve à trilha e ao limitador de taxa um endereço que não é o do
+  cliente.
 
 ### Decisões que o repositório ainda não tomou
 
-- **Onde ficam os segredos.** O `.env` não serve: carrega `SECRET_KEY` e a chave privada RSA em
-  texto claro, num arquivo do host.
+- **Onde ficam os segredos. Decidido.** No `.env` do clone de produção, com backup cifrado fora
+  da máquina e um diretório ancestral do clone fechado para "outros" (ADR 0027). O arquivo guarda
+  `SECRET_KEY` e a chave privada RSA em texto claro, e qualquer processo do usuário de
+  desenvolvimento o lê: é risco aceito, na negativa "Mesmo privilégio" da mesma ADR.
 - **A migração no entrypoint.** Correta para uma réplica, errada para duas — com mais de uma,
   ela sai do boot e vira passo próprio.
 - **Rotação da chave RSA.** Existe uma chave, sem conjunto de rotação: a primeira troca
-  invalida todo token vivo.
+  invalida todo token vivo. O toolkit oferece o conjunto por `OIDC_RSA_PRIVATE_KEYS_INACTIVE`.
+  Ligá-lo põe mais de uma chave no JWKS, que é contrato com a `nova_api_SPA`, e é tarefa
+  própria, com ADR nos dois projetos, ainda não decidida.
 - **Coleta de log.** Só stdout: o log operacional some com o container.
 - **Retenção da trilha de auditoria.** O arquivo é durável e cresce indefinidamente; poda e
   retenção não estão decididas.

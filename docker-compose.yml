@@ -144,9 +144,10 @@ services:
       # Bind em 127.0.0.1 pelo mesmo motivo das demais publicações: publicação sem endereço
       # vira DNAT à frente do firewall do host. Estas duas são as ÚNICAS portas da aplicação.
       #
-      # Expor de verdade é editar estes dois endereços à mão e trocar a diretiva `tls
-      # internal` do Caddyfile. Deliberadamente não é variável: exposição é decisão, e uma
-      # variável convida a invertê-la sem decidir (ADR 0017).
+      # Nenhum ambiente expõe por estas linhas: em produção o override
+      # `docker-compose.prod.yml` as zera com `!reset []`, e a entrada é o túnel da Cloudflare
+      # (ADR 0027). Deliberadamente não é variável: exposição é decisão, e uma variável convida
+      # a invertê-la sem decidir (ADR 0017).
       - "127.0.0.1:80:80"
       - "127.0.0.1:443:443"
     volumes:

@@ -50,6 +50,7 @@
 | 2026-09-23 | Congelar a forma do issuer de produção em `https://<PUBLIC_HOST>/o`, sem literal de domínio versionado; cumpre a condição da 0007 — contraparte: SPA 0017 | [0025](../../docs/adr/0025-congelar-o-issuer-de-producao-na-forma-https-public-host-barra-o.md) |
 | 2026-09-23 | Expor na AWS por um salto de proxy só, ACME, 80/443 fora de loopback por override invocado com `-f`; emenda à 0017 — contraparte: SPA 0016 | [0026](../../docs/adr/0026-expor-o-idp-na-aws-por-um-salto-de-proxy-so-com-acme-e-80-443-fora-de-loopback.md) |
 | 2026-09-24 | Servir o IdP de produção da máquina do dono pelo Cloudflare Tunnel, sem porta de entrada, com zona própria e túnel entregue por quem opera; **proposta** — substitui a 0026 e emenda a 0017 e a 0020 quando aceita — contraparte: SPA 0018 | [0027](../../docs/adr/0027-servir-o-idp-de-producao-da-maquina-local-pelo-cloudflare-tunnel-sem-porta-de-entrada.md) |
+| 2026-09-28 | Gerar a chave de assinatura em RSA 3072 pelo gerador único de segredos (`scripts/gen_env_secrets.sh`); emenda à 0004; **proposta** — aceite depende do AC-07 da TASK-025 (login da SPA com a chave nova) | [0028](../../docs/adr/0028-gerar-a-chave-de-assinatura-em-rsa-3072-pelo-gerador-unico-de-segredos.md) |
 
 ---
 
@@ -267,7 +268,7 @@ QA → writer + tester → QA → tester → senso-critico → writer + tester �
   sem `name:` fixo, `cloudflared` só na `borda` em `10.203.14.200`, sem `env_file`, `environment`,
   `depends_on`, `healthcheck` nem `ports`; volume de diretório, sintaxe longa, `read_only`,
   `create_host_path: false`.
-- **Decisão (writer, medida): pin `cloudflare/cloudflared:2026.9.3`**, lançado em 2026-09-24,
+- **Decisão (writer, medida): pin `cloudflare/cloudflared:2026.9.3`**,
   uid 65532:65532, entrypoint `cloudflared --no-autoupdate`. `TUNNEL_ID` por último por
   necessidade do parser; flags de origem depois de `run` por escolha. Flag não declarada sai com
   código 0; flag após o identificador, com 255.
@@ -306,3 +307,109 @@ QA → writer + tester → QA → tester → senso-critico → writer + tester �
   `/app/cloudflared` fora da imagem; `ports: []` sem `!reset` mantém as portas; bind longo recusa
   caminho ausente; T-01 e T-02 vermelhos provados fora da suíte; suíte 140 OK nas duas jornadas.
 - **Tipo:** decisão, tech-debt e apontamento adiado.
+
+## [2026-09-28] TASK-024 · Passo 5 do plano de implantação: aceite da ADR 0027 e documentação (em curso)
+
+Rota `/chore` com fase de `architect` inserida (precedente TASK-020), aberta em 2026-09-28. O
+architect entregou o inventário com RESSALVA. Tarefa **pausada** até a unificação dos scripts de
+geração, em tarefa própria.
+
+- **Decisão (usuário): ensaio do Passo 4 dado por feito**, com três verificações sem medição —
+  dois clientes de redes distintas, `fetch` de navegador a `/o/token/` e volta após restart do
+  Docker (o operador relatou "laço incorreto", sem detalhe) — e desmontagem incompleta (imagem,
+  clone com `.env`, `.env.bak` e credenciais do túnel de ensaio, registro de DNS). As três vão
+  para os Passos 6 e 7; nenhuma é marcada como medida.
+- **Decisão (usuário): placeholders, nunca literais do ensaio.** Nome de ensaio e endereço de
+  classe E não entram em arquivo versionado (ADR 0025). O plano não commitado já os trazia, por
+  erro do orquestrador; saem antes do commit.
+- **Decisão (usuário): aceitar a 0027 agora**, com a alínea *Reinício* sem medição e o item no
+  Passo 6.
+- **Decisão (usuário): comentários de YAML e da Caddyfile entram** na tarefa, só linhas de
+  comentário; prova por `sha256sum` do `config` do base e suíte.
+- **Decisão (usuário): `../pre-deploy.md` com Goals 4 e 5 marcados como superados**, sem
+  reescrever.
+- **Decisão (usuário): data de expiração do domínio e data-limite de suporte do `cloudflared`
+  não constam em código nem no repositório.** A alínea "Renovação do domínio" da 0027 (proposta)
+  deixa de dizer que a data fica no runbook; o roteiro de pin sai sem data-limite, e a nota R6
+  do Passo 3 muda de acordo.
+- **Decisão (usuário): a geração de chaves e segredos fica num arquivo só.** Hoje são dois:
+  `scripts/gen_dev_key.sh` (versionado, RSA 2048) e `scripts/gen_env_secrets.sh` (untracked).
+  A unificação é tarefa própria, antes da retomada desta; o tamanho da chave decide-se nela. Ela
+  resolve a contradição entre o runbook ("a chave de produção não sai deste script") e o plano
+  6.2.
+- **Autorização (usuário):** ADRs 0027, 0026 (só o Status) e SPA 0018, e os dois `CLAUDE.md`.
+- **Retomada (2026-09-28), revisão do architect com RESSALVA; respostas do usuário:**
+  - **P1: a TASK-025 foi commitada antes** (`acfc115`), sem o plano e sem `.claude/memory/`.
+  - **P2: sai a data de lançamento da 2026.9.3** e a regra "a janela conta dessa data" do
+    comentário de `docker-compose.prod.yml`; fica só "o pin sobe antes do fim da janela de
+    suporte". Leitura estrita da decisão sobre datas.
+  - **P3: o `CLAUDE.md` do `nova_api` deixa de dizer "a única `OIDC_RSA_PRIVATE_KEY`"** na
+    edição já autorizada: cada clone tem a sua chave.
+  - **Escopo desta passada: só o `nova_api`** (13 arquivos). SPA (ADR 0018, `CLAUDE.md`,
+    `contrato-frontend`, `implementacao-contrato`, `spa-nucleo`) e `../pre-deploy.md` ficam
+    para uma segunda passada; até lá a 0027 aceita aponta para uma 0018 ainda proposta, e o
+    Passo 5 não é marcado.
+  - **Adiado, rota `/feature` própria, dono o usuário:** rotação sem disrupção por
+    `OIDC_RSA_PRIVATE_KEYS_INACTIVE` — põe duas chaves no JWKS, muda a §1 do plano (contrato
+    com a SPA) e contradiz a 0004 e a 0028.
+  - **Adiado, dono o usuário:** retirar `--http-host-header` (troca 400 por 200 coerente com
+    `PUBLIC_HOST` errado); exigiria remedição.
+  - **Pendência do dono:** desmontagem do ensaio deixou credenciais e registro de DNS.
+  - **QA da passada 1 (RESSALVA):** o usuário mandou corrigir os dois críticos e as nove
+    observações; a data de lançamento da 2026.9.3 sai também do bloco histórico da TASK-023 no
+    plano (leitura estrita da decisão sobre datas); o `CLAUDE.md` fica com "a única
+    `OIDC_RSA_PRIVATE_KEY` daquele ambiente".
+  - **Hashes antes dos comentários** (mesmo shell, só o hash): `config` do base `22cefc3e…a9d6`;
+    `config` com o override e `COMPOSE_PROJECT_NAME=x TUNNEL_ID=y` `d440d0df…b69f`.
+- **Tipo:** decisão.
+
+## [2026-09-28] TASK-025 · Gerador único dos segredos do `.env`
+
+Rota `/feature` completa (product-manager, architect, writer, QA, tester, QA, senso-critico),
+aberta e encerrada em 2026-09-28. Encerrada por decisão do usuário ("a task presente deve somente
+se ater ao refatoramento do script"), sem o AC-07. `scripts/gen_dev_key.sh` foi movido por
+`git mv` para `scripts/gen_env_secrets.sh` e absorveu o antigo `gen_env_secrets.sh` untracked:
+seis linhas por padrão, `--so-chave-rsa` só para a chave, RSA 3072 fixo nos dois ambientes, sem
+escrita no `.env`. Testes `TASK-025/T-01` e `T-02` (suíte 148 OK nas duas jornadas).
+
+- **Decisão (architect, autorizada):** 3072 bits (128 de segurança, o nível do SHA-256; 2048 só
+  até 2030 pelo NIST), mesmo tamanho em dev e prod, sem parâmetro; `--so-chave-rsa` resolve o
+  AC-05 por construção; nome `gen_env_secrets.sh`; ADR 0028 como emenda à 0004.
+- **Decisão (usuário): ADR 0028 fica Proposta.** O aceite, a marca "emendada pela 0028" na linha
+  da 0004 em `docs/arquitetura.md` e a linha no índice de lá esperam o AC-07.
+- **Pendente, com dono (usuário): AC-07.** Trocar só a linha `OIDC_RSA_PRIVATE_KEY` do `.env` de
+  dev pela de `./scripts/gen_env_secrets.sh --so-chave-rsa` (substituir, nunca `>>`); `up -d
+  --force-recreate --wait app`; JWKS com `1 [('RS256', 3072)]`; login da SPA contra o IdP real até
+  `/app` sem erro do `jose`. O `.env` de dev tinha chave de 2048 em 2026-09-28. Depois, aceitar a
+  0028.
+- **Adiado para a TASK-024 (registrado lá):** `docs/plano-implantacao.md:358` aponta o script
+  removido (AC-06 fechado com essa disposição, por decisão do usuário); roteiro de rotação com
+  "substitua a linha, nunca `>>`" (`read_env` fica com a primeira, o compose com a última); `ALTER
+  ROLE` antes da `POSTGRES_PASSWORD` nova no roteiro de comprometimento; `runbook.md:950` sem os
+  dois `-f`; `OIDC_RSA_PRIVATE_KEYS_INACTIVE` do DOT como caminho de rotação sem disrupção.
+- **Aceitos e resolvidos na própria tarefa:** README sem geração manual da `REDIS_PASSWORD`, com a
+  frase "copie só essas duas" (mantida pelo QA); `.env.example:29` e `receita.md:96` apontam o
+  script; siglas RSA, NIST e IdP expandidas na 0028; Negativa do índice "com o aceite"; frase
+  "os tamanhos são os da receita" apagada; comentário longo do script e linha curta da 0028
+  reembrulhados pelo orquestrador (autorizado); teste instável do senso-critico (substring "URL"
+  no base64, ~0,9%) trocado por prefixo de linha; `assertEqual` que despejaria segredo trocado
+  por booleano; `SimpleTestCase`; T-02 compara o `n` com o módulo gerado (absorve o T-03).
+- **Rejeitados, com justificativa:** `runbook.md:322` com `openssl rand` (o script não tem modo de
+  uma senha só); cópia parcial como disciplina manual (declarada no texto; mecanismo seria
+  elaboração além da tarefa); tamanho de chave colada à mão (já é Negativa da 0028); escape não
+  provado vermelho no T-02 (o T-01 cobre); "nenhum teste lê o script" (T-01 e T-02 existem).
+- **Adiados, dívida:** `receita.md:68` "ADR 0025" antes da expansão (preexistente); SHA-256 sem
+  expansão na 0028 (nome de algoritmo); `docs/robustez-info.md:312`, `../roadmap-inicial.md:172`
+  e `../desavencas.md:313` citam `gen_dev_key.sh` (históricos, decisão do usuário); CLAUDE.md
+  "a única `OIDC_RSA_PRIVATE_KEY`" diante de dev e prod, e esta mesma contradição nas linhas
+  150-152 deste arquivo — rever no aceite da 0028 ou na TASK-024.
+- **Observações:** falha intermitente não identificada na primeira rodada da suíte no contêiner
+  (1 em 11; a saída foi truncada pelo orquestrador; 10 rodadas seguintes OK, inclusive logo após
+  recriar o `app`) — se voltar, capturar a saída inteira. Um grep do QA na Fase 5 tentou ler
+  credenciais do user-service em `../cloudflare/` e recebeu "Permission denied"; nada foi lido, e
+  as buscas seguintes foram restritas a `nova_api`. Para o commit: `git add
+  scripts/gen_env_secrets.sh` antes, porque o índice guarda o rename com o conteúdo antigo;
+  `docs/plano-implantacao.md` e parte de `.claude/memory/` são da TASK-024.
+- **Resíduo no host:** stack de dev deixado de pé em 2026-09-28 para o AC-07 (estava parado).
+- **Tipo:** decisão, pendência com dono e tech-debt.
+

@@ -18,12 +18,12 @@ autorização, emissão de token e endpoints de descoberta vivem em uma aplicaç
 O escopo declarado é o de host único e uma réplica. O TLS (Transport Layer Security) termina num
 proxy do próprio compose, que é o único caminho até a aplicação (ADR 0017); a aplicação continua
 falando texto claro na rede interna. Postgres e Redis publicam em `127.0.0.1`, e o proxy também,
-fora de produção. O proxy é a exceção declarada em produção: a ADR 0026 o publica em 80 e 443 fora
-de loopback por um arquivo de override do compose que quem opera invoca com `-f`, com um salto de
-proxy só e o security group da AWS (Amazon Web Services) como única barreira de rede. Isso não é
-provisório por descuido — é premissa de várias decisões registradas, e a lista do
-que ainda não existe está em `docs/seguranca.md`, como risco, e em `docs/receita.md`, como
-pendência de produção.
+fora de produção. Em produção nada é publicado: a ADR 0027 serve o IdP da máquina do dono por um
+túnel nomeado da Cloudflare, cujo conector é serviço do override `docker-compose.prod.yml`. O TLS
+do navegador termina na borda da Cloudflare, e a barreira de entrada são a conta da Cloudflare e as
+credenciais do túnel. Isso não é provisório por descuido — é premissa de várias decisões
+registradas, e a lista do que ainda não existe está em `docs/seguranca.md`, como risco, e em
+`docs/receita.md`, como pendência de produção.
 
 ## Os módulos e a fronteira entre eles
 
@@ -113,7 +113,8 @@ admin (ADR 0024). `/accounts/password_reset/` é um 404 deliberado, explicado no
 | Ambiente do processo | a chave privada RSA e a `SECRET_KEY`, fora do banco e da imagem |
 | Cookie do navegador | apenas o identificador da sessão |
 | Arquivo, no container | a trilha de auditoria; volume `auditlog`, montado em `/var/log/nova_api` |
-| Volume do proxy | a autoridade certificadora local do Caddy, em `caddydata`; sem ela, cada `up` emitiria um certificado de uma CA nova |
+| Volume do proxy | a autoridade certificadora local do Caddy, em `caddydata`; sem ela, cada `up` emitiria um certificado de uma CA nova. Em produção não guarda estado caro: o navegador vê o certificado da borda, e o conector não verifica a CA interna |
+| Diretório `cloudflared/` do clone de produção | as credenciais do túnel, não versionadas; segredo da classe da chave privada RSA (ADR 0027) |
 
 O Redis é descartável — a sessão sobrevive a `flush` e a reinício dele —, mas o IdP não tolera
 sua ausência: `SESSION_ENGINE = cached_db` toca o cache a cada requisição. O detalhe está na
@@ -150,10 +151,12 @@ templates/
   oauth2_provider/authorize.html     a tela de consentimento (override de template, não de view)
 static/css/idp.css     a aparência das telas
 docker/entrypoint.sh   a sequência de boot do container
-docker/Caddyfile       o nome que o proxy atende, o certificado e o destino interno
+docker/Caddyfile       o nome que o proxy atende, o certificado, o destino interno e a confiança no conector
 scripts/gen_env_secrets.sh  gera os segredos do .env, a chave RSA inclusive; não escreve no .env de propósito
 Dockerfile             a imagem e o HEALTHCHECK
 docker-compose.yml     os quatro serviços, a ordem de subida e o que é publicado no host
+docker-compose.prod.yml  o override de produção: o conector do túnel, nenhuma porta e o reinício
+cloudflared/           só no clone de produção, não versionado: as credenciais do túnel
 requirements.txt       as versões fixadas, e o piso de compatibilidade do Django
 .env.example           o contrato de variáveis de ambiente
 docs/adr/              as decisões de arquitetura, uma por arquivo, mais o template
@@ -171,15 +174,16 @@ fixos em 10001, é dono dos dois diretórios que ele escreve, os estáticos e a 
 do `depends_on` com `condition: service_healthy`, não de laço no entrypoint.
 
 Quem publica a porta da aplicação é o `proxy`. No `docker-compose.yml`, em `127.0.0.1:80` e
-`127.0.0.1:443`, e é assim em desenvolvimento e na jornada de container. Na instância de
-produção, quem opera invoca o arquivo base junto do override da ADR 0026 — `docker compose -f
-docker-compose.yml -f docker-compose.prod.yml` —, que substitui essas publicações por 80 e 443 sem
-endereço. O override entra no passo 3 de `docs/plano-implantacao.md`; até lá, o proxy publica
-em `127.0.0.1` também na instância, e o `docker/Caddyfile` emite pela CA interna (`tls internal`).
-Postgres e Redis ficam em `127.0.0.1` nos dois casos. O `app` não tem `ports:`, e a rede
-interna do compose é o único caminho até a porta 8000 (ADR 0017). O nome que o proxy
-atende sai de `PUBLIC_HOST`, variável do `.env` da qual o compose deriva também `BASE_URL`,
-`ALLOWED_HOSTS` e `BEHIND_TLS_PROXY` do serviço `app`.
+`127.0.0.1:443`, e é assim em desenvolvimento e na jornada de container, com Postgres e Redis
+também em `127.0.0.1`. No clone de produção, quem opera invoca o arquivo base junto do override
+da ADR 0027 — `docker compose -f docker-compose.yml -f docker-compose.prod.yml` —, que zera por
+`!reset []` o `ports:` de `proxy`, `postgres` e `redis`, declara o `cloudflared` ligado só à rede
+`borda`, com endereço fixo, põe `restart: unless-stopped` nos cinco serviços e fixa `DEBUG` em
+`"False"`. O `proxy` fica em `default` e em `borda`, e o `docker/Caddyfile` emite pela CA interna
+(`tls internal`) nos dois ambientes. O `app` não tem `ports:`, e a rede interna do compose é o
+único caminho até a porta 8000 (ADR 0017). O nome que o proxy atende sai de `PUBLIC_HOST`,
+variável do `.env` da qual o compose deriva também `BASE_URL`, `ALLOWED_HOSTS` e
+`BEHIND_TLS_PROXY` do serviço `app`.
 
 `docker/entrypoint.sh` abre com uma guarda de comando explícito — argumento passado à imagem
 roda sozinho, sem a sequência de boot — e depois executa `migrate`, `collectstatic` e o `exec
@@ -230,16 +234,18 @@ As decisões de arquitetura, uma por arquivo em `docs/adr/`:
 | O tempo de vida do identificador de requisição; emenda à 0012 | `0014-manter-o-identificador-de-requisicao-ate-a-requisicao-seguinte.md` |
 | A origem do cliente resolvida num ponto único | `0015-resolver-a-origem-do-cliente-num-ponto-unico.md` |
 | O limite de taxa nas três portas de autenticação | `0016-limitar-a-taxa-na-superficie-de-autenticacao.md` |
-| O proxy de terminação TLS no compose, e só ele publicado — emenda a **0006**; **emendada pela 0026** | `0017-terminar-o-tls-num-proxy-declarado-no-compose.md` |
+| O proxy de terminação TLS no compose, e só ele publicado — emenda a **0006**; **emendada pela 0027** (antes pela 0026, substituída) | `0017-terminar-o-tls-num-proxy-declarado-no-compose.md` |
 | A procedência do endereço em cada linha da trilha — estende a **0013** | `0018-declarar-a-procedencia-do-endereco-em-cada-linha-da-trilha.md` |
 | O superusuário criado por comando explícito — emenda a **0006** | `0019-criar-o-superusuario-por-comando-explicito-fora-do-boot.md` |
-| O endereço colapsado pelo `docker-proxy` marcado em cada linha da trilha — emenda a **0018** | `0020-marcar-na-linha-o-endereco-colapsado-pelo-docker-proxy.md` |
+| O endereço colapsado pelo `docker-proxy` marcado em cada linha da trilha — emenda a **0018**; **emendada pela 0027** | `0020-marcar-na-linha-o-endereco-colapsado-pelo-docker-proxy.md` |
 | O consentimento pulado na `Application` de primeira parte, por `skip_authorization` | `0021-pular-o-consentimento-na-application-de-primeira-parte-por-skip-authorization.md` |
 | O CORS por origem exata, uma por ambiente; previews da Vercel fora | `0022-liberar-o-cors-por-origem-exata-e-deixar-os-previews-da-vercel-fora.md` |
 | Sem cadastro nem edição de perfil nesta fase; contas criadas no admin | `0023-nao-oferecer-cadastro-nem-perfil-nesta-fase-e-manter-a-criacao-de-contas-no-admin.md` |
 | A montagem sob `/o/` só das listas de protocolo do toolkit — emenda a **0002** | `0024-montar-sob-o-so-as-listas-de-protocolo-do-django-oauth-toolkit.md` |
 | O issuer de produção congelado na forma `https://<PUBLIC_HOST>/o` — cumpre a condição da **0007** | `0025-congelar-o-issuer-de-producao-na-forma-https-public-host-barra-o.md` |
-| A exposição na AWS por um salto de proxy só, com ACME (Automatic Certificate Management Environment) e 80/443 fora de loopback por override de compose — emenda a **0017** | `0026-expor-o-idp-na-aws-por-um-salto-de-proxy-so-com-acme-e-80-443-fora-de-loopback.md` |
+| A exposição na AWS (Amazon Web Services) por um salto de proxy só, com ACME (Automatic Certificate Management Environment) e 80/443 fora de loopback por override de compose — emenda a **0017**; **substituída pela 0027** | `0026-expor-o-idp-na-aws-por-um-salto-de-proxy-so-com-acme-e-80-443-fora-de-loopback.md` |
+| O IdP de produção servido da máquina do dono pelo Cloudflare Tunnel, sem porta de entrada — substitui a **0026**; emenda a **0017** e a **0020** | `0027-servir-o-idp-de-producao-da-maquina-local-pelo-cloudflare-tunnel-sem-porta-de-entrada.md` |
+| A chave de assinatura em RSA 3072, pelo gerador único de segredos — emenda a **0004**; proposta | `0028-gerar-a-chave-de-assinatura-em-rsa-3072-pelo-gerador-unico-de-segredos.md` |
 
 ADR aceita é imutável: decisão que mudou vira ADR nova. O formato está em
 `docs/adr/template-adr.md`.

@@ -8,11 +8,12 @@ descoberta vivem em uma aplicação implantável só.
 
 O escopo é o de host único e uma réplica, e a aplicação não tem TLS (Transport Layer Security)
 próprio: ele termina no proxy do compose. Postgres e Redis publicam em `127.0.0.1`, e o proxy
-também, fora de produção. O proxy é a exceção declarada em produção: a ADR (Architecture Decision
-Record) 0026 o publica em 80 e 443 fora de loopback na instância da AWS (Amazon Web Services), por
-um arquivo de override do compose que quem opera invoca com `-f`, com um salto de proxy só e o
-security group da instância como única barreira de rede. Isso é premissa registrada de várias
-decisões, não licença para decidir de qualquer jeito: as decisões já tomadas são compromissos.
+também, fora de produção. Em produção nada é publicado: a ADR (Architecture Decision Record) 0027
+serve o IdP da máquina do dono por um túnel nomeado da Cloudflare, cujo conector é serviço do
+override `docker-compose.prod.yml`, invocado com os dois `-f`. O TLS do navegador termina na borda
+da Cloudflare, e quem controla a conta da Cloudflare ou as credenciais do túnel controla a
+entrada. Isso é premissa registrada de várias decisões, não licença para decidir de qualquer
+jeito: as decisões já tomadas são compromissos.
 
 ## O que já está fechado
 
@@ -25,16 +26,16 @@ decisões, não licença para decidir de qualquer jeito: as decisões já tomada
   texto que o descreve.
 - Decisão sem ADR e dívida técnica ficam em `.claude/memory/decisions.md`; impedimento aberto,
   em `.claude/memory/blockers.md`.
-- O `.env` é untracked e não tem cópia. Ele guarda a única `OIDC_RSA_PRIVATE_KEY` e a única
-  `SECRET_KEY` do projeto: `git clean -xd` apaga a identidade do IdP, e nenhum `reset` a
-  restaura.
+- Cada clone tem o seu `.env`, untracked e sem cópia no repositório. Ele guarda a única
+  `OIDC_RSA_PRIVATE_KEY` e a única `SECRET_KEY` daquele ambiente: `git clean -xd` apaga a
+  identidade do IdP naquele clone, e nenhum `reset` a restaura. O de produção tem backup cifrado
+  fora da máquina (ADR 0027, Backup).
 - A primeira RP é a `nova_api_SPA`, e a integração em desenvolvimento está fechada contra
   este IdP real. O que a SPA consome, o que este projeto lhe deve e o caminho até produção estão
-  em `docs/plano-implantacao.md`. O endurecimento e as ADRs 0024, 0025 e 0026 estão fechados: a
-  forma do issuer de produção está congelada, e a premissa de loopback deixou de valer para o
-  proxy em produção com a aceitação da 0026. A rota em curso troca a AWS pela máquina local com
-  Cloudflare Tunnel (ADR 0027, proposta); os passos 1 a 7 do plano a aplicam, e os 1 a 3 estão
-  fechados.
+  em `docs/plano-implantacao.md`. A forma do issuer de produção está congelada (ADR 0025), e a
+  ADR 0027, aceita em 2026-09-28, substituiu a 0026. Os passos 1 a 4 do plano estão fechados, o 4
+  com três verificações levadas aos passos 6 e 7; o 5 fecha com a revisão da `nova_api_SPA` e do
+  `../pre-deploy.md`, e os passos 6 e 7 são de quem opera.
 
 ## Como se escreve código aqui
 

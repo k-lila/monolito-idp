@@ -2,7 +2,9 @@
 
 ## Status
 
-Proposto — 2026-09-23 (revisto em 2026-09-24)
+Aceito — 2026-09-28
+
+Proposto em 2026-09-23 e revisto em 2026-09-24.
 
 O dono do projeto aceitou, em 2026-09-23:
 
@@ -16,12 +18,24 @@ Na revisão de 2026-09-24, o dono aceitou também que a borda veja o cookie `ses
 do superusuário, e que quem o capture persista pelo `/admin/` numa `Application` com
 `skip_authorization=True`, como descreve a negativa *Um terceiro vê tudo*.
 
-Esta ADR (Architecture Decision Record) passa a Aceito depois do ensaio descrito em
-`docs/plano-implantacao.md` (passo 4). As alíneas marcadas **[ensaio]** trazem o resultado
-esperado e são reescritas com o resultado medido antes do aceite. Aceita, esta ADR **substitui a
-ADR 0026**, que recebe o status `Substituído por ADR-0027` (a única edição permitida nela), e
-**emenda as ADRs 0017 e 0020**, que permanecem aceitas. Enquanto esta for proposta, a 0026 segue
-em vigor.
+O ensaio do passo 4 de `docs/plano-implantacao.md` rodou em 2026-09-28, sob um subdomínio de
+ensaio da zona do domínio próprio, com `cloudflare/cloudflared:2026.9.3` e `caddy:2.11.4`. As
+duas alíneas marcadas **[ensaio]** na proposta trazem agora o resultado medido, e as negativas
+registram o que o ensaio mostrou da invocação sem `-f`, do nome errado e da configuração da zona.
+O dono deu o ensaio por encerrado com três verificações sem medição, que esta ADR (Architecture
+Decision Record) não afirma:
+
+- dois clientes de redes distintas aparecendo na trilha com `ip` distintos entre si, que é o
+  sinal da emenda à ADR 0020;
+- o `fetch` cross-origin de navegador a `/o/token/`: o preflight e o `POST` foram medidos só por
+  `curl`;
+- a volta do serviço depois de `sudo systemctl restart docker`, de que depende a alínea
+  *Reinício*. O operador relatou um "laço incorreto", sem detalhe, e nada foi investigado.
+
+As três passam às verificações dos passos 6 e 7 do plano, antes do primeiro login real.
+
+Aceita, esta ADR **substitui a ADR 0026**, que recebe o status `Substituído por ADR-0027` (a
+única edição permitida nela), e **emenda as ADRs 0017 e 0020**, que permanecem aceitas.
 
 ## Contexto
 
@@ -41,8 +55,8 @@ Estes fatos decidem o desenho:
   põe um endereço só na trilha de auditoria, no limitador de taxa e no `django-axes` (ADR 0015).
 - **A marca da ADR 0020 não vê esse colapso.** `ip_edge` compara com o gateway padrão do `app`. Um
   conector numa rede do compose que não seja esse gateway sai como `peer`, como a linha correta.
-- **`CF-Connecting-IP` só vale vindo da borda**, que o sobrescreve. Por qualquer outro caminho, o
-  cabeçalho é forjável.
+- **`CF-Connecting-IP` só vale vindo da borda.** Por qualquer outro caminho, o cabeçalho é
+  forjável.
 - **Um cliente IPv6 (versão 6 do IP, de _Internet Protocol_) chega com o endereço inteiro
   (/128).** Quem controla um /64 troca de endereço a
   cada requisição, e o bloqueio `["ip_address"]` do `django-axes` e a chave do limitador por origem
@@ -94,13 +108,20 @@ domínio do IdP com zona própria. A cadeia é navegador → borda da Cloudflare
   dos pools padrão do Docker e endereço fixo para ele. O `proxy` fica em `default` e em `borda`; o
   `cloudflared` não alcança `app`, `postgres` nem `redis`. A origem é `https://proxy:443`, com SNI
   e `Host` iguais a `PUBLIC_HOST` e sem verificação de certificado.
-- **Túnel. [ensaio]** Gerido localmente, com arquivo de credenciais. O dono cria o túnel fora do
+- **Túnel.** Gerido localmente, com arquivo de credenciais. O dono cria o túnel fora do
   repositório, com uma rota de DNS (Domain Name System) só, na zona do IdP, e entrega o
   identificador do túnel (UUID, de _Universally Unique Identifier_) e o arquivo JSON (JavaScript
   Object Notation) de credenciais. O identificador vai em `TUNNEL_ID`, no `.env`. O JSON fica em
   diretório não versionado do clone de produção, montado somente-leitura no conector. A origem é
-  dada por flags que interpolam `PUBLIC_HOST`, sem literal de domínio em arquivo versionado; o
-  ensaio confirma que as flags servem.
+  dada por flags depois de `run` que interpolam `PUBLIC_HOST`, sem literal de domínio em arquivo
+  versionado. Medido no ensaio: as flags servem, e o `config.yml` com `ingress:` não foi preciso.
+  A descoberta respondeu 200 com o issuer do nome de ensaio, só `S256` e sem
+  `end_session_endpoint`. O JWKS trouxe uma chave RSA (Rivest–Shamir–Adleman) RS256 com `kid`, e
+  `/o/userinfo/` com token inválido respondeu 401. O `--origin-server-name` é aplicado, e não só
+  aceito. De dentro da rede, o Caddy recusa o handshake TLS com SNI `proxy` ou sem SNI e aceita só
+  o nome de ensaio; com `Host` diferente desse nome, não entrega a descoberta. Pela borda, a
+  descoberta chegou. O `--http-host-header` não se distinguiu, porque a borda já repassa o `Host`
+  original.
 - **Origem.** Nas opções globais, o `docker/Caddyfile` declara
   `trusted_proxies static <endereço do cloudflared>/32` e `client_ip_headers CF-Connecting-IP`. O
   `reverse_proxy` escreve `X-Forwarded-For` com `{client_ip}`, um valor só, e `X-Forwarded-Proto`
@@ -114,19 +135,32 @@ domínio do IdP com zona própria. A cadeia é navegador → borda da Cloudflare
   confiança falhar, toda linha da trilha sai com o mesmo `ip`, `ip_src` `forwarded` e `ip_edge`
   `peer`. Esse `ip` é o literal quando só falta o cabeçalho, e o endereço real do conector quando
   este difere do literal. O sinal do colapso é esse conjunto, e não a comparação do `ip` com o
-  literal.
-- **IPv6. [ensaio]** A zona do IdP liga o Pseudo IPv4 em modo de sobrescrita, e `CF-Connecting-IP`
-  chega como IPv4 de classe E. Se o ensaio mostrar que dois endereços do mesmo /64 não caem no
-  mesmo IPv4, a normalização por prefixo em `config/origem.py` fica para depois do primeiro deploy
-  funcional, com ADR própria.
+  literal. Medido no ensaio: a borda recusa com 403 e `error code: 1000`, antes da origem, toda
+  requisição de cliente que traga `CF-Connecting-IP`, em valor único, em linha duplicada ou em
+  lista separada por vírgula, em qualquer caixa, em HTTP/2 e em HTTP/1.1. `X-Forwarded-For` e
+  `True-Client-IP` forjados não chegaram à trilha, que registrou o endereço real do cliente com
+  `ip_src` `forwarded` e `ip_edge` `peer`, e nenhuma linha trouxe o literal do conector. A recusa
+  é comportamento da borda, fora do repositório, e nada a guarda entre uma medição e a seguinte.
+- **IPv6.** A zona do IdP liga o Pseudo IPv4 em modo de sobrescrita, e `CF-Connecting-IP` chega
+  como IPv4 de classe E. Medido no ensaio: com a opção valendo, um cliente IPv6 chegou à trilha
+  com um endereço de `240.0.0.0/4` em `ip`, `ip_src` `forwarded` e `ip_edge` `peer`, e é esse
+  endereço a chave do limitador e do `django-axes`. Antes de a opção valer, chegou o IPv6 inteiro,
+  com `ip_edge` `unknown`. A agregação por /64 não foi confirmada. Um segundo aparelho, que o
+  operador julgava em outra rede e que provavelmente estava no Wi-Fi da mesma casa, chegou com o
+  mesmo endereço de classe E. Não se confirmou que ele tenha saído por IPv6. Se saiu, dois
+  endereços do mesmo /64 caíram no mesmo IPv4, o que é indício, e não prova. Se a medição de
+  produção mostrar que dois endereços do mesmo /64 não caem no mesmo IPv4, a normalização por
+  prefixo em `config/origem.py` fica para depois do primeiro deploy funcional, com ADR própria.
 - **Publicação.** O override substitui por `!reset []` as listas `ports:` de `proxy`, `postgres` e
   `redis`, e produção não publica nada. O arquivo base não muda: desenvolvimento e jornada de
   container continuam em `127.0.0.1`.
 - **Reinício.** O override declara `restart: unless-stopped` em `postgres`, `redis`, `app`,
   `proxy` e `cloudflared`. Depois de um reboot ou da queda de um processo, o daemon do Docker sobe
   de novo o que estava de pé, e o IdP volta sem comando. O daemon precisa estar habilitado no boot
-  da máquina. No reboot, o daemon não respeita `depends_on`: o `app` pode subir antes do `postgres`
-  e sair na migração do entrypoint, e a política o repete até passar. A política reage a processo
+  da máquina. Na máquina do dono ele está (`systemctl is-enabled docker`, conferido no ensaio). A
+  volta depois de um restart do daemon não foi medida (Status). No reboot, o daemon não respeita
+  `depends_on`: o `app` pode subir antes do `postgres` e sair na migração do entrypoint, e a
+  política o repete até passar. A política reage a processo
   que sai, e não a contêiner `unhealthy`. `stop` e `down` continuam deixando o IdP fora de
   propósito. O arquivo base não ganha a política, e o desenvolvimento não sobe sozinho.
 - **Invocação.** No diretório de produção, **todo** comando `docker compose` leva
@@ -162,6 +196,8 @@ domínio do IdP com zona própria. A cadeia é navegador → borda da Cloudflare
   segredo da classe de `OIDC_RSA_PRIVATE_KEY`.
 - **Manutenção.** O pin do `cloudflared` sobe antes de a versão fixada sair da janela de suporte
   da Cloudflare. Cada subida do `cloudflared` ou do Caddy repete as medições de origem do ensaio.
+  A data-limite de suporte não entra no repositório: quem opera a acompanha, e o
+  `docs/runbook.md` traz o roteiro da subida, sem a data.
 - **Vazamento das credenciais do túnel.** O dono cria um túnel novo, passa para ele a rota de DNS
   de `PUBLIC_HOST` e entrega `TUNNEL_ID` e credenciais novos. O `up` com os dois `-f` troca o
   conector; depois, o dono apaga o túnel antigo.
@@ -208,7 +244,7 @@ Positivas:
 - Um `docker/Caddyfile` só, com `tls internal` nos dois ambientes. Somem `CADDY_TLS` e as opções A
   e B do antigo passo 7, e `caddydata` deixa de guardar estado caro.
 - O conector sobrevive a restart do `proxy`, porque o alcança pelo nome, numa rede própria, e não
-  alcança o resto do compose.
+  alcança o resto do compose. No ensaio, a sessão do `/admin/` sobreviveu ao `restart proxy`.
 - O IdP volta sozinho depois de reboot ou queda de processo, por política declarada num arquivo
   versionado, sem peça fora do compose.
 - A regra de confiança fica inerte em desenvolvimento, e produção e desenvolvimento sobem juntos
@@ -238,7 +274,9 @@ Negativas:
   o login da SPA por até 1–2 h.
 - **Renovação do domínio.** O issuer depende de o domínio continuar registrado; um domínio
   expirado pode ser registrado por outro, que passa a servir descoberta e JWKS sob o issuer que a
-  SPA aceita. A data de expiração fica no `docs/runbook.md`.
+  SPA aceita. A data de expiração não entra no repositório: quem opera a acompanha no registrador,
+  com renovação automática e segundo fator na conta, e o `docs/runbook.md` traz o roteiro da
+  renovação, sem a data.
 - **IPv6.** Enquanto a agregação por /64 não estiver confirmada, o limitador e o `django-axes` são
   contornáveis por quem tem um /64, e sobra o teto por `username`. Com o Pseudo IPv4, a trilha
   registra o IPv4 de classe E, e não o IPv6 real.
@@ -250,14 +288,26 @@ Negativas:
   distintas; comparar o `ip` com o literal não basta.
 - **Literal duplicado.** O endereço do conector vive em dois arquivos versionados, sincronizados à
   mão.
-- **Esquecer o `-f`.** `up` sem `-f` recria o `proxy` sem a rede `borda` e o publica em
-  `127.0.0.1`, junto de `postgres` e `redis`; `down` sem `-f` deixa o `cloudflared` órfão, que a
-  política de reinício mantém de pé. Nos dois casos a borda responde erro, e a falha é fechada
-  para a internet.
+- **Esquecer o `-f`.** Medido no ensaio. O `up` sem `-f` recria `app` e `proxy` só com o arquivo
+  base, sem `restart:` e com o `proxy` fora da rede `borda`, e a borda responde 502. Com o
+  desenvolvimento de pé, o `postgres` nem sobe, porque o arquivo base o publica na
+  `127.0.0.1:5432` que o desenvolvimento ocupa. O único aviso é o de contêiner órfão, o
+  `cloudflared`, e ele vem nesse `up`. O `down` sem `-f` remove os quatro serviços do base e a
+  rede `default` sem aviso nenhum. O `cloudflared` fica de pé porque nada o parou, e a política de
+  reinício o traz de volta depois de um reboot, sem `proxy` a alcançar. Nos dois casos, a falha é
+  fechada para a internet.
+- **Nome errado, resposta coerente.** O conector entrega `PUBLIC_HOST` no SNI e no `Host`, e o
+  Caddy e o Django atendem o nome que recebem. Um `PUBLIC_HOST` esquecido no valor de
+  desenvolvimento, como `idp.localhost`, faz a cadeia inteira responder 200 sob o domínio público,
+  com o issuer do nome errado, em vez de 400. A guarda é a conferência do issuer (regra 4 da ADR
+  0025), nos passos 4 e 6 do plano.
 - **Nome de projeto na restauração.** Esquecer a troca de `COMPOSE_PROJECT_NAME` no `.env`
   restaurado põe o ensaio sobre os volumes de produção, sem aviso.
 - Um domínio e uma zona a registrar, renovar e configurar. A configuração da zona e do túnel vive
-  fora do repositório, e nada a verifica.
+  fora do repositório, e nada a verifica. Medido no ensaio: com o "Always Use HTTPS" sem efeito,
+  `http://` respondeu 200 com a tela de login. Só a zona podia impedi-lo, porque o trecho do
+  conector ao Caddy é HTTPS e o redirecionamento do Django nunca é acionado. Com a opção ligada, a
+  resposta foi 301 para `https://`.
 - **Riscos aceitos da 0026, mantidos por esta.** O `refresh_token` não expira; os cookies usam a
   política padrão do Django 5.2. A correção de cada um é tarefa própria.
 - Os gatilhos das ADRs 0006 e 0008 seguem vencidos, como dívida.
@@ -288,9 +338,8 @@ Negativas:
 - **Túnel gerido pelo painel, com token.** A configuração de origem ficaria fora do repositório.
   Descartada.
 - **Origem em `config.yml` com `ingress:`.** O compose não interpola dentro do arquivo montado, e
-  a regra por hostname levaria o domínio literal a um arquivo versionado. Fica como recuo,
-  decidido antes do aceite, se o ensaio mostrar que as flags não servem; nesse caso o arquivo não
-  carrega o domínio, ou não é versionado.
+  a regra por hostname levaria o domínio literal a um arquivo versionado. Era o recuo se as flags
+  não servissem; no ensaio, serviram. Descartada.
 - **Unidade de sistema ou script que sobe o IdP no boot.** Seria uma peça fora do compose, contra
   a alínea *Invocação*, para fazer o que a política de reinício do daemon faz declarada no
   override. Descartada.
