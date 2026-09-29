@@ -38,6 +38,7 @@ Provider*) e da operação corrente. Os demais documentos apontam para cá em ve
 | Produção: o `up` para com `Pool overlaps` | [24](#24-produção-o-up-para-com-pool-overlaps) |
 | Produção: a descoberta responde 200 com o issuer de outro nome | [25](#25-produção-a-descoberta-responde-200-com-o-issuer-de-outro-nome) |
 | Produção: `http://` do nome público responde 200 com a tela de login | [26](#26-produção-http-do-nome-público-responde-200-com-a-tela-de-login) |
+| O processo não sobe, e a mensagem cita `SPA_URL` | [27](#27-o-processo-não-sobe-e-a-mensagem-cita-spa_url) |
 | Produção: `invalid_grant` intermitente | [Migração com um conector só](#5-migração-com-um-conector-só) |
 
 A operação do dia a dia — desbloquear conta, revogar acesso, limpar tabela, trocar chave, subir
@@ -672,6 +673,19 @@ de HSTS de cada navegador que visitou o anterior**, e enquanto isso não for fei
 não volta a atender em texto claro. Nada avisa antes, e a marca é do lado do cliente: nenhum
 comando deste repositório a apaga.
 
+**`SPA_URL` válida e errada.** A validação da carga confere a forma, não o destino: uma origem
+bem formada que não é a da `nova_api_SPA` passa, e o botão "Ir para a aplicação" da home leva
+para lá. Só quem clica percebe.
+
+**`SPA_URL=http://localhost` no `.env` de produção.** Loopback é aceito em `http://` mesmo com
+`BEHIND_TLS_PROXY` verdadeiro, porque o container de desenvolvimento roda assim. Em produção o
+valor passa, e o botão leva à máquina de quem clica.
+
+**`SPA_URL` e `CORS_ALLOWED_ORIGINS` sem vínculo.** Em produção as duas carregam a mesma
+origem, e nenhum mecanismo confere isso. Trocar só `CORS_ALLOWED_ORIGINS` deixa o botão
+levando à origem antiga; trocar só `SPA_URL` leva a uma SPA cujas chamadas a `/o/` o navegador
+barra por CORS. Nenhum dos dois casos falha na carga.
+
 ### 15. O processo não sobe, e a mensagem cita `AUDIT_LOG_PATH`
 
 **Sintoma.** Nada sobe. Na jornada de construção, qualquer `manage.py` aborta antes de fazer o
@@ -1063,6 +1077,33 @@ barreira (medido no ensaio).
 ```bash
 curl -sI http://<nome público>/
 ```
+
+### 27. O processo não sobe, e a mensagem cita `SPA_URL`
+
+**Sintoma.** Nada sobe, como na [15](#15-o-processo-não-sobe-e-a-mensagem-cita-audit_log_path):
+qualquer `manage.py` aborta, o `app` morre no boot, e a suíte não chega ao primeiro teste. A
+mensagem é uma `ImproperlyConfigured` que nomeia `SPA_URL`.
+
+**Causa.** Uma de duas, e a mensagem distingue:
+
+- **Ausente.** A linha não está no `.env`. Não há default no código: `SPA_URL` é o destino do
+  botão "Ir para a aplicação" da home, e um default levaria o botão a um lugar que ninguém
+  escolheu.
+- **Recusada.** A linha está lá, e a forma não é a de uma origem. A mensagem diz o motivo e não
+  repete o valor, que poderia trazer credenciais. São quatro: esquema que não é `http` nem
+  `https`, ou sem host; credenciais (`usuario:senha@`); caminho, barra final, query ou
+  fragmento, e também barra invertida, espaço em branco em qualquer ponto e porta vazia, não
+  numérica ou acima de 65535, todos sob a mesma mensagem de forma; e `http://` fora de loopback
+  com `BEHIND_TLS_PROXY` verdadeiro.
+
+**Correção.** Acrescente ou corrija a linha no `.env`, à mão: `SPA_URL=http://localhost:5173` em
+desenvolvimento, `SPA_URL=https://<origem da SPA>` em produção, o mesmo valor da entrada de
+`CORS_ALLOWED_ORIGINS`. **Não copie o `.env.example` por cima:** o `.env` é untracked, não tem
+cópia, e sobrescrevê-lo apaga a chave RSA e a `SECRET_KEY` do projeto. No clone de produção,
+backup do `.env` antes ([Produção pelo túnel](#produção-pelo-túnel), item 3).
+
+O que a carga não recusa (destino errado mas bem formado, loopback em produção, divergência
+com `CORS_ALLOWED_ORIGINS`) está na [14](#14-as-falhas-que-não-produzem-sintoma-nenhum-hoje).
 
 ## Operação corrente
 

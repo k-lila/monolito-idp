@@ -79,6 +79,12 @@ pura, ou o estado que ela confere já foi montado antes de o primeiro caso rodar
   `docker/Caddyfile` e o `docker-compose.prod.yml`, compara o endereço do conector nos dois e o
   situa na rede `borda`, dentro da `subnet` e fora do `ip_range`; não há requisição nenhuma a
   montar;
+- `tests/test_spa_url.py`, inteiro — o que se prova é a carga de `config/settings.py`,
+  executada por `runpy` com o ambiente montado pelo caso: a exceção que ela levanta ou o valor
+  que ela aceita. A carga não abre conexão, e não há requisição a montar;
+- `tests/test_sem_recurso_de_terceiro.py`, inteiro — lê como texto, a partir de
+  `settings.BASE_DIR`, o `static/css/idp.css` e cada `templates/**/*.html`, e procura a forma
+  de um recurso buscado fora do IdP; não há template a renderizar nem requisição a montar;
 - a classe `HealthViewDatabaseDownUnitTests`, em `tests/test_health.py` — `RequestFactory`
   mais chamada direta a `health`, com `connection` substituída por um duplo que levanta;
 - a classe `FormatadorJSONTests`, em `tests/test_observabilidade.py` — um registro emitido por
@@ -141,6 +147,9 @@ nível fim-a-fim neste projeto.
 | Endereço do conector do túnel: o `trusted_proxies static` do `docker/Caddyfile` e o `ipv4_address` do `docker-compose.prod.yml`, uma ocorrência de cada e iguais, sem fixar o valor; e o mesmo endereço dentro da `subnet` da rede `borda` e fora do seu `ip_range`, com o `ip_range` contido na `subnet`, para que o `proxy` nunca o tome por atribuição dinâmica | `tests/test_borda_do_tunel.py` | sem banco |
 | Saída do gerador de segredos `scripts/gen_env_secrets.sh`, por subprocess (TASK-025/T-01): seis linhas na ordem, tamanho hexadecimal de cada senha, URLs derivadas das senhas da própria saída e do ambiente, `--so-chave-rsa` com uma linha só e sem senha nem URL (AC-05), e argumento inválido com saída 2 e stdout vazio; as linhas proibidas são conferidas pelo nome no início, não por substring do base64 | `tests/test_gen_env_secrets.py` | sem banco |
 | A chave de `--so-chave-rsa`, desescapada como `env.str(..., multiline=True)` a desfaz, publicada no JWKS (JSON Web Key Set): uma chave RSA, `RS256`, `kid` presente, 3072 bits e `n` igual ao módulo da chave gerada (TASK-025/T-02) | `tests/test_gen_env_secrets_jwks.py` | com banco |
+| `SPA_URL` na carga das settings, por `runpy`: a ausência derruba a carga nomeando a variável; as recusas (esquema, credenciais, caminho, barra final, query, fragmento, barra invertida, espaço em branco, porta vazia ou ilegível, `http://` fora de loopback sob `BEHIND_TLS_PROXY`) nomeiam a variável e o motivo sem repetir o valor; e os aceitos, `https://` sob proxy, loopback em `http://` com e sem proxy, e porta explícita | `tests/test_spa_url.py` | sem banco |
+| Home com e sem sessão: o link "Ir para a aplicação" com `href` igual a `SPA_URL`, sem `target` e sem query, mais os textos de sessão que já existiam; e a tela de login sem o link e sem o valor de `SPA_URL` | `tests/test_home.py` | com banco |
+| Nenhum recurso de terceiro nas páginas do IdP, por leitura estática: nem `@import` nem `url(` em `static/css/idp.css`; nem `<script>`, nem `href` ou `src` com endereço absoluto (`http://`, `https://` ou `//`) em qualquer tag de `templates/**/*.html`, e um `<link>` só, o da folha de estilo local | `tests/test_sem_recurso_de_terceiro.py` | sem banco |
 
 As linhas que o nome do arquivo não explica sozinho:
 

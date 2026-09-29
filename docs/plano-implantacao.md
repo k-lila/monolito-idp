@@ -47,6 +47,7 @@ conta com o cookie de sessão do IdP (`SameSite=Lax`) para voltar sem senha. Ign
 | `client_id` | o da `Application` de produção | o da `Application` de dev |
 | Origem no CORS (Cross-Origin Resource Sharing) | `https://<spa>` | `http://localhost:5173` |
 | `redirect_uri` | `https://<spa>/callback` | `http://localhost:5173/callback` |
+| `SPA_URL`, destino do botão da home do IdP | `https://<spa>` | `http://localhost:5173` |
 
 A SPA entrega origem e `redirect_uri` literais; este projeto devolve `issuer` e `client_id`.
 
@@ -403,14 +404,18 @@ Nada versionado muda.
    para o uid do conector, e o `.env` chega em `0644` pela umask 022; num clone sob `/srv` ou
    `/opt` com todos os pais em `0755`, qualquer uid de serviço do host lê as credenciais do
    túnel, a `OIDC_RSA_PRIVATE_KEY` e a `SECRET_KEY`, sem erro nem aviso.
-2. `.env` novo no clone de produção: `SECRET_KEY`, `OIDC_RSA_PRIVATE_KEY`
-   (`scripts/gen_dev_key.sh`) e senhas novas; `PUBLIC_HOST`;
-   `CORS_ALLOWED_ORIGINS=https://<spa>`; `COMPOSE_PROJECT_NAME=nova_api_prod`; `TUNNEL_ID` do
-   túnel de produção, entregue pelo dono. `DEBUG` não depende do `.env`: o override o fixa em
-   `False`, e um `DEBUG=True` no `.env` não chega ao `app`.
+2. `.env` novo no clone de produção, a partir do `.env.example` e nunca copiado do de
+   desenvolvimento: as seis linhas de `./scripts/gen_env_secrets.sh` (ADR 0028, proposta), cada
+   uma no lugar da linha do exemplo e uma vez só; `PUBLIC_HOST`;
+   `CORS_ALLOWED_ORIGINS=https://<spa>`; `SPA_URL=https://<spa>`, o mesmo valor, sem vínculo que
+   o confira; `COMPOSE_PROJECT_NAME=nova_api_prod`; `TUNNEL_ID` do túnel de produção, entregue
+   pelo dono. Sem `SPA_URL` o `app` não sobe: num clone de produção que já exista, a linha entra
+   no `.env` antes de qualquer `pull` ou `up` do código que a lê. `DEBUG` não depende do `.env`:
+   o override o fixa em `False`, e um `DEBUG=True` no `.env` não chega ao `app`.
 3. `docker compose -f docker-compose.yml -f docker-compose.prod.yml up --wait`; `createsuperuser`
    por `run --rm` com os dois `-f` (ADR 0019).
-4. Backup cifrado fora da máquina (`.env`, `./cloudflared/`, dump de `pgdata` e `auditlog`);
+4. Backup cifrado fora da máquina (`.env`, `./cloudflared/`, dump de `pgdata` e `auditlog`),
+   refeito depois de toda mudança no `.env`, a entrada de `SPA_URL` inclusive;
    restauração ensaiada com `COMPOSE_PROJECT_NAME` trocado no `.env` restaurado **antes de
    qualquer comando**, só com o arquivo base, sem `cloudflared`, e com o desenvolvimento derrubado
    antes (`down`, sem `-v`, no diretório de dev), porque o arquivo base publica as mesmas portas em
@@ -435,6 +440,7 @@ Pronto quando:
 - [ ] `sudo systemctl restart docker`: a descoberta volta sem comando e o `ps` fica estável, sem a
       contagem de reinício crescendo (não medido; o operador relatou "laço incorreto")
 - [ ] JWKS de produção com `.keys[].n | length` = 512 (3072 bits)
+- [ ] a raiz do IdP mostra o botão "Ir para a aplicação", e ele leva à landing da SPA
 
 ### Passo 7 — `Application` de produção e SPA
 

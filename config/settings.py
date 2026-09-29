@@ -7,8 +7,10 @@ nomeando-se. Não há split dev/prod — um arquivo de dev que nunca roda em pro
 
 from datetime import timedelta
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import environ
+from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -39,6 +41,78 @@ CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS")
 # põe `Access-Control-Allow-Origin: *` à mão. Literal no código, e não no `.env`, pela razão
 # escrita em RATE_LIMIT_POR_CAMINHO.
 CORS_URLS_REGEX = r"^/o/"
+
+# Origem da nova_api_SPA, destino do botão "Ir para a aplicação" da home. A raiz não
+# redireciona para ela: é o destino de LOGIN_REDIRECT_URL e de LOGOUT_REDIRECT_URL, e é dela
+# que sai o "Sair" do cabeçalho.
+#
+# Sem default, deliberadamente, e com custo: ausente, esta linha derruba o boot e a suíte de
+# todo ambiente cujo `.env` não a tenha, nomeando a si mesma, como AUDIT_LOG_PATH. O `.env` de
+# desenvolvimento e o de produção recebem a variável antes do código que a lê.
+#
+# A forma é a de uma entrada de CORS_ALLOWED_ORIGINS, e o valor de produção coincide com ela.
+# Coincidência mantida à mão: nenhum mecanismo une as duas, e divergir não quebra nada que a
+# suíte veja.
+#
+# Validada aqui, na carga, e não na renderização: um erro de digitação só apareceria como um
+# botão que leva a lugar errado, e nada o denunciaria. System check não serve, porque o
+# gunicorn não roda checks. A mensagem nunca repete o valor, que poderia trazer credenciais.
+#
+# A isenção de loopback existe porque http://localhost é origem potencialmente confiável
+# (W3C Secure Contexts) e porque o container de desenvolvimento força BEHIND_TLS_PROXY "True"
+# no docker-compose.yml, com a SPA servida pelo Vite em http://localhost:5173. O preço é um
+# silêncio: `http://localhost` num `.env` de produção passa, e o botão leva à máquina de quem
+# clica.
+_HOSTS_DE_LOOPBACK = {"localhost", "127.0.0.1", "::1"}
+
+
+def _porta_legivel(partes):
+    # urlsplit só avalia a porta quando `.port` é lido: até lá, `https://x:abc` e
+    # `https://x:99999` são origens como outras. A ValueError não sobe porque a mensagem dela
+    # repete o trecho recusado do valor.
+    try:
+        partes.port
+    except ValueError:
+        return False
+    return True
+
+
+def _validar_spa_url(valor, behind_tls_proxy):
+    partes = urlsplit(valor)
+    if partes.scheme not in ("http", "https") or not partes.hostname:
+        raise ImproperlyConfigured("SPA_URL precisa ser uma origem http:// ou https:// com host.")
+    if "@" in partes.netloc:
+        raise ImproperlyConfigured("SPA_URL não pode conter credenciais (usuario:senha@).")
+    # Comparar com a origem remontada recusa de uma vez caminho, barra final, query e
+    # fragmento, inclusive o `?` e o `#` vazios, que urlsplit descarta. O que ela não vê fica
+    # dentro do netloc, que urlsplit não valida:
+    # - a barra invertida, caractere comum para urlsplit, que o navegador lê como `/` em
+    #   esquema especial (WHATWG URL Standard): `https://x\y` navega para `https://x/y`, com
+    #   caminho;
+    # - o espaço em branco, que urlsplit mantém no host quando vem no fim, e que iria ao href
+    #   do botão; o do começo, o tab e a quebra de linha urlsplit já remove, e a comparação os
+    #   recusa;
+    # - a porta vazia de `https://x:`, para a qual `.port` devolve None sem erro;
+    # - a porta que não é número ou passa de 65535, em _porta_legivel.
+    if (
+        valor != f"{partes.scheme}://{partes.netloc}"
+        or "\\" in valor
+        or any(c.isspace() for c in valor)
+        or partes.netloc.endswith(":")
+        or not _porta_legivel(partes)
+    ):
+        raise ImproperlyConfigured(
+            "SPA_URL é uma origem: esquema, host e porta opcional, sem caminho, barra final, "
+            "query nem fragmento."
+        )
+    if behind_tls_proxy and partes.scheme == "http" and partes.hostname not in _HOSTS_DE_LOOPBACK:
+        raise ImproperlyConfigured(
+            "SPA_URL em http:// fora de loopback com BEHIND_TLS_PROXY verdadeiro: use https://."
+        )
+    return valor
+
+
+SPA_URL = _validar_spa_url(env.str("SPA_URL"), BEHIND_TLS_PROXY)
 
 # Sem default, deliberadamente: um default faria a trilha de auditoria gravar dentro da
 # camada de escrita do container e desaparecer no primeiro `docker compose down` —

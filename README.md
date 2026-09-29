@@ -87,6 +87,7 @@ qualquer uma delas nada sobe, e a mensagem nomeia a variável:
 AUDIT_LOG_PATH=logs/audit.log
 PUBLIC_HOST=
 REDIS_PASSWORD=
+SPA_URL=http://localhost:5173
 ```
 
 `AUDIT_LOG_PATH` é o caminho da trilha de auditoria na jornada de construção; dentro do
@@ -94,6 +95,11 @@ container o `docker-compose.yml` o sobrescreve por um caminho em volume nomeado.
 `PUBLIC_HOST` é o nome que o proxy atende, e dele o compose deriva `BASE_URL`, `ALLOWED_HOSTS`
 e o certificado; o `.env.example` traz o valor sugerido, e é o único arquivo versionado deste
 repositório que carrega um nome de host.
+
+`SPA_URL` é a origem da `nova_api_SPA`, destino do botão "Ir para a aplicação" da home: só
+esquema, host e porta, sem barra final. A carga das settings recusa forma errada, e em produção
+o valor é `https://`, o mesmo da entrada de `CORS_ALLOWED_ORIGINS`
+(`docs/runbook.md`, seção 27).
 
 `REDIS_PASSWORD` **não pode ficar vazia**: para o compose, vazia e ausente são o mesmo caso, e
 o `up` aborta nomeando a variável nos dois. O `./scripts/gen_env_secrets.sh` a imprime em

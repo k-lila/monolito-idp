@@ -413,3 +413,62 @@ escrita no `.env`. Testes `TASK-025/T-01` e `T-02` (suíte 148 OK nas duas jorna
 - **Resíduo no host:** stack de dev deixado de pé em 2026-09-28 para o AC-07 (estava parado).
 - **Tipo:** decisão, pendência com dono e tech-debt.
 
+## [2026-09-29] TASK-026 · Modificação A de `../retoques.md`: botão da home do IdP para a SPA
+
+Rota `/feature` completa (product-manager, architect, writer, QA, writer, tester, QA,
+senso-critico), aberta e encerrada em 2026-09-29. A home ganhou o link "Ir para a aplicação",
+com e sem sessão, cujo destino é `SPA_URL`: variável nova, sem default, validada na carga das
+settings por `_validar_spa_url` (`config/settings.py`), que levanta `ImproperlyConfigured` sem
+repetir o valor. Tokens de `static/css/idp.css` na paleta neutral da SPA. Testes novos
+`tests/test_spa_url.py`, `tests/test_home.py` e `tests/test_sem_recurso_de_terceiro.py` (suíte
+161 OK na jornada de construção; o QA provou 9 mutações). Sem ADR: o contrato OIDC não muda.
+
+- **Decisão (retoques.md): a raiz não redireciona.** Ela é o destino de `LOGIN_REDIRECT_URL` e de
+  `LOGOUT_REDIRECT_URL`, e o "Sair" do cabeçalho é, enquanto a Modificação B não existir, o único
+  jeito de encerrar a sessão do IdP.
+- **Decisão (architect, confirmada pelo usuário): isenção de loopback.** Sob `BEHIND_TLS_PROXY`,
+  `http://` só é aceito em `localhost`, `127.0.0.1` e `::1`. O container de dev força
+  `BEHIND_TLS_PROXY "True"` (`docker-compose.yml:109`), e sobrescrever `SPA_URL` no
+  `environment:` do compose base apagaria o valor de produção. Emendou AC-05 e AC-07 e desvia de
+  `retoques.md:49` ("só https://").
+- **Decisão (usuário, depois do QA): validação endurecida.** Também recusa barra invertida,
+  espaço em branco, porta vazia e porta ilegível, com a mensagem de forma.
+- **Decisão (architect):** validação na carga e não por system check (o gunicorn não os roda);
+  `SPA_URL` só no contexto da home, sem context processor; teste da carga por `runpy` com
+  `Env.read_env` neutralizado.
+- **Adiado, dívida aceita pelo usuário (CRITICO do senso-critico): produção herdando
+  `http://localhost:5173`.** O `.env` de produção nasce do `.env.example`
+  (`plano-implantacao.md:407`, `../pre-deploy.md:232`), que traz esse valor; a isenção o aceita, e
+  a conferência de `plano-implantacao.md:443`, feita na máquina do dono com o Vite de pé, passa.
+  O botão levaria todo usuário externo a "conexão recusada". Saídas levantadas e não escolhidas:
+  `SPA_URL=` vazio no exemplo, que falha alto como o CORS; conferir de outra máquina e contra
+  `CORS_ALLOWED_ORIGINS`; recusar loopback só em produção por marca no `docker-compose.prod.yml`,
+  como o `DEBUG`.
+- **Adiado (usuário; CRITICO do senso-critico): o outro lado.** `SPA_URL` não está em
+  `../pre-deploy.md` (tabela `:217`, lista do `.env` `:232`) nem em
+  `nova_api_SPA/docs/contrato-frontend.md`, que `retoques.md:73-74` exige. Uma troca de origem da
+  SPA atualiza CORS e `redirect_uri` à força (o login quebra) e deixa `SPA_URL` para trás sem
+  sinal; se o subdomínio antigo da Vercel for registrado por terceiro, a home do IdP passa a
+  apontar para ele. Com a Modificação B, a origem ganha a quarta cópia
+  (`post_logout_redirect_uris`).
+- **Adiado, dívida:** `SPA_URL` e `CORS_ALLOWED_ORIGINS` coincidem em produção sem mecanismo que
+  os una (registrado na §14 do runbook); T-07 é regex sobre `templates/` e não vê include de
+  fora nem href vindo de variável.
+- **Pendente, com dono (usuário):** conferência a olho de login, consentimento, bloqueio e home
+  (Checklist A); suíte na jornada de container (`docker compose up -d --build app`, depois
+  `docker compose exec app python manage.py test`); `SPA_URL` no `.env` de produção antes do
+  deploy do código, e o backup cifrado refeito depois; em produção, o botão levando à landing.
+  O `.env` de dev tem hoje `SPA_URL=https://spa-idp.vercel.app`, a origem de produção: o botão do
+  IdP local leva à SPA publicada.
+- **Aceitos e resolvidos na própria tarefa:** `docs/testes.md` com os três arquivos; origem com
+  porta aceita; query, fragmento e credenciais recusados; `plano-implantacao.md:413` refluída;
+  `SPA_URL` no `.env` de dev (pelo usuário), o que destravou a suíte sem variável no ambiente;
+  `docs/testes.md:150` com as recusas da Fase 6 e `:152` com `href` ou `src` em qualquer tag e o
+  `<link>` único, corrigidas pelo orquestrador depois do encerramento, a pedido do usuário.
+- **Rejeitados, com justificativa:** teste de `&` ou aspas no href e do autoescape (o autoescape
+  está ligado e `|safe` é proibido; a validação já recusa query e espaço); "host em maiúsculas
+  recusado" (falso: só o esquema em maiúsculas é recusado, com a mensagem de forma, sem defeito).
+- **Tipo:** decisão, pendência com dono e tech-debt.
+
+---
+
