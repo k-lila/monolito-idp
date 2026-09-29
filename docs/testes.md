@@ -67,6 +67,11 @@ pura, ou o estado que ela confere já foi montado antes de o primeiro caso rodar
   `override_settings`, e não herda o da jornada: dois casos de `OrigemCompletaTests` não o
   faziam, passavam na jornada de construção e falhavam na de container, onde a mesma requisição
   cai em `remote_addr_fallback` (T-13 da TASK-019);
+- `tests/test_gen_env_secrets.py`, inteiro — o que se prova é a saída do script, e não há
+  objeto Python a isolar: o teste invoca `bash scripts/gen_env_secrets.sh` por subprocess, com
+  o ambiente limpo de `POSTGRES_*` e `REDIS_PORT`, e lê o `stdout`. Exige o `openssl` no PATH e
+  não tem pulo condicional: sem ele o teste falha, como o script falharia. Custa três gerações
+  de chave de 3072 bits. As mensagens de asserção nunca trazem o valor gerado;
 - `tests/test_endurecimento_transporte.py`, inteiro — leitura de settings, sem cliente HTTP.
   Quando a pergunta é o valor de produção de uma chave que o executor neutraliza, lê o que ele
   guardou antes de neutralizar, e não o que `settings` mostra durante a suíte;
@@ -134,6 +139,8 @@ nível fim-a-fim neste projeto.
 | Login com senha legada fraca: entra, e a senha continua a mesma | `tests/test_login_senha_legada.py` | com banco |
 | Cross-Origin Resource Sharing (CORS) restrito a `/o/`: ausente fora do prefixo, com a origem exata dentro dele, preflight e 401 incluídos | `tests/test_cors.py` | com banco |
 | Endereço do conector do túnel: o `trusted_proxies static` do `docker/Caddyfile` e o `ipv4_address` do `docker-compose.prod.yml`, uma ocorrência de cada e iguais, sem fixar o valor; e o mesmo endereço dentro da `subnet` da rede `borda` e fora do seu `ip_range`, com o `ip_range` contido na `subnet`, para que o `proxy` nunca o tome por atribuição dinâmica | `tests/test_borda_do_tunel.py` | sem banco |
+| Saída do gerador de segredos `scripts/gen_env_secrets.sh`, por subprocess (TASK-025/T-01): seis linhas na ordem, tamanho hexadecimal de cada senha, URLs derivadas das senhas da própria saída e do ambiente, `--so-chave-rsa` com uma linha só e sem senha nem URL (AC-05), e argumento inválido com saída 2 e stdout vazio; as linhas proibidas são conferidas pelo nome no início, não por substring do base64 | `tests/test_gen_env_secrets.py` | sem banco |
+| A chave de `--so-chave-rsa`, desescapada como `env.str(..., multiline=True)` a desfaz, publicada no JWKS (JSON Web Key Set): uma chave RSA, `RS256`, `kid` presente, 3072 bits e `n` igual ao módulo da chave gerada (TASK-025/T-02) | `tests/test_gen_env_secrets_jwks.py` | com banco |
 
 As linhas que o nome do arquivo não explica sozinho:
 

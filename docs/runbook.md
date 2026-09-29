@@ -163,8 +163,8 @@ Mail) — tipicamente um PEM cujas quebras de linha não estão escapadas como `
 formato que `env.str(..., multiline=True)` desfaz. O comentário que registra essa falha está em
 `config/settings.py`, na leitura da variável.
 
-**Correção.** Regere a linha com `./scripts/gen_dev_key.sh`, que já imprime o escape correto, e
-cole-a inteira, em uma linha só.
+**Correção.** Regere a linha com `./scripts/gen_env_secrets.sh --so-chave-rsa`, que já imprime o escape
+correto, e cole-a inteira, em uma linha só.
 
 ### 3. `POST /o/token/` devolve 500 em HTML, e token nenhum
 
@@ -936,11 +936,12 @@ cópia quente no Redis (`SESSION_ENGINE = cached_db`), e é a linha do Postgres 
 ### Trocar a chave RSA
 
 ```bash
-./scripts/gen_dev_key.sh
+./scripts/gen_env_secrets.sh --so-chave-rsa
 ```
 
 O script imprime a linha `OIDC_RSA_PRIVATE_KEY=...` pronta, com as quebras do PEM escapadas
-como `\n`. **Cole-a você mesmo no `.env`.** O script não escreve no arquivo de propósito:
+como `\n`. A opção faz a saída conter só essa linha, para que colá-la não troque também a
+`SECRET_KEY` e as senhas. **Cole-a você mesmo no `.env`.** O script não escreve no arquivo de propósito:
 escrita automática sobrescreveria sem confirmação uma chave possivelmente em uso.
 
 Depois de colar, recrie o container — o `.env` é lido na criação, não a cada reinício:
@@ -959,8 +960,10 @@ docker compose up -d --force-recreate app
 - `access_token` e `refresh_token` são opacos — linhas no Postgres, não artefatos assinados — e
   sobrevivem à troca. Quem depende deles não percebe nada.
 
-A primeira rotação será disruptiva por construção. A chave de produção não sai deste script:
-`gen_dev_key.sh` gera 2048 bits fixos, que é o piso aceito para RS256 (RSA com SHA-256).
+A primeira rotação será disruptiva por construção. O mesmo script gera a chave de
+desenvolvimento e a de produção, em 3072 bits fixos, o nível de 128 bits de segurança do SHA-256
+que o RS256 (RSA com SHA-256) usa (ADR
+`docs/adr/0028-gerar-a-chave-de-assinatura-em-rsa-3072-pelo-gerador-unico-de-segredos.md`).
 
 ### A trilha de auditoria: onde fica e como lê-la
 

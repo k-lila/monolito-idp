@@ -294,7 +294,7 @@ plano.
 | --- | --- | --- |
 | PKCE obrigatório | `config/settings.py`, `PKCE_REQUIRED` | ADR 0002 |
 | Restrição a `S256` | `config/settings.py`, `COMPLIANT_BCP_RFC9700_PKCE_METHOD` | sem ADR |
-| Assinatura RS256 e custódia da chave no ambiente | `config/settings.py`, `scripts/gen_dev_key.sh` | ADR 0004 |
+| Assinatura RS256 e custódia da chave no ambiente | `config/settings.py`, `scripts/gen_env_secrets.sh` | ADR 0004; tamanho e gerador, ADR 0028 |
 | Issuer em `{BASE_URL}/o`, rotas do toolkit sob prefixo | `config/urls.py`, `config/settings.py` | ADR 0007; quais rotas, ADR 0024 |
 | Só as listas de protocolo do toolkit sob `/o/`; gestão de `Application` só no admin | `config/urls.py` | ADR 0024, emenda à 0002 |
 | `redirect_uri` só em `https` com `BEHIND_TLS_PROXY` | `config/settings.py`, `ALLOWED_REDIRECT_URI_SCHEMES` | sem ADR; a condição é a da ADR 0006 |

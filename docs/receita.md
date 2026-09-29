@@ -39,14 +39,16 @@ ausente falha na leitura, nomeando-se.
 
 ```bash
 cp .env.example .env
-openssl rand -hex 48   # SECRET_KEY
-openssl rand -hex 24   # POSTGRES_PASSWORD
-openssl rand -hex 32   # REDIS_PASSWORD
+./scripts/gen_env_secrets.sh
 ```
 
-Preencha `SECRET_KEY`, `POSTGRES_PASSWORD` e `REDIS_PASSWORD`, e deixe `DATABASE_URL` e
-`REDIS_URL` coerentes com elas e com `POSTGRES_USER`, `POSTGRES_DB`, `POSTGRES_PORT` e
-`REDIS_PORT` — a coerência é manual, sem mecanismo que a verifique.
+O script imprime as seis linhas dos segredos, prontas para colar no `.env`: `SECRET_KEY`,
+`OIDC_RSA_PRIVATE_KEY` (a chave RSA, de Rivest–Shamir–Adleman), `POSTGRES_PASSWORD`,
+`REDIS_PASSWORD`, e `DATABASE_URL` e `REDIS_URL` já coerentes com as duas senhas. As URLs saem
+com os valores de `POSTGRES_USER`, `POSTGRES_DB`, `POSTGRES_PORT` e `REDIS_PORT` do
+`.env.example`. Quem mudar algum deles o passa pelo ambiente, por exemplo
+`POSTGRES_PORT=5433 ./scripts/gen_env_secrets.sh`; fora disso a coerência é manual, sem
+mecanismo que a verifique.
 
 A `REDIS_URL` da jornada de construção fica `redis://:SENHA@localhost:6379/0`: usuário vazio,
 senha depois dos dois pontos. Dentro do container o compose monta a mesma URL a partir da
@@ -91,8 +93,8 @@ Locator), que vale para `DATABASE_URL` e `REDIS_URL`.
 
 - nenhum valor entre aspas;
 - nenhum `${...}` dentro do arquivo;
-- `SECRET_KEY` sem `$ # " ' \` — `openssl rand -hex 48` produz só hexadecimal e satisfaz a
-  regra por construção;
+- `SECRET_KEY` sem `$ # " ' \` — o `./scripts/gen_env_secrets.sh` a gera só em hexadecimal e
+  satisfaz a regra por construção;
 - `POSTGRES_PASSWORD` alfanumérica, pelo mesmo motivo;
 - `REDIS_PASSWORD` em hexadecimal, e aqui a razão é a terceira gramática: `@`, `:`, `/` e `#`
   quebram a URL, e o erro que sai fala de host ou de porta, nunca de senha.
@@ -123,19 +125,15 @@ Valor truncado é senha com `$`, e a manifestação é um erro de autenticação
 iguais a olho nu. Variável ausente não chega aqui: o comando aborta nomeando-a
 (`docs/runbook.md`).
 
-### 2. Gerar a chave RSA, antes de subir o stack
+### 2. Conferir a chave RSA, antes de subir o stack
 
-**O que faz.** Gera o par RSA (Rivest–Shamir–Adleman) de desenvolvimento e imprime a linha
-pronta para o `.env`, com as quebras do PEM (Privacy-Enhanced Mail) escapadas como `\n`.
+**O que faz.** Confere que a `OIDC_RSA_PRIVATE_KEY` colada no passo 1 chegou inteira ao `.env`.
+O script a imprime com as quebras do PEM (Privacy-Enhanced Mail) escapadas como `\n`, em RSA de
+3072 bits (`docs/adr/0028-gerar-a-chave-de-assinatura-em-rsa-3072-pelo-gerador-unico-de-segredos.md`).
 
-```bash
-./scripts/gen_dev_key.sh
-```
-
-Cole a linha impressa no lugar da `OIDC_RSA_PRIVATE_KEY=` vazia. O script não escreve no
-arquivo de propósito: trocar a chave invalida todo token vivo e quebra o JWKS (JSON Web Key
-Set) cacheado das relying parties (RPs), conforme a ADR (Architecture Decision Record)
-`docs/adr/0004-assinar-tokens-com-rs256-e-custodiar-a-chave-privada-no-ambiente.md`.
+O script não escreve no arquivo de propósito: trocar a chave invalida todo token vivo e quebra o
+JWKS (JSON Web Key Set) cacheado das relying parties (RPs), conforme a ADR (Architecture
+Decision Record) `docs/adr/0004-assinar-tokens-com-rs256-e-custodiar-a-chave-privada-no-ambiente.md`.
 
 **Como você sabe que deu certo.** A linha colada é uma linha só, abre com
 `OIDC_RSA_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----\n` e fecha com `-----END PRIVATE KEY-----\n`.

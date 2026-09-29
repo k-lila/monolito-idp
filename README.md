@@ -53,9 +53,8 @@ e ele é propriedade da jornada de container (ADR 0017).
 Clonar-e-rodar, do zero ao `/admin/` aberto:
 
 ```bash
-cp .env.example .env       # preencha SECRET_KEY, POSTGRES_PASSWORD, REDIS_PASSWORD,
-                           # DATABASE_URL e REDIS_URL; confira PUBLIC_HOST
-./scripts/gen_dev_key.sh   # cole a linha impressa na OIDC_RSA_PRIVATE_KEY vazia
+cp .env.example .env
+./scripts/gen_env_secrets.sh   # cole as seis linhas impressas no .env; confira PUBLIC_HOST
 docker compose up --wait
 docker compose run --rm app python manage.py createsuperuser
 ```
@@ -102,13 +101,11 @@ e o certificado; o `.env.example` traz o valor sugerido, e é o único arquivo v
 repositório que carrega um nome de host.
 
 `REDIS_PASSWORD` **não pode ficar vazia**: para o compose, vazia e ausente são o mesmo caso, e
-o `up` aborta nomeando a variável nos dois. Gere com `openssl rand -hex 32` — `@`, `:`, `/` e
-`#` quebram a URL — e ponha o mesmo valor na sua `REDIS_URL` da jornada de construção, que é a
-repetição que nenhum mecanismo confere:
-
-```
-REDIS_URL=redis://:a-senha-gerada@localhost:6379/0
-```
+o `up` aborta nomeando a variável nos dois. O `./scripts/gen_env_secrets.sh` a imprime em
+hexadecimal, junto com a `REDIS_URL` da jornada de construção já coerente com ela. Das seis
+linhas que ele imprime, copie só essas duas: as outras quatro trocariam a chave, a `SECRET_KEY`
+e a senha do Postgres que o seu `.env` já usa. A coerência entre as duas é do script; ela só
+volta a depender de você se uma delas for trocada à mão, e nenhum mecanismo a confere.
 
 Se o seu ambiente **já rodou** o stack alguma vez, uma correção de posse, uma vez só:
 

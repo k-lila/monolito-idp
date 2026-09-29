@@ -151,7 +151,7 @@ templates/
 static/css/idp.css     a aparência das telas
 docker/entrypoint.sh   a sequência de boot do container
 docker/Caddyfile       o nome que o proxy atende, o certificado e o destino interno
-scripts/gen_dev_key.sh gera o par RSA de desenvolvimento; não escreve no .env de propósito
+scripts/gen_env_secrets.sh  gera os segredos do .env, a chave RSA inclusive; não escreve no .env de propósito
 Dockerfile             a imagem e o HEALTHCHECK
 docker-compose.yml     os quatro serviços, a ordem de subida e o que é publicado no host
 requirements.txt       as versões fixadas, e o piso de compatibilidade do Django
