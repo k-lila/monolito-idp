@@ -4,9 +4,11 @@
 
 Aceito — 2026-09-17
 
+Revisão — 2026-09-29: referências a documentos de trabalho suprimidas; decisão inalterada (ver índice).
+
 ## Contexto
 
-A `nova_api_SPA` é relying party (RP) deste provedor de identidade (IdP, de _Identity
+A aplicação de página única do sistema é relying party (RP) deste provedor de identidade (IdP, de _Identity
 Provider_) e roda no navegador, em origem diferente da dele: `http://localhost:5173` em
 desenvolvimento e `https://<spa>` na Vercel em produção. Ela troca o `code` em `/o/token/` e
 consulta `/o/userinfo/` por `fetch` — requisições cross-origin, sujeitas a CORS (Cross-Origin
@@ -22,14 +24,14 @@ Web Key Set) saem do próprio `django-oauth-toolkit` (DOT) com `Access-Control-A
 (`oauth2_provider/views/oidc.py:107` e `:129`; o metadado RFC 8414 idem,
 `views/metadata.py:154`): são metadados públicos, e a especificação OpenID Connect (OIDC) espera
 que qualquer origem os leia. Com a origem na allowlist, o middleware sobrescreve o `*` pela
-origem exata (`middleware.py:115`) — é por isso que o `curl` de verificação do contrato mostra
+origem exata (`middleware.py:115`) — é por isso que um `curl` de verificação mostra
 a origem nos quatro caminhos; com uma origem de fora, os dois metadados continuam saindo com
 `*`. A allowlist governa, portanto, `/o/token/` e `/o/userinfo/`, os dois que carregam token.
 
 A Vercel dá a cada preview de deploy uma origem própria em `*.vercel.app`, domínio compartilhado
 por todos os usuários da plataforma. Liberar previews por padrão exigiria regex, e um regex
-sobre `*.vercel.app` aceita qualquer deploy alheio. `docs/contrato-backend.md` §5.2 fixou a
-saída; esta ADR (Architecture Decision Record) a registra.
+sobre `*.vercel.app` aceita qualquer deploy alheio. O acordo entre os projetos, anterior a
+esta ADR (Architecture Decision Record), fixou a saída; esta ADR a registra.
 
 ## Decisão
 
@@ -45,10 +47,9 @@ de preview —, que ganha uma terceira `Application`, com a própria `redirect_u
 terceira origem literal. Nunca um padrão.
 
 O escopo desta decisão é a allowlist. Se os cabeçalhos de CORS devem sair só sob `/o/`
-(`CORS_URLS_REGEX`) é o passo 5 de `docs/plano-contrato-backend.md`, não isto.
+(`CORS_URLS_REGEX`) é decisão fora desta ADR.
 
-Contraparte: a ADR 0016 da `nova_api_SPA`
-(`../../../nova_api_SPA/docs/adr/0016-publicar-na-vercel-com-vercel-json-variaveis-por-ambiente-e-previews-sem-idp-de-producao.md`)
+Contraparte: a ADR 0016 da SPA
 fixa, do lado dela, que previews não autenticam e que o alias estável é o caminho se um dia for
 preciso.
 
@@ -58,9 +59,9 @@ Positivas:
 
 - Uma origem por ambiente é verificável por `curl`, sem a SPA: `Origin: https://<spa>` devolve
   `Access-Control-Allow-Origin: https://<spa>` em `/o/token/` e `/o/userinfo/`, e uma origem
-  qualquer não devolve o cabeçalho (`contrato-backend.md` §5.2 e §7).
+  qualquer não devolve o cabeçalho.
 - Preencher a allowlist é o que torna detectável a posição do `CorsMiddleware` e do
-  `LimiteDeTaxaMiddleware`, o alçapão de `docs/runbook.md` que a lista vazia escondia.
+  `LimiteDeTaxaMiddleware`, o alçapão que a lista vazia escondia.
 - A `Application` de produção só devolve `code` a `https://<spa>/callback`, e só a página em
   `https://<spa>` lê a resposta de `/o/token/` no navegador: duas listas literais fecham a mesma
   fronteira por dois mecanismos.
@@ -73,9 +74,9 @@ Negativas:
   a protege.
 - Previews não autenticam; toda verificação contra o IdP real é local ou em produção. É o custo
   que a SPA aceitou na ADR 0016 dela.
-- A frase do contrato "a liberação vale para quatro caminhos" (§5.2) é mais larga do que o
-  mecanismo: descoberta e JWKS são públicos por decisão da biblioteca, com ou sem allowlist.
-  Quem ler o contrato sem esta ADR pode concluir que a allowlist protege os quatro.
+- A frase do acordo entre os projetos, "a liberação vale para quatro caminhos", era mais larga
+  do que o mecanismo: descoberta e JWKS são públicos por decisão da biblioteca, com ou sem
+  allowlist. Quem a lesse sem esta ADR podia concluir que a allowlist protege os quatro.
 - Um terceiro ambiente custa uma `Application` e uma origem a mais, à mão, no admin e no `.env`,
   sem automação.
 

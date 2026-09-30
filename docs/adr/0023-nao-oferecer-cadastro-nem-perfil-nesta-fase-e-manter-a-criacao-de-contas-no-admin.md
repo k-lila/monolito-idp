@@ -4,9 +4,11 @@
 
 Aceito — 2026-09-17
 
+Revisão — 2026-09-29: referências a documentos de trabalho suprimidas; decisão inalterada (ver índice).
+
 ## Contexto
 
-A `nova_api_SPA`, relying party (RP) deste provedor de identidade (IdP, de _Identity
+A aplicação de página única do sistema, relying party (RP) deste provedor de identidade (IdP, de _Identity
 Provider_), nasceu assumindo que ele teria páginas de cadastro e de edição de perfil, alcançadas
 por link a partir dela, com a base em `VITE_IDP_ACCOUNT_URL`. No IdP, essas páginas não existem:
 `accounts/` tem modelo, validador de claims, auditoria e admin (`accounts/models.py`,
@@ -18,14 +20,14 @@ quem opera, em `/admin/accounts/user/add/`; a conta administrativa, por `creates
 
 Cadastro público num IdP tem pré-condições que este projeto ainda não cumpre, todas conferidas
 contra o código: `AUTH_PASSWORD_VALIDATORS` não está declarada em `config/settings.py`, e o
-default do Django é lista vazia (`docs/seguranca.md` §4) — o teto de cinco tentativas do `axes`
+default do Django é lista vazia (registrado então em `docs/seguranca.md`) — o teto de cinco tentativas do `axes`
 supõe senha forte; não há teto de requisição num caminho de cadastro, porque não há caminho
 (`RATE_LIMIT_POR_CAMINHO` nomeia três); não há verificação de e-mail, e por isso o `id_token`
-não emite `email_verified` (`accounts/oauth_validators.py`; `docs/integracao-rp.md` §6). Um
+não emite `email_verified` (`accounts/oauth_validators.py`). Um
 formulário aberto sem as três coisas cria contas com senha fraca, sem limite e com e-mail que
 ninguém confirmou — e a RP passaria a receber a claim `email` de contas assim.
 
-`docs/contrato-backend.md` §5.4 fixou a saída; esta ADR a registra.
+O acordo entre os projetos, anterior a esta ADR, fixou a saída; esta ADR a registra.
 
 ## Decisão
 
@@ -43,8 +45,7 @@ que hoje não é emitida e não será enquanto o IdP não puder sustentá-la. A 
 Edição de perfil (nome, e-mail, senha) segue o mesmo caminho: pelo admin, por quem opera,
 enquanto não houver decisão em contrário.
 
-Contraparte: a ADR 0012 da `nova_api_SPA`
-(`../../../nova_api_SPA/docs/adr/0012-retirar-as-paginas-de-conta-do-escopo-e-remover-vite-idp-account-url.md`)
+Contraparte: a ADR 0012 da SPA
 retira `VITE_IDP_ACCOUNT_URL` e as páginas de conta do escopo dela. Nenhuma mudança de código,
 `Application` ou claim no IdP decorre daqui.
 
@@ -55,10 +56,10 @@ Positivas:
 - O contrato entre os dois projetos fecha sem uma superfície que não existe: a SPA não tem link
   para 404 nem variável com valor fictício.
 - O IdP não ganha formulário público antes de ter política de senha e teto; `docs/seguranca.md`
-  continua verdadeiro, e o passo 5 de `docs/plano-contrato-backend.md` declara
-  `AUTH_PASSWORD_VALIDATORS` sem um cadastro já dependendo disso.
+  continua verdadeiro, e a declaração de `AUTH_PASSWORD_VALIDATORS`, fora desta ADR, vem
+  sem um cadastro já dependendo disso.
 - `email_verified` continua ausente por decisão, não por esquecimento; a RP sabe que não pode
-  presumir que o e-mail pertence a quem se autenticou (`docs/integracao-rp.md` §6).
+  presumir que o e-mail pertence a quem se autenticou.
 
 Negativas:
 

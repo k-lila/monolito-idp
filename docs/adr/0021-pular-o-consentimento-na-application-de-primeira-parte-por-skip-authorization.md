@@ -4,6 +4,8 @@
 
 Aceito — 2026-09-17
 
+Revisão — 2026-09-29: referências a documentos de trabalho suprimidas; decisão inalterada (ver índice).
+
 ## Contexto
 
 O `django-oauth-toolkit` (DOT) 3.4.1 decide se mostra a tela de consentimento em
@@ -17,19 +19,19 @@ inclusive na primeira autorização. O campo é booleano por cliente, default `F
 (`oauth2_provider/models.py:234`), editável no admin.
 
 A primeira relying party (RP) deste provedor de identidade (IdP, de _Identity Provider_) é a
-`nova_api_SPA`, aplicação de página única (SPA, de _Single-Page Application_) do mesmo sistema.
+aplicação de página única (SPA, de _Single-Page Application_) do mesmo sistema.
 Ela guarda tokens só em memória e, por decisão própria, volta a `/o/authorize/` em toda recarga
 da página, contando com a sessão do IdP (cookie) para voltar sem senha. Com o default do DOT,
 cada F5 passaria pela tela de consentimento — uma pergunta cuja resposta já se conhece, repetida
 até que se clique sem ler.
 
-`docs/contrato-backend.md` §5.3 fixou a saída; esta ADR (Architecture Decision Record) a
-registra.
+O acordo entre os projetos, anterior a esta ADR (Architecture Decision Record), fixou a saída;
+esta ADR a registra.
 
 ## Decisão
 
-Vamos marcar `skip_authorization=True` na `Application` da `nova_api_SPA`, na de desenvolvimento
-e na de produção, pelo admin, ao registrá-las (`contrato-backend.md` §5.1). A SPA é aplicação de
+Vamos marcar `skip_authorization=True` na `Application` da SPA, na de desenvolvimento
+e na de produção, pelo admin, ao registrá-las. A SPA é aplicação de
 primeira parte: o consentimento entre duas metades do mesmo sistema não informa nada à pessoa.
 
 O default global fica intocado: `REQUEST_APPROVAL_PROMPT` continua `"force"`, sem declaração em
@@ -40,17 +42,16 @@ Disciplina que acompanha a decisão: `skip_authorization` **nunca** é marcado e
 terceiro. Uma RP que não seja deste sistema passa pela tela em toda autorização, e é assim que se
 quer.
 
-Contraparte: a ADR 0014 da `nova_api_SPA`
-(`../../../nova_api_SPA/docs/adr/0014-manter-a-sessao-no-reload-por-redirect-e-sso-do-idp-sem-token-fora-da-memoria.md`)
+Contraparte: a ADR 0014 da SPA
 fecha "sessão no reload" contando com esta marcação, e diz que, enquanto ela faltar, a recarga
 passa pela tela — um passo a mais no mesmo redirect, sem mudança de código lá. A mesma ADR
 endereça a esta duas notas cruzadas: declarar e testar as três settings do cookie de sessão
 (`SESSION_COOKIE_SAMESITE`, `SESSION_COOKIE_AGE`, `SESSION_EXPIRE_AT_BROWSER_CLOSE`) e dar a
 `REFRESH_TOKEN_EXPIRE_SECONDS` um valor finito. Nenhuma das duas se decide aqui, porque cada
 uma é decisão própria: a primeira toca o mecanismo de SSO (Single Sign-On) da ADR 0005; a
-segunda muda o que `docs/integracao-rp.md` §8 promete a toda RP, e `docs/robustez-info.md` §2.8
-já a reservou para ADR. As duas ficam registradas nas consequências como pendências desta. O que
-o contrato já fixa (§5.4) e esta ADR reafirma: `SESSION_COOKIE_SAMESITE` não muda para `Strict`.
+segunda muda o que `docs/integracao-rp.md` promete a toda RP, e já
+estava reservada para ADR. As duas ficam registradas nas consequências como pendências desta. O que
+o acordo entre os projetos já fixava e esta ADR reafirma: `SESSION_COOKIE_SAMESITE` não muda para `Strict`.
 O pulo do consentimento só vale alguma coisa se o cookie de sessão viajar na navegação top-level
 cross-site; com `Strict`, a pessoa digitaria a senha a cada recarga, sem erro em lugar nenhum.
 
@@ -59,13 +60,12 @@ cross-site; com `Strict`, a pessoa digitaria a senha a cada recarga, sem erro em
 Positivas:
 
 - A recarga da SPA volta autenticada sem tela nenhuma: `/o/authorize/` vira um redirect que a
-  pessoa não vê. É o que fecha o §7.2 do plano da SPA.
+  pessoa não vê. É o que fecha, na SPA, a questão da sessão no reload.
 - A decisão vive no dado da `Application`, ao lado de `client_type`, `algorithm` e
   `redirect_uris`: quem registra o cliente decide, e a instância não muda de comportamento para
   os demais clientes.
 - A verificação é binária e dispensa a SPA: o fluxo PKCE (Proof Key for Code Exchange) à mão de
-  `docs/receita.md`, contra a `Application` da SPA, não mostra a tela na segunda autorização
-  (`contrato-backend.md` §7, item 4).
+  `docs/receita.md`, contra a `Application` da SPA, não mostra a tela na segunda autorização.
 
 Negativas:
 
@@ -75,7 +75,7 @@ Negativas:
   Não há teste que acuse isso: a marcação é dado, não código.
 - A `Application` da SPA passa a autorizar sem interação humana em toda ida a `/o/authorize/`
   com sessão viva. Cada F5 grava um `AccessToken`, um `RefreshToken` e um `IDToken` novos; o
-  refresh não expira (`REFRESH_TOKEN_EXPIRE_SECONDS` é `None`, `docs/integracao-rp.md` §8), e as
+  refresh não expira (`REFRESH_TOKEN_EXPIRE_SECONDS` é `None`), e as
   tabelas crescem com as recargas. A mitigação — expiração finita do refresh — é a pendência
   nomeada acima, e não está tomada.
 - O pulo depende de o cookie de sessão viajar no redirect top-level cross-site, o que hoje é o

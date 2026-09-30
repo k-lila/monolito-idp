@@ -4,6 +4,8 @@
 
 Aceito — 2026-09-28
 
+Revisão — 2026-09-29: referências a documentos de trabalho suprimidas; decisão inalterada (ver índice).
+
 Proposto em 2026-09-23 e revisto em 2026-09-24.
 
 O dono do projeto aceitou, em 2026-09-23:
@@ -18,7 +20,7 @@ Na revisão de 2026-09-24, o dono aceitou também que a borda veja o cookie `ses
 do superusuário, e que quem o capture persista pelo `/admin/` numa `Application` com
 `skip_authorization=True`, como descreve a negativa *Um terceiro vê tudo*.
 
-O ensaio do passo 4 de `docs/plano-implantacao.md` rodou em 2026-09-28, sob um subdomínio de
+O ensaio de implantação rodou em 2026-09-28, sob um subdomínio de
 ensaio da zona do domínio próprio, com `cloudflare/cloudflared:2026.9.3` e `caddy:2.11.4`. As
 duas alíneas marcadas **[ensaio]** na proposta trazem agora o resultado medido, e as negativas
 registram o que o ensaio mostrou da invocação sem `-f`, do nome errado e da configuração da zona.
@@ -32,7 +34,7 @@ Decision Record) não afirma:
 - a volta do serviço depois de `sudo systemctl restart docker`, de que depende a alínea
   *Reinício*. O operador relatou um "laço incorreto", sem detalhe, e nada foi investigado.
 
-As três passam às verificações dos passos 6 e 7 do plano, antes do primeiro login real.
+As três passam às verificações de implantação, antes do primeiro login real.
 
 Aceita, esta ADR **substitui a ADR 0026**, que recebe o status `Substituído por ADR-0027` (a
 única edição permitida nela), e **emenda as ADRs 0017 e 0020**, que permanecem aceitas.
@@ -43,7 +45,7 @@ A ADR 0026 decidiu expor este provedor de identidade (IdP, de _Identity Provider
 da AWS (Amazon Web Services). Para um projeto de estudo com um operador só, manter uma VM (máquina
 virtual) na nuvem é custo recorrente e operação a mais. A alternativa é a máquina do próprio dono,
 publicada por um túnel nomeado da Cloudflare sob um domínio próprio, como exige a ADR 0025. A
-relying party (RP) `nova_api_SPA`, aplicação de página única (SPA, de _Single-Page Application_)
+relying party (RP), a aplicação de página única (SPA, de _Single-Page Application_)
 na Vercel, compara o issuer `https://<PUBLIC_HOST>/o` byte a byte com `VITE_OIDC_ISSUER`.
 
 Estes fatos decidem o desenho:
@@ -78,7 +80,7 @@ Estes fatos decidem o desenho:
   gratuito da Cloudflare, não se ajustam por hostname.
 - **A chave de assinatura não tem conjunto de rotação** (`docs/seguranca.md`). A SPA guarda o JWKS
   (JSON Web Key Set) no cache HTTP do navegador, e seu login falha por até 1–2 h depois de uma
-  troca de chave (ADR 0013 da `nova_api_SPA`).
+  troca de chave (ADR 0013 da SPA).
 - **O nome é permanente desde a primeira visita.** `SECURE_HSTS_SECONDS` vale 31536000 sob
   `BEHIND_TLS_PROXY` (ADR 0025, regra 3).
 
@@ -190,14 +192,13 @@ domínio do IdP com zona própria. A cadeia é navegador → borda da Cloudflare
   vem antes do dump final e antes do `up` no destino. Dois conectores com o mesmo `TUNNEL_ID`
   repartem as requisições entre dois bancos, e um `code` emitido num volta `invalid_grant` no outro,
   de forma intermitente. Os volumes da origem ficam como cópia fria até o destino passar pelas
-  verificações do passo 6 do plano.
+  verificações de implantação.
 - **Barreira de rede.** Não há porta de entrada no host nem no roteador; a entrada é o túnel. Quem
   controla a conta da Cloudflare ou tem as credenciais do túnel controla a entrada. As duas são
   segredo da classe de `OIDC_RSA_PRIVATE_KEY`.
 - **Manutenção.** O pin do `cloudflared` sobe antes de a versão fixada sair da janela de suporte
   da Cloudflare. Cada subida do `cloudflared` ou do Caddy repete as medições de origem do ensaio.
-  A data-limite de suporte não entra no repositório: quem opera a acompanha, e o
-  `docs/runbook.md` traz o roteiro da subida, sem a data.
+  A data-limite de suporte não entra no repositório: quem opera a acompanha.
 - **Vazamento das credenciais do túnel.** O dono cria um túnel novo, passa para ele a rota de DNS
   de `PUBLIC_HOST` e entrega `TUNNEL_ID` e credenciais novos. O `up` com os dois `-f` troca o
   conector; depois, o dono apaga o túnel antigo.
@@ -216,8 +217,7 @@ domínio do IdP com zona própria. A cadeia é navegador → borda da Cloudflare
   trazer a conta ou a `Application` de quem o teve. Os backups do `.env` e das credenciais do
   túnel anteriores à troca ficam marcados como inválidos. Nenhuma restauração traz de volta a
   chave, a `SECRET_KEY`, as senhas nem as credenciais antigas. A troca é disruptiva, porque não há
-  conjunto de rotação: a SPA falha todo login por até 1–2 h (ADR 0013 da `nova_api_SPA`). O
-  procedimento passo a passo é do `docs/runbook.md`.
+  conjunto de rotação: a SPA falha todo login por até 1–2 h (ADR 0013 da SPA).
 - **Premissa.** Host único e réplica única, e o host é a máquina do dono.
 
 Esta ADR não altera código Python.
@@ -231,8 +231,7 @@ passa a ser o de clientes de redes distintas aparecerem na trilha com `ip` disti
 mesmo `ip` em todas as linhas, com `ip_src` `forwarded` e `ip_edge` `peer`, é o colapso, e esse
 `ip` pode não ser o literal do `docker/Caddyfile`. O campo e os três valores não mudam.
 
-Contraparte: a ADR 0018 da `nova_api_SPA`
-(`../../../nova_api_SPA/docs/adr/0018-aceitar-o-idp-de-producao-servido-pelo-cloudflare-tunnel-com-o-contrato-inalterado.md`).
+Contraparte: a ADR 0018 da SPA.
 
 ## Consequências
 
@@ -241,8 +240,8 @@ Positivas:
 - Nenhuma porta de entrada, e o endereço residencial fica fora do DNS. Sem VM a manter.
 - Um salto só escreve `X-Forwarded-For`. `config/origem.py`, `config/settings.py` e a suíte não
   mudam.
-- Um `docker/Caddyfile` só, com `tls internal` nos dois ambientes. Somem `CADDY_TLS` e as opções A
-  e B do antigo passo 7, e `caddydata` deixa de guardar estado caro.
+- Um `docker/Caddyfile` só, com `tls internal` nos dois ambientes. Somem `CADDY_TLS` e as duas opções
+  de certificado da exposição pela AWS, e `caddydata` deixa de guardar estado caro.
 - O conector sobrevive a restart do `proxy`, porque o alcança pelo nome, numa rede própria, e não
   alcança o resto do compose. No ensaio, a sessão do `/admin/` sobreviveu ao `restart proxy`.
 - O IdP volta sozinho depois de reboot ou queda de processo, por política declarada num arquivo
@@ -275,8 +274,7 @@ Negativas:
 - **Renovação do domínio.** O issuer depende de o domínio continuar registrado; um domínio
   expirado pode ser registrado por outro, que passa a servir descoberta e JWKS sob o issuer que a
   SPA aceita. A data de expiração não entra no repositório: quem opera a acompanha no registrador,
-  com renovação automática e segundo fator na conta, e o `docs/runbook.md` traz o roteiro da
-  renovação, sem a data.
+  com renovação automática e segundo fator na conta.
 - **IPv6.** Enquanto a agregação por /64 não estiver confirmada, o limitador e o `django-axes` são
   contornáveis por quem tem um /64, e sobra o teto por `username`. Com o Pseudo IPv4, a trilha
   registra o IPv4 de classe E, e não o IPv6 real.
@@ -300,7 +298,7 @@ Negativas:
   Caddy e o Django atendem o nome que recebem. Um `PUBLIC_HOST` esquecido no valor de
   desenvolvimento, como `idp.localhost`, faz a cadeia inteira responder 200 sob o domínio público,
   com o issuer do nome errado, em vez de 400. A guarda é a conferência do issuer (regra 4 da ADR
-  0025), nos passos 4 e 6 do plano.
+  0025).
 - **Nome de projeto na restauração.** Esquecer a troca de `COMPOSE_PROJECT_NAME` no `.env`
   restaurado põe o ensaio sobre os volumes de produção, sem aviso.
 - Um domínio e uma zona a registrar, renovar e configurar. A configuração da zona e do túnel vive

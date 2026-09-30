@@ -4,6 +4,8 @@
 
 Aceito — 2026-09-10
 
+Revisão — 2026-09-29: referências a documentos de trabalho suprimidas; decisão inalterada (ver índice).
+
 ## Contexto
 
 As três portas de autenticação do IdP (Identity Provider) aceitam tentativas sem teto.
@@ -133,8 +135,8 @@ Positivas:
   código de saída ou rode o comando como gate.
 - O `/admin/login/` fica protegido de graça, pelo mesmo caminho de `authenticate()`.
 - Nenhum teste existente precisa de ajuste por causa do login: nenhum caso da suíte faz cinco
-  falhas seguidas, e o contador em banco volta com o rollback. A quebra que a ficha 2.1 previa em
-  `tests/test_login_view.py` não se materializa.
+  falhas seguidas, e o contador em banco volta com o rollback. A quebra prevista em
+  `tests/test_login_view.py` na análise que precedeu esta decisão não se materializa.
 - O fluxo Authorization Code legítimo não chega perto do teto de `/o/`, e o fim de todo bloqueio
   daquele endpoint é automático.
 

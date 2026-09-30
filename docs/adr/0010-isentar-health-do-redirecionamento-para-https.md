@@ -4,6 +4,8 @@
 
 Aceito — 2026-09-01
 
+Revisão — 2026-09-29: referências a documentos de trabalho suprimidas; decisão inalterada (ver índice).
+
 ## Contexto
 
 O endurecimento de transporte do projeto é governado por BEHIND_TLS_PROXY, e não por DEBUG (ADR
@@ -21,8 +23,8 @@ de vista do middleware, é uma requisição insegura como outra qualquer.
 O resultado é um serviço eternamente unhealthy com a aplicação atendendo normalmente a quem
 chega pelo proxy: a probe recebe 301, segue o redirecionamento, tenta um handshake TLS contra
 um socket que fala HTTP em claro e falha ali. O orquestrador conclui que a aplicação está fora;
-ela não está. O passo 11 do roadmap cataloga duas causas para esse mesmo sintoma — healthcheck
-escrito com curl numa imagem slim, e ALLOWED_HOSTS sem localhost — e não tem esta terceira.
+ela não está. O roteiro de construção da época catalogava duas causas para esse mesmo sintoma — healthcheck
+escrito com curl numa imagem slim, e ALLOWED_HOSTS sem localhost — e não tinha esta terceira.
 
 A falha está latente e não hipotética: o .env.example sai com BEHIND_TLS_PROXY=False, que é o
 valor da jornada de sandbox, e o defeito aparece no primeiro ambiente que a ligar — isto é, no
@@ -84,7 +86,7 @@ Negativas:
   DEBUG=False, ALLOWED_HOSTS precisa listar 127.0.0.1 mesmo quando o IdP só é servido por um
   nome público. Quem estreitar a lista ao nome do proxy — leitura natural de quem põe TLS na
   frente, e o mesmo movimento que liga BEHIND_TLS_PROXY e troca a BASE_URL — recebe 400
-  DisallowedHost e o unhealthy eterno volta, pela segunda das causas que o passo 11 já
+  DisallowedHost e o unhealthy eterno volta, pela segunda das causas que aquele roteiro já
   catalogava. As duas causas do mesmo sintoma são disparadas pela mesma mudança de ambiente, e
   esta decisão fecha apenas uma; a outra vive no README, que é o que o operador lê no momento
   em que erra.
@@ -103,7 +105,7 @@ Negativas:
   se quer remover.
 - **Aceitar 301 como resposta saudável no HEALTHCHECK** — a mudança mais barata de todas, e a
   pior. O 301 é emitido pelo middleware antes da view: um healthcheck que o aceita não observa
-  banco nem cache e vira o healthcheck raso que o passo 10 do roadmap proíbe por ser pior que
+  banco nem cache e vira o healthcheck raso que aquele roteiro proibia por ser pior que
   healthcheck nenhum.
 - **Desligar SECURE_SSL_REDIRECT** — eliminaria o problema e a proteção junto, deixando ao
   proxy a responsabilidade inteira pelo redirecionamento. Descartada porque troca uma exceção

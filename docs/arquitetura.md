@@ -298,42 +298,81 @@ tolera a ausência do Redis: `cached_db` toca o cache a cada requisição.
 Uma decisão por arquivo em `docs/adr/`. ADR aceita é imutável: decisão que mudou vira ADR
 nova. O formato está em `docs/adr/template-adr.md`.
 
-| Assunto | ADR |
-| --- | --- |
-| Plataforma: Django 5.2 sobre Python 3.14 | `0001-adotar-django-5-2-lts-sobre-python-3-14.md` |
-| O toolkit como servidor de autorização — **emendada pela 0024 e pela 0030** | `0002-usar-django-oauth-toolkit-como-servidor-de-autorizacao.md` |
-| `User` customizado com e-mail como identificador | `0003-modelar-identidade-em-user-customizado-com-email-como-identificador.md` |
-| RS256 e a custódia da chave privada — **emendada pela 0028** (proposta) | `0004-assinar-tokens-com-rs256-e-custodiar-a-chave-privada-no-ambiente.md` |
-| A sessão SSO em `cached_db` | `0005-manter-a-sessao-sso-em-sessao-django-com-backend-cached-db.md` |
-| Container único orquestrado por docker-compose | `0006-empacotar-o-idp-como-container-unico-orquestrado-por-docker-compose.md` |
-| O issuer em `{BASE_URL}/o` | `0007-fixar-o-issuer-do-idp-em-base-url-barra-o.md` |
-| WhiteNoise sem manifesto de hash | `0008-servir-estaticos-com-whitenoise-sem-manifesto-de-hash.md` |
-| O `/health` isolado da sessão e do usuário | `0009-isolar-a-view-de-health-da-sessao-e-do-usuario.md` |
-| A isenção de `/health` no redirecionamento para HTTPS | `0010-isentar-health-do-redirecionamento-para-https.md` |
-| O teto de tempo do `/health` e o `HEALTHCHECK` derivado dele | `0011-dar-teto-de-tempo-ao-health-e-derivar-o-healthcheck-dele.md` |
-| O log operacional em JSON, com identificador de requisição — **emendada pela 0014** | `0012-emitir-o-log-operacional-em-json-com-identificador-de-requisicao.md` |
-| A trilha de auditoria dos quatro sinais, em arquivo durável — **ampliada pela 0016 e pela 0029**; **estendida pela 0018** | `0013-registrar-a-trilha-de-auditoria-dos-quatro-sinais-em-arquivo-duravel.md` |
-| O tempo de vida do identificador de requisição; emenda à 0012 | `0014-manter-o-identificador-de-requisicao-ate-a-requisicao-seguinte.md` |
-| A origem do cliente resolvida num ponto único | `0015-resolver-a-origem-do-cliente-num-ponto-unico.md` |
-| O limite de taxa nas três portas de autenticação | `0016-limitar-a-taxa-na-superficie-de-autenticacao.md` |
-| O proxy de terminação TLS no compose, e só ele publicado — emenda a **0006**; **emendada pela 0027** (antes pela 0026, substituída) | `0017-terminar-o-tls-num-proxy-declarado-no-compose.md` |
-| A procedência do endereço em cada linha da trilha — estende a **0013** | `0018-declarar-a-procedencia-do-endereco-em-cada-linha-da-trilha.md` |
-| O superusuário criado por comando explícito — emenda a **0006** | `0019-criar-o-superusuario-por-comando-explicito-fora-do-boot.md` |
-| O endereço colapsado pelo `docker-proxy` marcado em cada linha da trilha — emenda a **0018**; **emendada pela 0027** | `0020-marcar-na-linha-o-endereco-colapsado-pelo-docker-proxy.md` |
-| O consentimento pulado na `Application` de primeira parte, por `skip_authorization` | `0021-pular-o-consentimento-na-application-de-primeira-parte-por-skip-authorization.md` |
-| O CORS por origem exata, uma por ambiente; previews da Vercel fora | `0022-liberar-o-cors-por-origem-exata-e-deixar-os-previews-da-vercel-fora.md` |
-| Sem cadastro nem edição de perfil nesta fase; contas criadas no admin | `0023-nao-oferecer-cadastro-nem-perfil-nesta-fase-e-manter-a-criacao-de-contas-no-admin.md` |
-| A montagem sob `/o/` só das listas de protocolo do toolkit — emenda a **0002**; **emendada pela 0030** | `0024-montar-sob-o-so-as-listas-de-protocolo-do-django-oauth-toolkit.md` |
-| O issuer de produção congelado na forma `https://<PUBLIC_HOST>/o` — cumpre a condição da **0007** | `0025-congelar-o-issuer-de-producao-na-forma-https-public-host-barra-o.md` |
-| A exposição na AWS (Amazon Web Services) por um salto de proxy só, com ACME (Automatic Certificate Management Environment) e 80/443 fora de loopback por override de compose — emenda a **0017**; **substituída pela 0027** | `0026-expor-o-idp-na-aws-por-um-salto-de-proxy-so-com-acme-e-80-443-fora-de-loopback.md` |
-| O IdP de produção servido da máquina do dono pelo Cloudflare Tunnel, sem porta de entrada — substitui a **0026**; emenda a **0017** e a **0020** | `0027-servir-o-idp-de-producao-da-maquina-local-pelo-cloudflare-tunnel-sem-porta-de-entrada.md` |
-| A chave de assinatura em RSA 3072, pelo gerador único de segredos — emenda a **0004**; proposta | `0028-gerar-a-chave-de-assinatura-em-rsa-3072-pelo-gerador-unico-de-segredos.md` |
-| O logout iniciado pela RP ligado, com revogação restrita à `Application` e retorno só a destino cadastrado — amplia a **0013**; proposta, passa a aceita quando a ADR 0019 da SPA estiver gravada | `0029-ligar-o-logout-iniciado-pela-rp-com-revogacao-restrita-a-application.md` |
-| A rota de logout do toolkit sombreada por uma subclasse da view, montada antes do `include` — emenda a **0002** e a **0024**; proposta | `0030-sombrear-a-rota-de-logout-do-toolkit-com-uma-subclasse-da-view.md` |
+As ADRs guardam o que se sabia e se decidiu na data delas; este índice guarda o que ajuda a
+lê-las hoje. Uma ADR aceita só é editada para restabelecer a verdade: em 2026-09-29, as
+referências a documentos de trabalho que não existem mais (runbook, roadmap, planos, contrato de
+back-end, fichas de robustez) e os caminhos para o diretório da SPA foram suprimidos, sem mudar
+decisão. Cada ADR editada traz, sob o status, uma linha de revisão. A 0004 ainda cita
+`scripts/gen_dev_key.sh`: a frase inteira é o que a 0028 emenda.
+
+| Assunto | ADR | Revisões depois do aceite |
+| --- | --- | --- |
+| Plataforma: Django 5.2 sobre Python 3.14 | `0001-adotar-django-5-2-lts-sobre-python-3-14.md` | revisão de prosa (a6b5014, 2026-09-03) |
+| O toolkit como servidor de autorização — **emendada pela 0024 e pela 0030** | `0002-usar-django-oauth-toolkit-como-servidor-de-autorizacao.md` | revisão de prosa (a6b5014, 2026-09-03) |
+| `User` customizado com e-mail como identificador | `0003-modelar-identidade-em-user-customizado-com-email-como-identificador.md` | revisão de prosa (a6b5014, 2026-09-03) |
+| RS256 e a custódia da chave privada — **emendada pela 0028** | `0004-assinar-tokens-com-rs256-e-custodiar-a-chave-privada-no-ambiente.md` | revisão de prosa (a6b5014, 2026-09-03) |
+| A sessão SSO em `cached_db` | `0005-manter-a-sessao-sso-em-sessao-django-com-backend-cached-db.md` | revisão de prosa (a6b5014, 2026-09-03) |
+| Container único orquestrado por docker-compose | `0006-empacotar-o-idp-como-container-unico-orquestrado-por-docker-compose.md` | revisão de prosa (a6b5014, 2026-09-03) |
+| O issuer em `{BASE_URL}/o` | `0007-fixar-o-issuer-do-idp-em-base-url-barra-o.md` | revisão de prosa (a6b5014, 2026-09-03) |
+| WhiteNoise sem manifesto de hash | `0008-servir-estaticos-com-whitenoise-sem-manifesto-de-hash.md` | revisão de prosa (a6b5014, 2026-09-03); supressão de referências voláteis (2026-09-29) |
+| O `/health` isolado da sessão e do usuário | `0009-isolar-a-view-de-health-da-sessao-e-do-usuario.md` | revisão de prosa (a6b5014, 2026-09-03) |
+| A isenção de `/health` no redirecionamento para HTTPS | `0010-isentar-health-do-redirecionamento-para-https.md` | revisão de prosa (a6b5014, 2026-09-03); supressão de referências voláteis (2026-09-29) |
+| O teto de tempo do `/health` e o `HEALTHCHECK` derivado dele | `0011-dar-teto-de-tempo-ao-health-e-derivar-o-healthcheck-dele.md` | revisão de prosa (a6b5014, 2026-09-03) |
+| O log operacional em JSON, com identificador de requisição — **emendada pela 0014** | `0012-emitir-o-log-operacional-em-json-com-identificador-de-requisicao.md` | supressão de referências voláteis (2026-09-29) |
+| A trilha de auditoria dos quatro sinais, em arquivo durável — **ampliada pela 0016 e pela 0029**; **estendida pela 0018** | `0013-registrar-a-trilha-de-auditoria-dos-quatro-sinais-em-arquivo-duravel.md` | supressão de referências voláteis (2026-09-29) |
+| O tempo de vida do identificador de requisição; emenda à 0012 | `0014-manter-o-identificador-de-requisicao-ate-a-requisicao-seguinte.md` | supressão de referências voláteis (2026-09-29) |
+| A origem do cliente resolvida num ponto único | `0015-resolver-a-origem-do-cliente-num-ponto-unico.md` | supressão de referências voláteis (2026-09-29) |
+| O limite de taxa nas três portas de autenticação | `0016-limitar-a-taxa-na-superficie-de-autenticacao.md` | supressão de referências voláteis (2026-09-29) |
+| O proxy de terminação TLS no compose, e só ele publicado — emenda a **0006**; **emendada pela 0027** (antes pela 0026, substituída) | `0017-terminar-o-tls-num-proxy-declarado-no-compose.md` | supressão de referências voláteis (2026-09-29) |
+| A procedência do endereço em cada linha da trilha — estende a **0013** | `0018-declarar-a-procedencia-do-endereco-em-cada-linha-da-trilha.md` | supressão de referências voláteis (2026-09-29) |
+| O superusuário criado por comando explícito — emenda a **0006** | `0019-criar-o-superusuario-por-comando-explicito-fora-do-boot.md` | supressão de referências voláteis (2026-09-29) |
+| O endereço colapsado pelo `docker-proxy` marcado em cada linha da trilha — emenda a **0018**; **emendada pela 0027** | `0020-marcar-na-linha-o-endereco-colapsado-pelo-docker-proxy.md` | supressão de referências voláteis (2026-09-29) |
+| O consentimento pulado na `Application` de primeira parte, por `skip_authorization` | `0021-pular-o-consentimento-na-application-de-primeira-parte-por-skip-authorization.md` | supressão de referências voláteis (2026-09-29) |
+| O CORS por origem exata, uma por ambiente; previews da Vercel fora | `0022-liberar-o-cors-por-origem-exata-e-deixar-os-previews-da-vercel-fora.md` | supressão de referências voláteis (2026-09-29) |
+| Sem cadastro nem edição de perfil nesta fase; contas criadas no admin | `0023-nao-oferecer-cadastro-nem-perfil-nesta-fase-e-manter-a-criacao-de-contas-no-admin.md` | supressão de referências voláteis (2026-09-29) |
+| A montagem sob `/o/` só das listas de protocolo do toolkit — emenda a **0002**; **emendada pela 0030** | `0024-montar-sob-o-so-as-listas-de-protocolo-do-django-oauth-toolkit.md` | supressão de referências voláteis (2026-09-29) |
+| O issuer de produção congelado na forma `https://<PUBLIC_HOST>/o` — cumpre a condição da **0007** | `0025-congelar-o-issuer-de-producao-na-forma-https-public-host-barra-o.md` | supressão de referências voláteis (2026-09-29) |
+| A exposição na AWS (Amazon Web Services) por um salto de proxy só, com ACME (Automatic Certificate Management Environment) e 80/443 fora de loopback por override de compose — emenda a **0017**; **substituída pela 0027** | `0026-expor-o-idp-na-aws-por-um-salto-de-proxy-so-com-acme-e-80-443-fora-de-loopback.md` | supressão de referências voláteis (2026-09-29) |
+| O IdP de produção servido da máquina do dono pelo Cloudflare Tunnel, sem porta de entrada — substitui a **0026**; emenda a **0017** e a **0020** | `0027-servir-o-idp-de-producao-da-maquina-local-pelo-cloudflare-tunnel-sem-porta-de-entrada.md` | supressão de referências voláteis (2026-09-29) |
+| A chave de assinatura em RSA 3072, pelo gerador único de segredos — emenda a **0004** | `0028-gerar-a-chave-de-assinatura-em-rsa-3072-pelo-gerador-unico-de-segredos.md` | — |
+| O logout iniciado pela RP ligado, com revogação restrita à `Application` e retorno só a destino cadastrado — amplia a **0013**; par com a ADR 0019 da SPA, aceitas no mesmo dia | `0029-ligar-o-logout-iniciado-pela-rp-com-revogacao-restrita-a-application.md` | — |
+| A rota de logout do toolkit sombreada por uma subclasse da view, montada antes do `include` — emenda a **0002** e a **0024** | `0030-sombrear-a-rota-de-logout-do-toolkit-com-uma-subclasse-da-view.md` | — |
+
+### Decisões em vigor sem ADR
+
+- `CORS_URLS_REGEX = r"^/o/"`: a ADR 0022 declara a questão fora do seu escopo, e nenhuma ADR a
+  decidiu. A 0024 registra que ela se apoia no prefixo `/o/`.
+- `AUTH_PASSWORD_VALIDATORS` declarada: a 0023 registra só que a declaração vem fora dela.
+- Cookie de sessão pelos defaults do Django: `SESSION_COOKIE_SAMESITE`, `SESSION_COOKIE_AGE` e
+  `SESSION_EXPIRE_AT_BROWSER_CLOSE` não são declarados. A 0021 os deixou como pendência. Risco
+  aceito: uma atualização do Django pode trocá-los em silêncio.
+- `refresh_token` sem expiração: `REFRESH_TOKEN_EXPIRE_SECONDS` fica no `None` do toolkit, que é
+  o que a §3 de `docs/nucleo-idp.md` publica. A 0021 e a 0026 o deixaram como pendência; o risco
+  aceito está em `docs/seguranca.md`.
+
+As quatro foram fechadas pelo status quo em 2026-09-30, sem ADR. Mudar qualquer uma é ADR nova,
+e nas duas últimas a mudança toca a SPA.
+
+### Pares com a SPA
+
+| Tema | IdP | SPA |
+| --- | --- | --- |
+| Issuer | 0007, 0025 | 0017 |
+| Sessão no reload e consentimento | 0021 | 0014 |
+| Páginas de conta | 0023 | 0012 |
+| CORS e previews | 0022 | 0016 |
+| Túnel da Cloudflare | 0027 | 0018 |
+| Logout pela RP | 0029, 0030 | 0019 |
+
+Quem decidiu depois cita quem decidiu antes; a citação mútua só existe nos pares propostos
+juntos. Este índice registra o par nos dois sentidos.
+
+O par do túnel não mudou de status no mesmo ato: a 0027 foi aceita em 2026-09-28, e a 0018 da
+SPA em 2026-09-29, que registra a data desta.
 
 ### O "passo NN" nos comentários
 
-As ADRs 0008 e 0010 e alguns comentários de código citam "passo NN" do roadmap. Os comentários
+Alguns comentários de código citam "passo NN" do roadmap; as ADRs 0008 e 0010, que também citavam, falam agora do "roteiro de construção da época". Os comentários
 estão no `Dockerfile`, no `docker-compose.yml`, em `config/settings.py`, em `accounts/models.py`,
 em `tests/test_password_reset_urls.py`, no `.env.example`, no `.gitignore` e no `.dockerignore`. O roadmap eram os treze arquivos de `docs/roadmap/`,
 removidos no commit `b7774d5` depois de cumpridos, e cada um segue legível no histórico, por
@@ -353,4 +392,3 @@ deliberadamente de um passo, vale o código.
 | O motivo de cada valor de configuração | comentários de `config/settings.py` |
 | Regras de trabalho e restrições do repositório | `CLAUDE.md` |
 | Convenções entre agentes, incluindo as de ADR | `.claude/PROTOCOLO-AGENTES.md` |
-| Os documentos que as ADRs citam e que saíram na reorganização de 2026-09-29: `runbook.md`, `plano-implantacao.md`, `esboco.md`, `robustez.md`, `robustez-info.md`, `implementacao-robustez.md` e `gaps/observabilidade.md` | `git show 8caf117:docs/<arquivo>`, histórico |

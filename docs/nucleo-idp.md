@@ -79,7 +79,7 @@ tabela não é refatoração, é quebra de contrato com terceiro.
 | `redirect_uri` | igualdade exata com a registrada | `tests/test_authorize_guards.py` |
 | Logout pela RP | `end_session_endpoint` = issuer + `/logout/`; revoga os tokens da conta só na `Application` que pede e encerra a sessão | ADRs 0029 e 0030 |
 | Tempos de vida | `code` 60 s; `access_token` e `id_token` 10 h; `refresh_token` sem expiração | defaults do `django-oauth-toolkit` 3.4.1 |
-| CORS (Cross-Origin Resource Sharing) | origem exata, sem curinga; `CORS_URLS_REGEX = r"^/o/"`; `CorsMiddleware` no topo do `MIDDLEWARE` | `config/settings.py`, ADR 0022 |
+| CORS (Cross-Origin Resource Sharing) | origem exata, sem curinga; `CORS_URLS_REGEX = r"^/o/"`; `CorsMiddleware` no topo do `MIDDLEWARE` | `config/settings.py`; origem exata pela ADR 0022; `CORS_URLS_REGEX` sem ADR (índice em `docs/arquitetura.md`) |
 
 O caminho completo de um pedido, de `/o/authorize/` ao "Sair", está em `docs/arquitetura.md`;
 o que a RP verifica no token, em `docs/integracao-rp.md`.
@@ -169,14 +169,13 @@ A fronteira entre os módulos `config`, `accounts`, `oauth2_provider` e `axes` e
 
 ## 7. Dívidas abertas
 
-Cada uma é tarefa própria, com ADR.
+Cada uma é tarefa própria, com ADR. As duas que existem só como gatilho ficam aqui; o cookie de
+sessão pelos defaults e o `refresh_token` sem expiração foram fechados pelo status quo e estão em
+`docs/arquitetura.md`, "Decisões em vigor sem ADR".
 
-- `SESSION_COOKIE_SAMESITE`, `SESSION_COOKIE_AGE` e `SESSION_EXPIRE_AT_BROWSER_CLOSE` não
-  declarados: uma atualização do Django pode trocá-los em silêncio.
-- `REFRESH_TOKEN_EXPIRE_SECONDS` sem valor finito (levantamento em
-  `git show 8caf117:docs/robustez-info.md`, §2.8).
 - Rotação da chave sem disrupção por `OIDC_RSA_PRIVATE_KEYS_INACTIVE`: publica mais de uma
-  chave no JWKS, o que muda a §3 e pede ADR nos dois projetos (mesmo levantamento, §2.11).
+  chave no JWKS, o que muda a §3 e pede ADR nos dois projetos (levantamento em
+  `git show 8caf117:docs/robustez-info.md`, §2.11).
 - A revisão do alcance do logout, quando entrar a segunda RP (§4.4).
 
 ---

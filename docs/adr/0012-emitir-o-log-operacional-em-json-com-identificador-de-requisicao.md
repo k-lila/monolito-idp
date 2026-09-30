@@ -4,6 +4,8 @@
 
 Aceito — 2026-09-08
 
+Revisão — 2026-09-29: referências a documentos de trabalho suprimidas; decisão inalterada (ver índice).
+
 ## Contexto
 
 O bloco `LOGGING` de `config/settings.py` declara um handler `console` com `class` e `stream`, e
@@ -13,8 +15,8 @@ serve a coletor nenhum, não se ordena e não se correlaciona com nada.
 
 Some-se que o `docker/entrypoint.sh` omite `--access-logfile` de propósito, e o comentário ali
 registra a razão: uma linha a cada dez segundos de sonda afogaria o log em que a falha de
-`migrate` e o traceback de um 500 precisam ser vistos. A consequência colateral está escrita em
-`docs/runbook.md`: a ausência de registro de uma requisição não é prova de que ela não chegou. Um
+`migrate` e o traceback de um 500 precisam ser vistos. A consequência colateral:
+a ausência de registro de uma requisição não é prova de que ela não chegou. Um
 fluxo de autorização que funcionou não deixa rastro nenhum.
 
 Falta ainda a correlação. O container roda três workers `sync` do Gunicorn, e duas linhas
@@ -27,7 +29,7 @@ aplica: aceita-se dependência quando o código que ela substitui é grande e di
 recusa-se quando são poucas linhas cujo formato queremos possuir. A segunda é a lista
 `MIDDLEWARE`, que carrega uma regra escrita — o `CorsMiddleware` sempre no topo — cuja violação é
 indetectável enquanto a allowlist de CORS (Cross-Origin Resource Sharing) estiver vazia. A
-terceira é `docs/runbook.md`, que ensina a procurar linhas específicas em `docker compose logs
+terceira é o documento operacional, que ensina a procurar linhas específicas em `docker compose logs
 app`: mudar o formato do log desatualiza esse documento no mesmo commit em que a mudança entra.
 
 ## Decisão
@@ -86,7 +88,7 @@ Positivas:
 
 Negativas:
 
-- O log deixa de ser legível a olho nu. Todo procedimento de `docs/runbook.md` que mandava
+- O log deixa de ser legível a olho nu. Todo procedimento do documento operacional que mandava
   procurar uma linha específica muda de idioma no mesmo commit, e quem opera precisa de `jq`.
 - **O log do container passa a ser misto, e isso quebra o `jq` ingênuo.** As linhas do Gunicorn
   (boot, sinais, worker) e a saída de `migrate` e de `collectstatic` não atravessam o `logging` do

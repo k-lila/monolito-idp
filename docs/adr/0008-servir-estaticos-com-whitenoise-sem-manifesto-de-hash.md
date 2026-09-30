@@ -4,6 +4,8 @@
 
 Aceito — 2026-09-01
 
+Revisão — 2026-09-29: referências a documentos de trabalho suprimidas; decisão inalterada (ver índice).
+
 ## Contexto
 
 O projeto roda com DEBUG=False em todo ambiente, inclusive na jornada de construção: é decisão
@@ -11,7 +13,7 @@ declarada, para que não exista um caminho de desenvolvimento que nunca é exerc
 DEBUG=False o runserver não serve arquivos estáticos; quem serve é o WhiteNoise, a partir do
 STATIC_ROOT, o que torna `collectstatic` um passo obrigatório antes de subir a aplicação.
 
-O passo 09 do roadmap prescreveu o backend `CompressedManifestStaticFilesStorage`, que
+O roteiro de construção da época prescreveu o backend `CompressedManifestStaticFilesStorage`, que
 acrescenta a esse arranjo um manifesto: `collectstatic` grava um `staticfiles.json` mapeando
 cada caminho lógico para um nome com hash, e a tag `{% static %}` passa a resolver por consulta
 a esse mapa, servindo os arquivos com nome versionado e cache longo.
@@ -43,7 +45,7 @@ continua executando-o. O que deixa de ser obrigatório é executá-lo para que a
 passe: sem manifesto, `{% static %}` é concatenação de STATIC_URL com o caminho lógico e não
 consulta artefato algum.
 
-Esta decisão diverge do texto do passo 09 do roadmap, e a divergência é deliberada.
+Esta decisão diverge do que aquele roteiro prescrevia, e a divergência é deliberada.
 
 ## Consequências
 
@@ -70,18 +72,18 @@ Negativas:
 - Se o projeto sair do sandbox, esta decisão terá de ser revista, e a revisão traz de volta o
   acoplamento entre renderização de template e artefato de build que ela remove. O custo terá
   de ser pago naquele momento, provavelmente com uma etapa de coleta no pipeline de teste.
-- O texto do passo 09 do roadmap passa a divergir do código, e quem ler o roadmap sem ler esta
+- O roteiro de construção passa a divergir do código, e quem o ler sem ler esta
   ADR (Architecture Decision Record) encontrará uma prescrição que não foi seguida.
 
 ## Alternativas consideradas
 
-- **`CompressedManifestStaticFilesStorage`, como o roadmap prescreveu** — entrega nome
+- **`CompressedManifestStaticFilesStorage`, como o roteiro prescreveu** — entrega nome
   versionado e cache longo, que é a razão pela qual foi prescrito. Descartada porque transforma
   a resolução de `{% static %}` numa consulta a artefato de build e, com isso, faz sete casos
   de teste de integração dependerem de um comando externo à suíte. O benefício não se realiza
   em host único sem tráfego; o custo se realiza toda vez que alguém roda os testes.
 - **Manter o manifesto e afrouxá-lo com `WHITENOISE_MANIFEST_STRICT = False`** — preservaria a
-  prescrição do roadmap trocando a exceção por um retorno tolerante. Descartada por dois
+  prescrição do roteiro trocando a exceção por um retorno tolerante. Descartada por dois
   motivos:
     - mantém o manifesto e, com ele, o que esta decisão existe para remover: a resolução de
       `{% static %}` continua consultando um artefato de build;

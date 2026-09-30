@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposto — 2026-09-29
+Aceito — 2026-09-29
 
 Emenda à ADR (Architecture Decision Record) 0002, que **permanece aceita e em vigor**, e à ADR 0024,
 na frase em que ela reafirma a 0002. Só para `/o/logout/`, esta decisão substitui duas afirmações. A
@@ -74,7 +74,7 @@ Vamos atender `/o/logout/` com `LogoutPelaRPView`, uma subclasse de `RPInitiated
   pessoa e anuncia isso à trilha. `config` não afirma nada sobre identidade.
 - **A guarda na suíte:** o caminho devolvido pelo `reverse` no namespace resolve para a subclasse.
 
-Nada muda para a RP. Por isso esta decisão não tem contraparte na `nova_api_SPA`.
+Nada muda para a RP. Por isso esta decisão não tem contraparte na SPA.
 
 ## Consequências
 

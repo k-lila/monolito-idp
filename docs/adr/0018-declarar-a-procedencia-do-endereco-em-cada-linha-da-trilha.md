@@ -4,11 +4,13 @@
 
 Aceito — 2026-09-13
 
+Revisão — 2026-09-29: referências a documentos de trabalho suprimidas; decisão inalterada (ver índice).
+
 ## Contexto
 
 A ADR (Architecture Decision Record) 0015 concentrou a leitura de origem numa função só e
-terminou com uma obrigação nominal: "o Bloco C não pode ligar `BEHIND_TLS_PROXY` sem antes
-decidir o versionamento da linha da trilha". A razão está escrita ali e é aritmética: ligar a
+terminou com uma obrigação nominal: não ligar `BEHIND_TLS_PROXY` sem antes decidir o
+versionamento da linha da trilha. A razão está escrita ali e é aritmética: ligar a
 variável troca, na mesma tecla, o significado do campo `ip` da trilha de auditoria e a chave do
 limitador de taxa. A trilha é um arquivo append-only, gravado por `WatchedFileHandler` em modo
 `"a"` desde a ADR 0013, sem retenção e sem poda decididas. O instante da troca não fica
@@ -109,7 +111,7 @@ Negativas:
 - **Um campo booleano, `behind_proxy`** — diria a configuração vigente em vez da procedência do
   valor. Descartada porque é o dado errado: sob `behind_proxy: true` com o cabeçalho ausente, o
   campo `ip` é o endereço direto e o booleano afirma o contrário.
-- **Só documentar o instante da troca em `docs/runbook.md`** — custo zero. Descartada porque é
+- **Só documentar o instante da troca no documento operacional** — custo zero. Descartada porque é
   exatamente a "memória externa" que o critério de aceite recusa, e porque documento e arquivo
   se separam.
 - **Levar a procedência também às linhas do limitador de taxa** — fecharia a mesma ambiguidade

@@ -4,6 +4,8 @@
 
 Aceito — 2026-09-13
 
+Revisão — 2026-09-29: referências a documentos de trabalho suprimidas; decisão inalterada (ver índice).
+
 ## Contexto
 
 A ADR (Architecture Decision Record) 0006 descreveu o boot do container como "um entrypoint que
@@ -13,9 +15,8 @@ Gunicorn". A criação é condicional a duas variáveis, `DJANGO_SUPERUSER_EMAIL
 põem a senha de administrador em texto claro num arquivo lido pelo docker compose e herdado
 pelo ambiente do processo — inclusive por qualquer `docker compose exec` posterior.
 
-`docs/seguranca.md` registra isso duas vezes: na seção 4, como controle ausente, e na seção 6,
-como item da lista do que muda antes de expor o IdP (Identity Provider) fora de `localhost`. O
-Bloco C é essa lista.
+`docs/seguranca.md` registrava isso duas vezes: como controle ausente e como item da lista do que
+muda antes de expor o IdP (Identity Provider) fora de `localhost`.
 
 O mecanismo que substitui a automação já existe e não custa nada: a guarda `[ "$#" -gt 0 ]` do
 `docker/entrypoint.sh` executa comando avulso sem a sequência de boot, e é ela que faz
@@ -35,8 +36,8 @@ continua migrando, coletando estáticos e fazendo `exec` no gunicorn.
 
 Positivas:
 
-- Nenhuma senha de administrador é lida do `.env` nem do ambiente do processo, que é o que a
-  seção 4 de `docs/seguranca.md` pedia.
+- Nenhuma senha de administrador é lida do `.env` nem do ambiente do processo, que é o que
+  `docs/seguranca.md` pedia.
 - O `.env` deixa de ter uma linha cuja presença, sozinha, transforma um arquivo de configuração
   em credencial.
 - O entrypoint encolhe: some o único bloco dele que engolia código de saída, e com ele a
@@ -60,7 +61,7 @@ Negativas:
   untracked, sem revisão e sem cópia: ninguém vê o descomentar.
 - **Ler a senha de um segredo montado em arquivo** — tiraria a senha do ambiente sem perder a
   automação. Descartada porque introduz o segundo caminho de leitura que a ADR 0011 recusou
-  para a `DATABASE_URL` e que a ficha 2.3 de `docs/robustez-info.md` volta a recusar para a
+  para a `DATABASE_URL` e que volta a ser recusado para a
   chave RSA, e porque a senha continuaria em arquivo — só que noutro.
 - **Criar a conta por migração de dados com senha aleatória impressa no log** — dispensaria o
   passo manual. Descartada porque o log vai para o `stdout` do container, que é lido por

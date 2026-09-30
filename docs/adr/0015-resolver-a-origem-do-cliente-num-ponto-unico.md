@@ -4,6 +4,8 @@
 
 Aceito — 2026-09-10
 
+Revisão — 2026-09-29: referências a documentos de trabalho suprimidas; decisão inalterada (ver índice).
+
 ## Contexto
 
 Duas peças do IdP (Identity Provider) precisam responder à mesma pergunta: de que endereço veio
@@ -12,8 +14,8 @@ esta requisição. A trilha de auditoria já a responde desde a ADR (Architectur
 taxa que este bloco introduz precisa da mesma resposta para saber o que contar. São o mesmo fato
 lido em dois lugares, e dois lugares divergem sem emitir sinal.
 
-A pergunta muda de resposta no dia em que houver um proxy à frente, e o projeto sabe que haverá:
-é o Bloco C de `docs/implementacao-robustez.md`. Com o proxy de pé, `REMOTE_ADDR` passa a valer o
+A pergunta muda de resposta no dia em que houver um proxy à frente, e o projeto sabe que haverá.
+Com o proxy de pé, `REMOTE_ADDR` passa a valer o
 endereço do proxy para toda requisição externa. Para a trilha, isso significa um campo que deixa
 de dizer algo. Para o limitador, significa um contador só para o mundo inteiro: o primeiro
 atacante que estourar o teto tranca a tela de login para todos, a suíte continua verde e o
@@ -24,7 +26,7 @@ o proxy existir, porque com `BEHIND_TLS_PROXY=False` o defeito não se manifesta
 Há um contrapeso simétrico, e é o que impede a solução ingênua. `X-Forwarded-For` é um cabeçalho
 que qualquer cliente escreve. Lê-lo sem um proxy que o imponha entrega ao atacante a escolha da
 própria chave de contagem: ele escapa do limitador trocando uma string, e a trilha registra a
-origem que ele quiser. A ficha 2.2 de `docs/robustez-info.md` cataloga a mesma classe de erro em
+origem que ele quiser. A mesma classe de erro existe em
 `SECURE_PROXY_SSL_HEADER`.
 
 O repositório já tem precedente para condicionar comportamento a `BEHIND_TLS_PROXY`: as quatro
@@ -52,10 +54,10 @@ Cabeçalho ausente, ou com menos saltos que o declarado, cai em `REMOTE_ADDR`. A
 tempo de execução, e não no import, o que torna o ramo de proxy exercitável por `override_settings`
 antes de existir proxy.
 
-**O que esta decisão obriga o Bloco C a fazer.** Ligar `BEHIND_TLS_PROXY` passa a mudar, na mesma
+**O que esta decisão obriga quem expuser o IdP a fazer.** Ligar `BEHIND_TLS_PROXY` passa a mudar, na mesma
 tecla, a semântica do campo `ip` da trilha e a chave do limitador. A trilha é um arquivo
 append-only, e nada na linha distingue as duas populações, porque o instante da troca não está
-gravado. **O Bloco C não pode ligar essa variável sem antes decidir o versionamento da linha da
+gravado. **Quem expuser o IdP não pode ligar essa variável sem antes decidir o versionamento da linha da
 trilha**, pela mesma regra que produziu esta ADR: decisão que encarece depois vem antes.
 
 ## Consequências
@@ -80,7 +82,7 @@ Negativas:
   errado, e o erro é silencioso: um contador por proxy, ou uma chave escolhida pelo cliente.
 - **Com o proxy de pé e o cabeçalho ausente, a função devolve o endereço do proxy para todo mundo**
   — exatamente a falha que ela existe para impedir, agora escondida atrás de uma configuração de
-  proxy em vez de uma linha de código. Está no catálogo da seção 14 de `docs/runbook.md`.
+  proxy em vez de uma linha de código.
 - `accounts` passa a importar de `config`, o que inverte a direção usual entre app e composição. É
   uma função pura, sem estado e sem import de volta, mas é uma dependência nova numa fronteira que
   `docs/arquitetura.md` descreve como nítida.
@@ -97,9 +99,9 @@ Negativas:
 - **Ler `X-Forwarded-For` sempre, sem condicionar a `BEHIND_TLS_PROXY`** — dispensaria o ramo e o
   literal. Descartada porque entrega ao cliente a escolha da própria chave de contagem enquanto
   não houver proxy que imponha o cabeçalho.
-- **Manter `REMOTE_ADDR` puro e adiar tudo para o Bloco C** — é o mais simples e o que o escopo
-  desta tarefa quase permitia. Descartada pela primeira regra da seção 1 de
-  `docs/implementacao-robustez.md`: com o proxy de pé primeiro, a decisão sai mais cara e o
+- **Manter `REMOTE_ADDR` puro e adiar tudo para a exposição** — é o mais simples e o que o escopo
+  desta tarefa quase permitia. Descartada pela regra de que a decisão que encarece depois vem antes:
+  com o proxy de pé primeiro, a decisão sai mais cara e o
   defeito não emite sinal.
 - **Pôr a função em `config/observabilidade.py`** — evitaria um módulo novo. Descartada porque
   aquele módulo decide como uma linha de log é escrita, e a origem de uma requisição não é isso;

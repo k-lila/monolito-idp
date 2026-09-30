@@ -4,6 +4,8 @@
 
 Substituído por ADR-0027 — 2026-09-28
 
+Revisão — 2026-09-29: referências a documentos de trabalho suprimidas; decisão inalterada (ver índice).
+
 Emenda à ADR (Architecture Decision Record) 0017, que **permanece aceita e em vigor**. Mudam
 duas alíneas dela. A publicação fora de loopback, que a 0017 previa como "editar esse endereço à
 mão", passa a ser um arquivo de override do compose, versionado e invocado à mão com `-f` por
@@ -17,7 +19,7 @@ publicando o proxy em `127.0.0.1`. A 0017 não é editada.
 ## Contexto
 
 A ADR 0017 construiu a fronteira de TLS (Transport Layer Security) e deixou a exposição de fora:
-publicou o proxy em `127.0.0.1:80` e `127.0.0.1:443`. A `nova_api_SPA` vai para a Vercel e
+publicou o proxy em `127.0.0.1:80` e `127.0.0.1:443`. A aplicação de página única do sistema vai para a Vercel e
 precisa alcançar este provedor de identidade (IdP, de _Identity Provider_) pela internet, com
 certificado que o navegador aceite e sob o issuer que a ADR 0025 congelou. O destino é uma
 instância na AWS (Amazon Web Services), operada por uma pessoa só. O `CLAUDE.md` condiciona a
@@ -70,8 +72,8 @@ diretamente, sem ALB (Application Load Balancer), CloudFront nem outro proxy à 
   `!override` (Compose 2.24 ou posterior, segundo a documentação do Docker) ou com `!reset`
   seguido da lista nova. Sem isso, o proxy herdaria as publicações em `127.0.0.1` junto das
   novas. A versão do Compose da instância e o resultado da fusão, conferido por
-  `docker compose -f docker-compose.yml -f docker-compose.prod.yml config`, são medição do passo
-  7, e não desta ADR.
+  `docker compose -f docker-compose.yml -f docker-compose.prod.yml config`, são medição da
+  implantação, e não desta ADR.
 - **Certificado.** Público, por ACME com desafio HTTP-01. A porta 80 fica alcançável da internet
   para o desafio e para o 308 com que o Caddy manda o cliente para `https`. O volume `caddydata`
   guarda conta ACME e certificado e não é recriado.
@@ -86,12 +88,11 @@ diretamente, sem ALB (Application Load Balancer), CloudFront nem outro proxy à 
   para o proxy fora de produção. O proxy de produção é a exceção declarada. Host único e réplica
   única continuam.
 
-Esta ADR não altera código. Quem a aplica é o passo 7 de `docs/plano-contrato-backend.md`:
+Esta ADR não altera código. Quem a aplica é a implantação:
 `docker/Caddyfile` com a diretiva `tls` condicionada por placeholder de ambiente, e o arquivo
 `docker-compose.prod.yml`.
 
-Contraparte: a ADR 0016 da `nova_api_SPA`
-(`../../../nova_api_SPA/docs/adr/0016-publicar-na-vercel-com-vercel-json-variaveis-por-ambiente-e-previews-sem-idp-de-producao.md`)
+Contraparte: a ADR 0016 da SPA
 publica a SPA na Vercel com os valores do IdP de produção no painel. É a origem que esta
 exposição existe para servir.
 
@@ -120,10 +121,10 @@ Negativas:
   resultado real. A tag exige Compose 2.24 ou posterior na instância.
 - Esquecer o segundo `-f` num `up` derruba o acesso externo sem aviso do comando. A falha é
   fechada: o proxy volta a `127.0.0.1` e nada fica exposto. O sinal é `docker compose ps`
-  mostrando o `proxy` em `127.0.0.1:80` e `127.0.0.1:443`, e a conferência está na checklist do
-  passo 8. Até alguém rodar o comando certo, a SPA e a renovação por HTTP-01 ficam sem acesso.
-- A documentação operacional (`docs/runbook.md`, `docs/receita.md`) cita `docker compose up` sem
-  `-f`. Lida na instância, ensina o comando errado. A varredura é dos passos 7 e 8.
+  mostrando o `proxy` em `127.0.0.1:80` e `127.0.0.1:443`, e a conferência é da
+  implantação. Até alguém rodar o comando certo, a SPA e a renovação por HTTP-01 ficam sem acesso.
+- A documentação operacional cita `docker compose up` sem
+  `-f`. Lida na instância, ensina o comando errado. A varredura é da implantação.
 - **Gatilho de revisão.** A invocação manual se sustenta em um operador só e uma instância. Se
   houver um segundo operador ou deploy automatizado, o esquecimento deixa de ser raro, e esta
   escolha é revista entre script versionado, link para `docker-compose.override.yml` e
@@ -138,8 +139,7 @@ Negativas:
   sem certificado até a janela reabrir. `docker compose down -v`, que a ADR 0017 aceitava como
   perda da CA local, passa a ser incidente em produção.
 - O primeiro `up` de produção depende de DNS (Domain Name System) já propagado e da porta 80
-  aberta. Sem os dois, o Caddy falha no desafio e serve 502 ou nada enquanto tenta de novo
-  (`docs/runbook.md`, seção 19).
+  aberta. Sem os dois, o Caddy falha no desafio e serve 502 ou nada enquanto tenta de novo.
 - A exposição aciona, na letra, os gatilhos de duas ADRs aceitas. A 0006 diz que o
   `docker-compose` "precisará ser substituído se o projeto sair do sandbox", e a 0008, que a
   decisão sobre estáticos "terá de ser revista" na mesma condição. Esta ADR não as revisa. A
@@ -152,7 +152,7 @@ Negativas:
   `REFRESH_TOKEN_REUSE_PROTECTION = False`. Cada troca de `code` em `/o/token/` devolve um
   `refresh_token` que não expira e que o `cleartokens` não recolhe enquanto não for revogado. Ele
   é rotacionado a cada uso, e reapresentar um token já rotacionado não revoga a cadeia. A SPA o
-  recebe em memória e o ignora (`docs/contrato-backend.md` §2). Com o IdP exposto, é uma
+  recebe em memória e o ignora. Com o IdP exposto, é uma
   credencial de vida indefinida ao alcance de qualquer script que rode na origem da SPA. A
   correção é tarefa própria, com ADR.
 - **Risco aceito: cookies com a política do default.** `config/settings.py` declara só

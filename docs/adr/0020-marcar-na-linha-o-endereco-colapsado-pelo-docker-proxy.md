@@ -4,6 +4,8 @@
 
 Aceito — 2026-09-14
 
+Revisão — 2026-09-29: referências a documentos de trabalho suprimidas; decisão inalterada (ver índice).
+
 ## Contexto
 
 A ADR (Architecture Decision Record) 0018 acrescentou `ip_src` a cada linha da trilha de
@@ -28,7 +30,7 @@ coexistem por requisição, e não por período.** Quem chega pelo `127.0.0.1` d
 continua atravessando o `docker-proxy` mesmo com a porta publicada sem endereço; quem chega
 de fora tem a origem preservada pelo DNAT. Não há instante que separe as duas, o que
 descarta por impossibilidade — e não por preferência — toda solução baseada em lembrar uma
-data, inclusive a de anotá-la em `docs/runbook.md`, que a ADR 0018 já havia descartado por
+data, inclusive a de anotá-la no documento operacional, que a ADR 0018 já havia descartado por
 outro motivo.
 
 Três restrições cercam a solução. A ADR 0013 fixou o esquema de campos da linha e é
@@ -149,6 +151,6 @@ Negativas:
   tabela de rotas. Descartada porque é função pura do campo `ip`, que já está na linha: não
   acrescenta informação que o leitor não possa calcular sozinho, e erra por completo numa
   implantação de rede local, em que o cliente real também é privado.
-- **Anotar o instante da exposição em `docs/runbook.md`** — custo zero. Descartada pelo que
+- **Anotar o instante da exposição no documento operacional** — custo zero. Descartada pelo que
   a ADR 0018 já dizia e por uma razão mais forte: não existe instante que separe as
   populações, porque depois da exposição elas coexistem por requisição.

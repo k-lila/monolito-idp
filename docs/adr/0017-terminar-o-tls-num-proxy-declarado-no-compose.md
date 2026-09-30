@@ -4,21 +4,21 @@
 
 Aceito — 2026-09-13
 
+Revisão — 2026-09-29: referências a documentos de trabalho suprimidas; decisão inalterada (ver índice).
+
 ## Contexto
 
 A ADR (Architecture Decision Record) 0006 empacotou o IdP (Identity Provider) como container
 único e decidiu que "TLS (Transport Layer Security) é responsabilidade de um proxy à frente,
 fora deste escopo". Descartou por escrito a alternativa "Proxy TLS no compose", e a razão foi
 de estágio: acrescentaria certificado e configuração "num estágio em que o objetivo é
-demonstrar o fluxo OIDC (OpenID Connect)". O objetivo mudou. O Bloco C de
-`docs/implementacao-robustez.md` é a fronteira — o conjunto do que muda quando o bind em
-loopback deixa de ser a única barreira —, e ele não tem o que demonstrar se o proxy não
+demonstrar o fluxo OIDC (OpenID Connect)". O objetivo mudou. A fronteira — o conjunto do que muda quando o bind em
+loopback deixa de ser a única barreira — não tem o que demonstrar se o proxy não
 existir em lugar nenhum que este repositório alcance.
 
 Quatro fatos do terreno decidem o desenho.
 
-O primeiro é uma armadilha que nenhum documento do projeto catalogava antes da ficha 2.2 de
-`docs/robustez-info.md`: `SECURE_PROXY_SSL_HEADER` faz o Django confiar em
+O primeiro é uma armadilha: `SECURE_PROXY_SSL_HEADER` faz o Django confiar em
 `X-Forwarded-Proto` **de qualquer origem**. Enquanto a porta do serviço `app` for alcançável,
 um cliente desliga o redirecionamento para HTTPS escrevendo um cabeçalho. O proxy tem de ser o
 único caminho até aquela porta, e isso é propriedade de topologia, não de configuração da
@@ -130,7 +130,7 @@ Negativas:
   contra o código, que é o que o `CLAUDE.md` proíbe.
 - **Publicar a porta do `app` junto com a do proxy, "só para depurar"** — preservaria o
   `curl http://localhost:8000/...` de toda a documentação. Descartada porque é literalmente a
-  terceira armadilha da ficha 2.2: com a porta alcançável, qualquer cliente do host desliga o
+  armadilha de `SECURE_PROXY_SSL_HEADER` descrita no Contexto: com a porta alcançável, qualquer cliente do host desliga o
   redirecionamento para HTTPS escrevendo um cabeçalho.
 - **Pôr `BASE_URL`, `ALLOWED_HOSTS` e `BEHIND_TLS_PROXY` no `.env`, e não no compose** — daria
   uma configuração só para as duas jornadas, que é o que o docstring de `config/settings.py`

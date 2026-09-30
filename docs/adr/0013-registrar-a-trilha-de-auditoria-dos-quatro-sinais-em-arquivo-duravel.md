@@ -4,11 +4,13 @@
 
 Aceito — 2026-09-08
 
+Revisão — 2026-09-29: referências a documentos de trabalho suprimidas; decisão inalterada (ver índice).
+
 ## Contexto
 
-A seção 4 de `docs/seguranca.md` registra a ausência: não se sabe quem autenticou, qual relying
-party (RP) recebeu token, nem quando. Diante de uma suspeita de credencial comprometida, a única
-resposta possível hoje é "não dá para saber". Some-se que o log vive apenas no `stdout` do
+`docs/seguranca.md` registrava, entre os controles ausentes, que não se sabia quem autenticou, qual
+relying party (RP) recebeu token, nem quando. Diante de uma suspeita de credencial comprometida, a
+única resposta possível era "não dá para saber". Some-se que o log vive apenas no `stdout` do
 container, e recriar o container apaga o histórico inteiro.
 
 Quatro sinais já instalados cobrem o essencial, e foram verificados contra o código em `.venv/`:
@@ -132,7 +134,7 @@ Negativas:
   latência de autenticação.
 - **Falha de escrita do handler é engolida pelo próprio `logging`**, que a manda para `stderr`. A
   trilha para de receber linhas e o sistema segue atendendo. É a falha silenciosa característica
-  desta decisão, e por isso está em `docs/runbook.md`, seção 14.
+  desta decisão.
 - `app_authorized` é emitido em toda resposta 200 de `/o/token/`, o que inclui o grant de
   **refresh**: a trilha terá mais linhas do que houve consentimentos, e quem contar linhas para
   contar autorizações contará errado. O `client_id` e o `sub` continuam corretos.

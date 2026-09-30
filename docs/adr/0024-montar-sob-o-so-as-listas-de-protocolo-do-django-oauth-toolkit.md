@@ -4,6 +4,8 @@
 
 Aceito — 2026-09-22
 
+Revisão — 2026-09-29: referências a documentos de trabalho suprimidas; decisão inalterada (ver índice).
+
 Emenda à ADR (Architecture Decision Record) 0002, que **permanece aceita e em vigor**. Esta
 decisão substitui uma única frase daquela — "As rotas do DOT são incluídas como vêm" — no que ela
 diz sobre **quais** rotas entram. O que a mesma frase proíbe continua proibido: nenhum endpoint de
@@ -30,9 +32,9 @@ As views de `management_urlpatterns` exigem só sessão autenticada, sem `is_sta
 Qualquer conta com senha neste provedor de identidade (IdP, de _Identity Provider_) registra uma
 `Application` com a `redirect_uri` e o grant que quiser, inclusive `implicit` e `password`, que a
 RFC 9700 deprecia. Enquanto a única conta era a de quem opera, isso era inerte; `docs/seguranca.md`
-registrou a lacuna na seção 3 e a deixou como decisão aberta na 7.1, e o passo 5 de
-`docs/plano-contrato-backend.md` a fecha antes de o IdP sair de `localhost`. O registro de
-`Application` deste projeto sempre foi o admin (`docs/integracao-rp.md` §3), que exige `is_staff`.
+registrou a lacuna e a deixou como decisão aberta, e ela precisava
+ser fechada antes de o IdP sair de `localhost`. O registro de
+`Application` deste projeto sempre foi o admin, que exige `is_staff`.
 
 A ADR 0002 decidiu incluir as rotas "como vêm". A razão dela é não reescrever a máquina de estados
 do protocolo: rota envelopada ou duplicada é código nosso no caminho do protocolo, e é ali que um
@@ -71,7 +73,7 @@ Vamos montar sob `o/` apenas três das cinco listas do DOT — `metadata_urlpatt
 
 Nada muda para a relying party (RP): issuer, descoberta, JWKS, claims e Cross-Origin Resource
 Sharing (CORS) sob `/o/` ficam iguais. Por isso esta decisão não tem contraparte na
-`nova_api_SPA`.
+SPA.
 
 ## Consequências
 
@@ -81,10 +83,10 @@ Positivas:
   tokens por formulário fora do admin: as sete rotas de gestão respondem 404, com ou sem sessão.
 - Nenhuma linha de código de produção nova: o controle é a ausência da rota, verificável pela
   suíte tanto quanto uma recusa seria.
-- A decisão aberta 7.1 de `docs/seguranca.md` fecha, e "restrição de quem pode registrar
+- A decisão aberta de `docs/seguranca.md` sobre quem registra `Application` fecha, e "restrição de quem pode registrar
   Application" sai da lista da fronteira.
 - O prefixo `/o/` passa a delimitar só superfície de protocolo, e é nessa propriedade que
-  `CORS_URLS_REGEX = r"^/o/"` se apoia, no mesmo passo 5 do plano.
+  `CORS_URLS_REGEX = r"^/o/"` se apoia.
 
 Negativas:
 
@@ -93,7 +95,7 @@ Negativas:
   botão "Ver no site"; o clique responde 500. Aceito e registrado como dívida, sem desligar
   `view_on_site`.
 - A pessoa usuária perde o autosserviço de `/o/authorized_tokens/`: revogar o acesso de uma RP
-  passa a ser só de quem opera (`docs/runbook.md`, "Revogar o acesso de uma pessoa").
+  passa a ser só de quem opera.
 - O DOT não sabe da montagem parcial. Um upgrade que mova um endpoint de protocolo para uma lista
   não montada, ou para uma lista nova, tira o endpoint do ar e, na descoberta da RFC 8414, do
   documento, sem erro. Só a suíte o acusa, e só porque confere o valor de cada endpoint. O
@@ -122,5 +124,5 @@ Negativas:
   URLConf. Descartada: o controle dependeria de o tráfego atravessar o Caddy, a jornada de
   construção, que não tem proxy, ficaria aberta, e a suíte não o alcançaria.
 - **Manter a montagem e aceitar o risco até haver mais de uma conta** — custo zero hoje.
-  Descartada: é exatamente a condição que o passo 5 existe para fechar antes da exposição, e a
+  Descartada: é exatamente a condição a fechar antes da exposição, e a
   abertura dependeria de alguém se lembrar dela no dia em que a segunda conta nascer.

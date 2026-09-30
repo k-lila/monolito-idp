@@ -2,10 +2,10 @@
 
 ## Status
 
-Proposto — 2026-09-29
+Aceito — 2026-09-29
 
-Passa a Aceito quando a ADR (Architecture Decision Record) 0019 da aplicação de página única
-(SPA, de _Single-Page Application_), a contraparte, estiver gravada. O caminho dela entra na seção Decisão nesse mesmo ato. Amplia o conjunto de eventos
+A contraparte é a ADR (Architecture Decision Record) 0019 da aplicação de página única
+(SPA, de _Single-Page Application_), aceita no mesmo dia. Amplia o conjunto de eventos
 da ADR 0013 sem tocar no esquema de campos dela, como a 0016 já fez. O mecanismo, uma subclasse da
 view do toolkit, é a ADR 0030.
 
@@ -101,7 +101,7 @@ mecanismo da ADR 0016. `/accounts/logout/` não muda: só POST, encerra a sessã
 A descoberta OIDC passa a publicar `end_session_endpoint`, igual ao issuer seguido de `/logout/`. É
 mudança de contrato público. O documento da RFC 8414 não o publica.
 
-Contraparte: a ADR 0019 da SPA, a gravar. O caminho dela, interno à SPA, entra aqui na aceitação.
+Contraparte: a ADR 0019 da SPA.
 
 ## Consequências
 

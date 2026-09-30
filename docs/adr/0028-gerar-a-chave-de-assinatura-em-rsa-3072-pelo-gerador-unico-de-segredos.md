@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposto — 2026-09-28
+Aceito — 2026-09-29
 
 Emenda à ADR (Architecture Decision Record) 0004, que **permanece aceita e em vigor**. Esta
 decisão substitui uma única frase daquela — "Chaves de desenvolvimento são geradas por
@@ -13,8 +13,8 @@ scripts/gen_dev_key.sh e são descartáveis por definição". RS256, a custódia
 
 A ADR 0004 nomeou o gerador das chaves de desenvolvimento e calou sobre o da chave de produção. O
 script que ela nomeia gerava 2048 bits fixos e dizia no cabeçalho que a chave de produção não saía
-dele, e o runbook repetia isso; ao mesmo tempo, o plano de implantação mandava gerar a chave de
-produção com ele. Ao lado dele, um segundo script, fora do repositório, gerava a `SECRET_KEY` e as
+dele, e a documentação operacional repetia isso; ao mesmo tempo, o roteiro de implantação mandava
+gerar a chave de produção com ele. Ao lado dele, um segundo script, fora do repositório, gerava a `SECRET_KEY` e as
 senhas do Postgres e do Redis. Eram dois geradores para um `.env` só, e nenhum lugar dizia de onde
 sai a chave de produção nem com que tamanho.
 
@@ -28,7 +28,7 @@ verificar, e cada relying party (RP) rejeita os novos enquanto o seu cache do JS
 2030.
 
 Nada no código depende do tamanho. `config/settings.py` só lê o PEM, o django-oauth-toolkit publica
-o módulo que recebe, e a única RP, a `nova_api_SPA`, verifica com `jose` restrito a RS256, que
+o módulo que recebe, e a única RP, a SPA, verifica com `jose` restrito a RS256, que
 aceita qualquer módulo de 2048 bits para cima.
 
 ## Decisão
@@ -47,7 +47,7 @@ URLs derivadas delas). Ele imprime as linhas e não escreve arquivo nenhum.
   válida até a próxima troca, que já sai em 3072.
 
 Nada muda para a RP: issuer, descoberta, `jwks_uri`, `alg` e claims ficam iguais, e só o módulo
-publicado no JWKS fica mais longo. Por isso esta decisão não tem contraparte na `nova_api_SPA`.
+publicado no JWKS fica mais longo. Por isso esta decisão não tem contraparte na SPA.
 
 ## Consequências
 
@@ -55,8 +55,8 @@ Positivas:
 
 - A chave de produção chega a 128 bits de segurança, o nível do hash que o RS256 já usa, e sai do
   prazo de 2030 que pesaria sobre uma chave de 2048 que ninguém rotaciona.
-- Um só lugar diz de onde vêm os segredos do `.env`, e a contradição entre o script, o runbook e o
-  plano desaparece.
+- Um só lugar diz de onde vêm os segredos do `.env`, e a contradição entre o script e a documentação
+  da época desaparece.
 - A troca da chave não arrasta, por descuido de cópia, as senhas e a `SECRET_KEY`.
 
 Negativas:

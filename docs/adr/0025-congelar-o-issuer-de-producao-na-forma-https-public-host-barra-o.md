@@ -4,6 +4,8 @@
 
 Aceito — 2026-09-23
 
+Revisão — 2026-09-29: referências a documentos de trabalho suprimidas; decisão inalterada (ver índice).
+
 Cumpre a condição da ADR (Architecture Decision Record) 0007, que **não é emendada**: o issuer
 continua `{BASE_URL}/o`. Esta ADR é a confirmação que a 0007 pediu "antes da primeira relying
 party integrar".
@@ -13,15 +15,14 @@ party integrar".
 O issuer é a identidade pública deste provedor de identidade (IdP, de _Identity Provider_): vai
 na claim `iss` de todo `id_token` e fica cacheado na configuração de cada relying party (RP). A
 ADR 0007 fixou a forma `{BASE_URL}/o` e condicionou a permanência dela a uma confirmação explícita
-antes da primeira RP. A primeira RP é a `nova_api_SPA`, aplicação de página única (SPA, de
+antes da primeira RP. A primeira RP é a aplicação de página única (SPA, de
 _Single-Page Application_) que já fecha o fluxo em desenvolvimento contra este IdP e vai para
 produção na Vercel.
 
 O código já deriva o issuer de uma variável só. O `docker-compose.yml` compõe
 `BASE_URL=https://${PUBLIC_HOST}` e aborta o `up` se `PUBLIC_HOST` faltar; `config/settings.py`
 publica `OIDC_ISS_ENDPOINT = f"{BASE_URL.rstrip('/')}/o"`. O `.env` de desenvolvimento tem
-`PUBLIC_HOST=idp.localhost`. O de produção ainda não existe: nasce na instância, no passo 8 de
-`docs/plano-contrato-backend.md`.
+`PUBLIC_HOST=idp.localhost`. O de produção ainda não existe: nasce na instância.
 
 Três fatos tornam a escolha do nome irreversível na prática:
 
@@ -54,17 +55,16 @@ O nome e o valor cumprem cinco regras:
    o host, em minúsculas: sem esquema, porta, path nem barra.
 3. **Permanente a partir do primeiro login de produção.** Dali em diante o issuer está cacheado
    na SPA e nos `id_token` vivos. A marca de HSTS começa antes, na primeira visita por navegador,
-   que é a verificação do passo 8. Trocar de nome exige ADR nova, reconfigurar a SPA com redeploy
+   que é a primeira verificação de produção. Trocar de nome exige ADR nova, reconfigurar a SPA com redeploy
    e conviver com o HSTS do nome anterior em cada navegador que o visitou.
 4. **Conferência byte a byte antes da entrega.** O `issuer` publicado em
    `https://<PUBLIC_HOST>/o/.well-known/openid-configuration` de produção é comparado com o
    `VITE_OIDC_ISSUER` do painel da Vercel antes de o `client_id` de produção ser entregue à SPA.
    Uma diferença de um caractere é erro de configuração, e na SPA só aparece como falha no
    callback.
-5. **A escolha concreta do domínio é item do passo 8**, e não desta ADR.
+5. **A escolha concreta do domínio é da implantação**, e não desta ADR.
 
-Contraparte: a ADR 0017 da `nova_api_SPA`
-(`../../../nova_api_SPA/docs/adr/0017-fixar-vite-oidc-issuer-de-producao-em-https-dominio-do-idp-barra-o-sem-barra-final.md`)
+Contraparte: a ADR 0017 da SPA
 fixa a mesma forma do lado de quem consome e aceita `{BASE_URL}/o` como permanente. Nenhuma linha
 de código muda nos dois lados.
 
@@ -85,7 +85,7 @@ Negativas:
   `.env` da instância e o painel da Vercel, e a única conferência é a manual da regra 4. Uma
   troca posterior em um dos dois só aparece quando o próximo callback falhar.
 - A permanência começa antes do primeiro login, porque a primeira visita por navegador já grava
-  o HSTS. Um nome escolhido com pressa no passo 8 custa o mesmo que um escolhido com cuidado.
+  o HSTS. Um nome escolhido com pressa na implantação custa o mesmo que um escolhido com cuidado.
 - A forma herda da ADR 0007, agora em definitivo, a divergência entre a OpenID Connect Discovery
   1.0 e a RFC 8414: uma RP que siga estritamente a RFC 8414 continua recebendo 404.
 - `docs/integracao-rp.md` não pode declarar o issuer de produção por extenso. Uma RP que integre

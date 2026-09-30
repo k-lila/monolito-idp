@@ -48,8 +48,8 @@ jeito: as decisões já tomadas são compromissos.
 
 ## Como se escreve código aqui
 
-- Mecanismo simples, sem elaboração além do que a tarefa pede.
-- Comentário exaustivo na justificativa: registra a razão, não a operação.
+- Mecanismo simples e eficiente, sem elaboração além do que a tarefa pede.
+- Comentário claro e direto na justificativa: registra a razão, não a operação.
 - Onde a falha é silenciosa, o comentário registra o silêncio. Precedentes vivos:
   `OIDC_RSA_PRIVATE_KEY` presente e vazia devolve JWKS vazio com 200, e ausente derruba o
   processo na leitura das settings, nomeando a si mesma (ADR 0004); `OAUTH2_VALIDATOR_CLASS`

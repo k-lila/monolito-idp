@@ -4,6 +4,8 @@
 
 Aceito — 2026-09-09
 
+Revisão — 2026-09-29: referências a documentos de trabalho suprimidas; decisão inalterada (ver índice).
+
 Emenda à ADR (Architecture Decision Record) 0012, que **permanece aceita e em vigor**. Esta
 decisão substitui um único mecanismo daquela — o `reset()` do `ContextVar` no `finally` do
 middleware — e a frase das Consequências que dele dependia. O formato JSON, o esquema de campos,
@@ -26,7 +28,7 @@ O alcance não é o de um caso de borda. São 404, 503 e os 400 que uma view dev
 exceção — no caso deste IdP (Identity Provider), as guardas do servidor de autorização
 (`redirect_uri` divergente, `code_challenge` ausente, método `plain`), o `/health` degradado, o
 `DisallowedHost` e o 404 da relying party que procura a descoberta na forma da RFC 8414. Quatro
-das treze entradas de sintoma de `docs/runbook.md` vivem exatamente nessas linhas. O que
+das treze entradas de sintoma do documento operacional vivem exatamente nessas linhas. O que
 continua correlacionado é o 500 e o que a cadeia registra por dentro — `response_for_exception`,
 `http_method_not_allowed` —, isto é, justamente o caso que já traz traceback e se acha pelo texto.
 
@@ -36,7 +38,7 @@ ruído de boot, e um filtro por `request_id` não isola nenhuma das três popula
 
 Duas afirmações escritas ficaram falsas: o comentário de `config/observabilidade.py`, que
 promete que para o 404 o caminho está na linha do `django.request` "com o mesmo `request_id`", e
-a linha de `docs/runbook.md` que diz que toda linha de um mesmo pedido carrega o mesmo
+a linha do documento operacional que diz que toda linha de um mesmo pedido carrega o mesmo
 identificador — que é o que quem opera lê durante um incidente.
 
 Há uma restrição estrutural que elimina a saída óbvia: **nenhuma posição no `MIDDLEWARE` alcança
@@ -62,7 +64,7 @@ Positivas:
 
 - Toda resposta 4xx e 5xx passa a ter a sua linha de `django.request` correlacionada ao pedido
   que a produziu. É a correlação exatamente onde o incidente acontece, e era o caso que faltava.
-- O comentário de `config/observabilidade.py` e a frase de `docs/runbook.md` voltam a ser
+- O comentário de `config/observabilidade.py` e a frase do documento operacional voltam a ser
   verdadeiros sem serem rebaixados: a correção repara a promessa em vez de reescrevê-la.
 - `-` deixa de ser lata de lixo. Filtrar por ele passa a isolar uma população só, a de arranque,
   o que antes era impossível.
