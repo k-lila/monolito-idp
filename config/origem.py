@@ -76,7 +76,7 @@ def origem_e_procedencia(request):
     # mesmo endereço em todas as linhas — sem erro e sem log. O que rompe o silêncio é a
     # procedência: `remote_addr_fallback` em toda linha de uma implantação atrás de proxy
     # denuncia o cabeçalho que não chega, e é o único sinal que essa falha emite. Está no
-    # catálogo da seção 14 de `docs/runbook.md`.
+    # catálogo da seção 14 do runbook, hoje histórico: `git show 8caf117:docs/runbook.md`.
     saltos = [
         salto.strip()
         for salto in request.META.get("HTTP_X_FORWARDED_FOR", "").split(",")

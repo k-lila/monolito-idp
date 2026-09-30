@@ -93,7 +93,8 @@ def _resumo_do_identificador(identificador):
 # O que a captura NÃO alcança: erro de escrita do handler — disco cheio, volume desmontado
 # — é engolido pelo próprio `logging`, que o manda para stderr. Ali a trilha para de
 # receber linhas e o sistema segue atendendo, sem que nada aqui perceba. É a falha
-# silenciosa desta decisão, e está na seção 14 de `docs/runbook.md`.
+# silenciosa desta decisão, e está na seção 14 do runbook, hoje histórico:
+# `git show 8caf117:docs/runbook.md`.
 
 
 def registrar_login(sender, request, user, **kwargs):

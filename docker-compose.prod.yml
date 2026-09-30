@@ -116,7 +116,7 @@ services:
     # (esse default não foi medido), o Caddy recusaria, e a borda responderia erro sem sinal
     # no host fora dos logs do conector. O `--http-host-header` não se distingue, porque a
     # borda já repassa o `Host`. Com um `PUBLIC_HOST` errado, a resposta é 200 coerente com o
-    # nome errado (`docs/runbook.md`).
+    # nome errado (seção 25 do runbook, hoje histórico: `git show 8caf117:docs/runbook.md`).
     #
     # A origem é `https://proxy:443` porque o site do Caddy só atende HTTPS (HTTP, de
     # _Hypertext Transfer Protocol_, sobre TLS, de _Transport Layer Security_) no nome público

@@ -1,127 +1,139 @@
-# Testes — nova_api
+# Testes — IdP
 
-Este documento é o dono da suíte: os níveis de teste e o critério que os separa, a convenção de
-rastreabilidade que liga cada teste à demanda que o pediu, a infraestrutura compartilhada, e o
-inventário do que não está coberto. O modelo mental do sistema está em `docs/arquitetura.md`; a
-receita de subir o stack, no `docs/receita.md`.
+| Campo | Valor |
+| --- | --- |
+| Papel | dono da suíte |
+| Diz | os níveis de teste e o critério que os separa; o que cada arquivo garante; a infraestrutura compartilhada; a convenção de rastreabilidade; o inventário do que não está coberto |
+| Não diz | o modelo mental do sistema, em `docs/arquitetura.md`; a receita de subir o stack, em `docs/receita.md` |
 
-## O que a suíte é
+---
 
-Arquivos `test_*.py` num pacote só, `tests/`, na raiz do repositório, mais três módulos que não
-são teste e sim a infraestrutura que a suíte usa: `tests/oauth_helpers.py`, que os testes de
-fluxo reusam, `tests/logout_helpers.py`, que os do logout pela relying party (RP) reusam, e
-`tests/runner.py`, o executor.
+## 1. O que a suíte é
 
-O pacote é da raiz, e não de dentro de `accounts/`, porque a suíte quase toda exercita
-superfícies que `accounts` não possui: rotas declaradas em `config/urls.py`, views do toolkit
-e views prontas do `django.contrib.auth`. Importar de `accounts` é a exceção, e quais módulos o
-fazem responde-se por `grep -l '^from accounts' tests/*.py` — a lista cresce a cada função do
-app que valha uma prova isolada, e por isso não está escrita aqui.
+| Peça | O que é |
+| --- | --- |
+| `tests/test_*.py` | os testes, num pacote só, na raiz do repositório |
+| `tests/oauth_helpers.py` | infraestrutura que os testes de fluxo reusam (seção 6) |
+| `tests/logout_helpers.py` | infraestrutura que os do logout pela relying party (RP) reusam (seção 7) |
+| `tests/runner.py` | o executor: um `DiscoverRunner` do Django subclassado, sobre `unittest` da biblioteca padrão (seção 5) |
 
-O executor é um `DiscoverRunner` do Django subclassado, sobre `unittest` da biblioteca padrão.
-Isso é o que há:
+**Por que o pacote é da raiz, e não de dentro de `accounts/`:** a suíte quase toda exercita
+superfícies que `accounts` não possui — rotas declaradas em `config/urls.py`, views do toolkit e
+views prontas do `django.contrib.auth`. Importar de `accounts` é a exceção. Quais módulos o fazem
+responde-se por `grep -l '^from accounts' tests/*.py`; a lista cresce a cada função do app que
+valha uma prova isolada, e por isso não está escrita aqui.
 
-- **não há pytest** — nenhum `conftest.py`, nenhuma dependência de teste em `requirements.txt`,
-  que lista apenas as nove de execução;
-- **não há ferramenta de cobertura** — nenhum `coverage`, nenhum relatório gerado;
-- **não há integração contínua versionada** — `git ls-files` não devolve `.github/`, nem
-  `.gitlab-ci.yml`, nem `tox.ini`. A suíte roda quando alguém a roda.
+**O que não há:**
 
-## Como rodar
+| Ausência | Evidência |
+| --- | --- |
+| pytest | nenhum `conftest.py`, nenhuma dependência de teste em `requirements.txt`, que lista apenas as dez de execução |
+| Ferramenta de cobertura | nenhum `coverage`, nenhum relatório gerado |
+| Integração contínua versionada | `git ls-files` não devolve `.github/`, nem `.gitlab-ci.yml`, nem `tox.ini`. A suíte roda quando alguém a roda |
+| Nível fim-a-fim | nenhuma requisição HTTP de verdade, nenhum servidor vivo, nenhum navegador; nem `LiveServerTestCase` nem cliente HTTP externo. O cliente de teste do Django chama a aplicação em memória |
+
+---
+
+## 2. Como rodar
 
 ```bash
 .venv/bin/python manage.py test                # jornada de construção
 docker compose exec app python manage.py test  # jornada de clonar-e-rodar
 ```
 
-Sem argumento, `manage.py test` descobre o pacote inteiro; `manage.py test tests` é a forma
-explícita e roda os mesmos casos. Rótulo de app não serve mais como atalho:
-`manage.py test accounts` responde `Found 0 test(s)` — nenhum teste mora lá. Enquanto a suíte
-esteve dividida entre `accounts/` e `config/`, esse mesmo comando rodava dez dos doze arquivos
-e calava sobre os outros dois.
+| Invocação | Efeito |
+| --- | --- |
+| `manage.py test` | descobre o pacote inteiro |
+| `manage.py test tests` | forma explícita; roda os mesmos casos |
+| `manage.py test accounts` | `Found 0 test(s)` — nenhum teste mora lá. Enquanto a suíte esteve dividida entre `accounts/` e `config/`, esse mesmo comando rodava dez dos doze arquivos e calava sobre os outros dois |
 
-O pré-requisito é ter Postgres e Redis de pé. O executor cria e destrói o banco de teste
-sozinho, mas precisa de um servidor a que se conectar; e o Redis é tocado por toda requisição
-com sessão, porque `SESSION_ENGINE` é `cached_db`, além de ser consultado diretamente pela view
-de `/health`. Nas duas jornadas isso significa `docker compose up` tendo subido, no mínimo, os
-serviços `postgres` e `redis`.
+**Pré-requisito:** Postgres e Redis de pé — nas duas jornadas, `docker compose up` tendo subido,
+no mínimo, os serviços `postgres` e `redis`.
 
-A suíte **não** exige `collectstatic` prévio. `tests/test_login_view.py` confere o CSS
-(Cascading Style Sheets) por `finders.find("css/idp.css")`, que procura no diretório-fonte, e
-por `static("css/idp.css")`, que resolve a URL (Uniform Resource Locator) em tempo de execução
-— nenhum dos dois depende do diretório coletado. Preservar isso foi parte do que se decidiu em
+- **Postgres:** o executor cria e destrói o banco de teste sozinho, mas precisa de um servidor a
+  que se conectar.
+- **Redis:** tocado por toda requisição com sessão, porque `SESSION_ENGINE` é `cached_db`, e
+  consultado diretamente pela view de `/health`.
+
+**Não exige `collectstatic` prévio.** `tests/test_login_view.py` confere o CSS (Cascading Style
+Sheets) por dois caminhos, e nenhum depende do diretório coletado:
+
+- `finders.find("css/idp.css")`, que procura no diretório-fonte;
+- `static("css/idp.css")`, que resolve a URL (Uniform Resource Locator) em tempo de execução.
+
+Preservar isso foi parte do que se decidiu em
 `docs/adr/0008-servir-estaticos-com-whitenoise-sem-manifesto-de-hash.md`.
 
-## Os dois níveis, e o critério que os separa
+---
 
-**Sem banco (`SimpleTestCase`).** O que está sob prova não precisa de linha no banco: ou a
-função é chamada diretamente, com um portador falso no lugar do que ela leria do mundo, ou é
-pura, ou o estado que ela confere já foi montado antes de o primeiro caso rodar. Os lugares:
+## 3. Os dois níveis, e o critério que os separa
 
-- `tests/test_oauth_validators.py`, inteiro — `get_oidc_claims` lê só `.user` e
-  `.scopes`, então um objeto de duas linhas basta, e o `User` é construído sem nunca ser salvo;
-- `tests/test_origem.py`, inteiro — `origem_da_requisicao` e `origem_e_procedencia` decidem
-  sobre duas settings e o `META` de uma requisição, e `RequestFactory` mais `override_settings`
-  dão as duas coisas; `origem_completa` lê ainda a tabela de rotas, e o que substitui o mundo
-  é um arquivo temporário para o qual o teste aponta `config.origem._TABELA_DE_ROTAS`, em vez
-  de `/proc/net/route`. Todo caso que assere a procedência fixa `BEHIND_TLS_PROXY` por
-  `override_settings`, e não herda o da jornada: dois casos de `OrigemCompletaTests` não o
-  faziam, passavam na jornada de construção e falhavam na de container, onde a mesma requisição
-  cai em `remote_addr_fallback` (T-13 da TASK-019);
-- `tests/test_gen_env_secrets.py`, inteiro — o que se prova é a saída do script, e não há
-  objeto Python a isolar: o teste invoca `bash scripts/gen_env_secrets.sh` por subprocess, com
-  o ambiente limpo de `POSTGRES_*` e `REDIS_PORT`, e lê o `stdout`. Exige o `openssl` no PATH e
-  não tem pulo condicional: sem ele o teste falha, como o script falharia. Custa três gerações
-  de chave de 3072 bits. As mensagens de asserção nunca trazem o valor gerado;
-- `tests/test_endurecimento_transporte.py`, inteiro — leitura de settings, sem cliente HTTP.
-  Quando a pergunta é o valor de produção de uma chave que o executor neutraliza, lê o que ele
-  guardou antes de neutralizar, e não o que `settings` mostra durante a suíte;
-- `tests/test_borda_do_tunel.py`, inteiro — lê como texto, a partir de `settings.BASE_DIR`, o
-  `docker/Caddyfile` e o `docker-compose.prod.yml`, compara o endereço do conector nos dois e o
-  situa na rede `borda`, dentro da `subnet` e fora do `ip_range`; não há requisição nenhuma a
-  montar;
-- `tests/test_spa_url.py`, inteiro — o que se prova é a carga de `config/settings.py`,
-  executada por `runpy` com o ambiente montado pelo caso: a exceção que ela levanta ou o valor
-  que ela aceita. A carga não abre conexão, e não há requisição a montar;
-- `tests/test_sem_recurso_de_terceiro.py`, inteiro — lê como texto, a partir de
-  `settings.BASE_DIR`, o `static/css/idp.css` e cada `templates/**/*.html`, e procura a forma
-  de um recurso buscado fora do IdP; não há template a renderizar nem requisição a montar;
-- a classe `HealthViewDatabaseDownUnitTests`, em `tests/test_health.py` — `RequestFactory`
-  mais chamada direta a `health`, com `connection` substituída por um duplo que levanta;
-- a classe `FormatadorJSONTests`, em `tests/test_observabilidade.py` — um registro emitido por
-  um logger próprio do módulo, com o par filtro e formatador de produção anexado a um handler
-  efêmero, de modo que a linha capturada é a que sairia de verdade;
-- a classe `ResumoDoIdentificadorTests`, em `tests/test_auditoria.py` — aqui não há portador
-  nenhum a falsificar: `_resumo_do_identificador` é função pura, entra uma string e sai um
-  hexadecimal;
-- as classes `RotaDoLogoutTests` e `ConstantesDeProducaoDoLogoutTests`, em
-  `tests/test_logout_rp.py` — a primeira confere a resolução de `/o/logout/` contra o URLConf,
-  sem requisição; a segunda lê as cinco chaves `OIDC_RP_INITIATED_LOGOUT_*` do dicionário que o
-  executor guardou antes de neutralizar `OAUTH2_PROVIDER`;
-- a classe `TrilhaIsoladaDuranteASuiteTests`, em `tests/test_auditoria.py` — a exceção ao
-  critério, e deliberada: o que ela confere é o handler `audit` **real**, já redirecionado pelo
-  executor, e a escrita que ela faz é em arquivo de verdade. Nada disso pede banco, e falsificar
-  o handler destruiria justamente o que se quer provar.
+| Nível | Classe base | O que atravessa |
+| --- | --- | --- |
+| Sem banco | `SimpleTestCase` | nada além da função sob prova |
+| Com banco e cliente de teste | `TestCase` | o URLConf, o middleware, a view, o template e o banco de teste |
 
-**Com banco e cliente de teste (`TestCase`).** A requisição atravessa o URLConf, o middleware, a
-view, o template e o banco de teste. É onde está todo o resto: os arquivos ausentes da lista
-acima, inteiros, e as demais classes dos que aparecem nela — só `tests/test_oauth_validators.py`
-não deixa nada para cá.
+**O critério:** o nível sem banco vale quando a decisão cabe inteira numa função isolável; nos
+demais, o que pode quebrar é a costura, e só a resposta HTTP a revela.
 
-Fora a exceção nomeada acima, o critério de escolha é um só: **o nível sem banco vale quando a
-decisão cabe inteira numa função isolável; nos demais, o que pode quebrar é a costura, e só a
-resposta HTTP a revela.** A costura aqui é quase sempre entre configuração e biblioteca de terceiro:
-`PKCE_REQUIRED`, que exige o Proof Key for Code Exchange (PKCE); `OIDC_ISS_ENDPOINT`, que fixa o
-issuer; `SECURE_REDIRECT_EXEMPT`, que isenta `/health`; a allowlist de `redirect_uri`. Um teste
-isolado sobre qualquer uma delas só afirmaria o valor de uma chave de `config/settings.py`, que
-não está em dúvida.
+- **A costura aqui é quase sempre entre configuração e biblioteca de terceiro:**
+  `PKCE_REQUIRED`, que exige o Proof Key for Code Exchange (PKCE); `OIDC_ISS_ENDPOINT`, que fixa
+  o issuer; `SECURE_REDIRECT_EXEMPT`, que isenta `/health`; a allowlist de `redirect_uri`.
+- **Um teste isolado sobre qualquer uma delas** só afirmaria o valor de uma chave de
+  `config/settings.py`, que não está em dúvida.
+- **Uma exceção nomeada:** `TrilhaIsoladaDuranteASuiteTests` (tabela abaixo).
 
-O que a suíte inteira não faz: sair do processo. Nenhuma requisição HTTP de verdade, nenhum
-servidor vivo, nenhum navegador. Não há `LiveServerTestCase` nem cliente HTTP externo em lugar
-nenhum dela — o cliente de teste do Django chama a aplicação em memória. Não existe, portanto,
-nível fim-a-fim neste projeto.
+### 3.1 Sem banco
 
-## O que cada arquivo garante
+O que está sob prova não precisa de linha no banco: ou a função é chamada diretamente, com um
+portador falso no lugar do que ela leria do mundo, ou é pura, ou o estado que ela confere já foi
+montado antes de o primeiro caso rodar.
+
+| Onde | Por que dispensa banco |
+| --- | --- |
+| `tests/test_oauth_validators.py`, inteiro | `get_oidc_claims` lê só `.user` e `.scopes`, então um objeto de duas linhas basta, e o `User` é construído sem nunca ser salvo |
+| `tests/test_origem.py`, inteiro | ver 3.1.1 |
+| `tests/test_gen_env_secrets.py`, inteiro | ver 3.1.2 |
+| `tests/test_endurecimento_transporte.py`, inteiro | leitura de settings, sem cliente HTTP. Quando a pergunta é o valor de produção de uma chave que o executor neutraliza, lê o que ele guardou antes de neutralizar, e não o que `settings` mostra durante a suíte |
+| `tests/test_borda_do_tunel.py`, inteiro | lê como texto, a partir de `settings.BASE_DIR`, o `docker/Caddyfile` e o `docker-compose.prod.yml`, compara o endereço do conector nos dois e o situa na rede `borda`, dentro da `subnet` e fora do `ip_range`; não há requisição nenhuma a montar |
+| `tests/test_spa_url.py`, inteiro | o que se prova é a carga de `config/settings.py`, executada por `runpy` com o ambiente montado pelo caso: a exceção que ela levanta ou o valor que ela aceita. A carga não abre conexão, e não há requisição a montar |
+| `tests/test_sem_recurso_de_terceiro.py`, inteiro | lê como texto, a partir de `settings.BASE_DIR`, o `static/css/idp.css` e cada `templates/**/*.html`, e procura a forma de um recurso buscado fora do IdP; não há template a renderizar nem requisição a montar |
+| `HealthViewDatabaseDownUnitTests`, em `tests/test_health.py` | `RequestFactory` mais chamada direta a `health`, com `connection` substituída por um duplo que levanta |
+| `FormatadorJSONTests`, em `tests/test_observabilidade.py` | um registro emitido por um logger próprio do módulo, com o par filtro e formatador de produção anexado a um handler efêmero, de modo que a linha capturada é a que sairia de verdade |
+| `ResumoDoIdentificadorTests`, em `tests/test_auditoria.py` | não há portador nenhum a falsificar: `_resumo_do_identificador` é função pura, entra uma string e sai um hexadecimal |
+| `RotaDoLogoutTests`, em `tests/test_logout_rp.py` | confere a resolução de `/o/logout/` contra o URLConf, sem requisição |
+| `ConstantesDeProducaoDoLogoutTests`, em `tests/test_logout_rp.py` | lê as cinco chaves `OIDC_RP_INITIATED_LOGOUT_*` do dicionário que o executor guardou antes de neutralizar `OAUTH2_PROVIDER` |
+| `TrilhaIsoladaDuranteASuiteTests`, em `tests/test_auditoria.py` | **a exceção ao critério, e deliberada:** confere o handler `audit` **real**, já redirecionado pelo executor, e a escrita que faz é em arquivo de verdade. Nada disso pede banco, e falsificar o handler destruiria justamente o que se quer provar |
+
+#### 3.1.1 `tests/test_origem.py`
+
+- `origem_da_requisicao` e `origem_e_procedencia` decidem sobre duas settings e o `META` de uma
+  requisição; `RequestFactory` mais `override_settings` dão as duas coisas.
+- `origem_completa` lê ainda a tabela de rotas. O que substitui o mundo é um arquivo temporário
+  para o qual o teste aponta `config.origem._TABELA_DE_ROTAS`, em vez de `/proc/net/route`.
+- Todo caso que assere a procedência fixa `BEHIND_TLS_PROXY` por `override_settings`, e não herda
+  o da jornada. Dois casos de `OrigemCompletaTests` não o faziam: passavam na jornada de
+  construção e falhavam na de container, onde a mesma requisição cai em `remote_addr_fallback`
+  (T-13 da TASK-019).
+
+#### 3.1.2 `tests/test_gen_env_secrets.py`
+
+- O que se prova é a saída do script, e não há objeto Python a isolar.
+- Invoca `bash scripts/gen_env_secrets.sh` por subprocess, com o ambiente limpo de `POSTGRES_*` e
+  `REDIS_PORT`, e lê o `stdout`.
+- Exige o `openssl` no PATH e não tem pulo condicional: sem ele o teste falha, como o script
+  falharia.
+- Custa três gerações de chave de 3072 bits.
+- As mensagens de asserção nunca trazem o valor gerado.
+
+### 3.2 Com banco e cliente de teste
+
+Todo o resto: os arquivos ausentes da tabela 3.1, inteiros, e as demais classes dos que aparecem
+nela. Só `tests/test_oauth_validators.py` não deixa nada para cá.
+
+---
+
+## 4. O que cada arquivo garante
 
 | Assunto | Arquivo | Nível |
 | --- | --- | --- |
@@ -157,224 +169,271 @@ nível fim-a-fim neste projeto.
 | Logout iniciado pela RP em `/o/logout/` (TASK-027): a rota sombreada resolvendo para a subclasse; as cinco chaves de produção; a saída com hint vivo, que revoga só na `Application` do hint, encerra a sessão e grava `tokens_revogados` antes de `user_logged_out`, com o mesmo `request_id`; o destino não cadastrado, sem a barra ou em `http`; a confirmação, o CSRF, o cancelar e o hint de outra conta; os hints forjados e as entradas que davam 500, agora 400, com a lista fechada da ADR 0029 em `EntradaForjadaAmpliadaTests` (NUL em `client_id` e em `aud`, destino que não se decompõe como URL, `jti` que não é UUID num hint HS256), e o savepoint de cada trecho que consulta com entrada do pedido em `SavepointDaEntradaForjadaTests`; o hint vencido; o hint autêntico sem linha; e as funções `_revogar` e `_aplicacao_do_hint_sem_linha` isoladas | `tests/test_logout_rp.py` | misto |
 | Nenhum recurso de terceiro nas páginas do IdP, por leitura estática: nem `@import` nem `url(` em `static/css/idp.css`; nem `<script>`, nem `href` ou `src` com endereço absoluto (`http://`, `https://` ou `//`) em qualquer tag de `templates/**/*.html`, e um `<link>` só, o da folha de estilo local | `tests/test_sem_recurso_de_terceiro.py` | sem banco |
 
-As linhas que o nome do arquivo não explica sozinho:
+### 4.1 O que o nome do arquivo não explica sozinho
 
-**Claims do validador.** Prova que a claim `name` sai **presente e vazia** quando a pessoa não
-tem nome cadastrado — a asserção é de presença da chave, porque um `dict.get("name")` com valor
-default esconderia a ausência. E prova, nos cinco arranjos de scope, que `email_verified` nunca
-sai: o scope `email` isolado herdaria essa claim do mapa da classe base do toolkit se
-`get_additional_claims` alguma vez passasse a devolvê-la.
+Cada item: a guarda, e a razão de ela existir.
 
-**Fluxo completo.** Além de fechar o ciclo até o `id_token`, amarra três coisas que se afastam
-com facilidade: o `kid` do cabeçalho do token contra o `kid` publicado no JWKS, as claims do
-`id_token` contra as do `/o/userinfo/` por igualdade, e o conjunto de claims de identidade
-contra o `claims_supported` da descoberta. Esta última guarda protege contra uma troca de
-assinatura em `get_additional_claims` que deixaria o `id_token` correto e a descoberta
-subdeclarando em silêncio.
+**Claims do validador** — `tests/test_oauth_validators.py`
 
-**Descoberta.** Compara o `issuer` por igualdade exata, nunca por substring, porque tanto o
-`{BASE_URL}` sem o sufixo `/o` quanto uma barra final indevida passariam numa comparação
-frouxa. E afirma a **presença** de `end_session_endpoint` no documento do OIDC, com o valor
-exato, o issuer mais `/logout/`: com `OIDC_RP_INITIATED_LOGOUT_ENABLED` falsa, o toolkit omite o
-campo sem erro nenhum (ADR 0029). No documento da RFC 8414 a mesma chave tem de estar ausente,
-porque aquele vocabulário não a declara. Cada endpoint dos dois documentos é comparado por
-valor, o issuer mais o sufixo literal, e nunca por `reverse()`, que resolveria contra o mesmo
-URLConf sob prova. No documento da RFC 8414 essa comparação é a única guarda: a view do toolkit
-engole o `NoReverseMatch` de um endpoint sem rota e omite a chave com 200, e é o que acusaria
-uma lista de protocolo desmontada do include (ADR 0024). `registration_endpoint` tem de estar
-ausente dos dois.
+- `name` sai **presente e vazia** quando a pessoa não tem nome cadastrado. A asserção é de
+  presença da chave, porque um `dict.get("name")` com valor default esconderia a ausência.
+- Nos cinco arranjos de scope, `email_verified` nunca sai. O scope `email` isolado herdaria essa
+  claim do mapa da classe base do toolkit se `get_additional_claims` alguma vez passasse a
+  devolvê-la.
 
-**Admin de `Application`.** Desde a ADR 0024 é a única superfície de gestão, e o que se prova é a
-costura entre o formulário, o `clean()` do modelo do toolkit e `ALLOWED_REDIRECT_URI_SCHEMES`.
-Os dois valores dessa chave estão na mesma classe: `["https"]` por `override_settings` sobre
-`OAUTH2_PROVIDER`, e o neutro que o executor aplica. O endurecido nunca se alcança por
-`override_settings(BEHIND_TLS_PROXY=True)`, que mudaria também o redirecionamento, a procedência
-e o issuer. A classe do CRUD confere ainda que o clique em "View on site" responde 500: é a
-dívida que a ADR 0024 aceita, e o caso existe para que a correção dela, ou a troca por um 200
-silencioso, não passe sem ser vista.
+**Fluxo completo** — `tests/test_authorization_code_flow.py`
 
-**Gestão do DOT ausente.** A prova é de ausência de rota, e por isso o esperado é 404 sem
-`Location` para toda identidade, superusuário incluído — 403 seria permissão negada por view, e
-302, redirecionamento para o login. As rotas com `pk` recebem o de objetos gravados pelo módulo:
-um `pk` inexistente daria 404 pela ausência do objeto, e as duas causas não se distinguiriam.
+Além de fechar o ciclo até o `id_token`, amarra três coisas que se afastam com facilidade:
 
-**Política de senha.** As recusas são asseridas pelo `code` do `ValidationError`, nunca pelo
-texto. No `createsuperuser` interativo, o `stdin` é substituído por um que se declara terminal,
-sem o que o comando sai antes de pedir senha; e o caso sem bypass termina num
-`KeyboardInterrupt` simulado, porque o comando, ao contrário do `changepassword`, não tem teto de
-tentativas. O arquivo vizinho, `tests/test_login_senha_legada.py`, prova o outro lado do mesmo
-silêncio, registrado no comentário de `AUTH_PASSWORD_VALIDATORS`: o login não valida a política.
+- o `kid` do cabeçalho do token contra o `kid` publicado no JWKS;
+- as claims do `id_token` contra as do `/o/userinfo/`, por igualdade;
+- o conjunto de claims de identidade contra o `claims_supported` da descoberta. Protege contra uma
+  troca de assinatura em `get_additional_claims` que deixaria o `id_token` correto e a descoberta
+  subdeclarando em silêncio.
 
-**CORS.** As duas classes fixam `CORS_ALLOWED_ORIGINS` por `override_settings`, com o mesmo
-literal do `.env`, para que o que esteja sob prova seja só `CORS_URLS_REGEX`. Fora de `/o/`, a
-asserção é só a ausência de `Access-Control-Allow-Origin`, e nunca a de `Vary`, cabeçalho que
-outras camadas também escrevem e cuja presença nada diria sobre CORS. Dentro de `/o/`, o 401 de
-`/o/userinfo/` também leva a origem exata: sem ela, o navegador da `nova_api_SPA` esconderia o
-401 atrás de um erro de CORS.
+**Descoberta** — `tests/test_discovery.py`
 
-**Prontidão.** O caso sem banco existe para provar que um componente falhando não apaga o
-estado do outro: com o banco fora, `"cache": "ok"` continua presente e correto. É a guarda que
-cai se alguém unificar os dois blocos de tratamento num só. Os dois casos da isenção de HTTPS
-ligam `SECURE_SSL_REDIRECT` por override — sem isso a isenção fica inerte na suíte inteira — e
-resolvem a rota por nome em vez de escrevê-la, porque renomear a rota sem atualizar o regex da
-isenção é a segunda mutação silenciosa possível ali. O caso de controle, com a rota não
-isenta recebendo 301, é o que distingue "a isenção funciona" de "o redirecionamento nunca
-esteve ligado".
+- **`issuer` por igualdade exata**, nunca por substring: tanto o `{BASE_URL}` sem o sufixo `/o`
+  quanto uma barra final indevida passariam numa comparação frouxa.
+- **`end_session_endpoint` presente no documento do OIDC**, com o valor exato, o issuer mais
+  `/logout/`: com `OIDC_RP_INITIATED_LOGOUT_ENABLED` falsa, o toolkit omite o campo sem erro
+  nenhum (ADR 0029).
+- **`end_session_endpoint` ausente no documento da RFC 8414**, porque aquele vocabulário não a
+  declara.
+- **Cada endpoint dos dois documentos por valor**, o issuer mais o sufixo literal, e nunca por
+  `reverse()`, que resolveria contra o mesmo URLConf sob prova.
+- **No documento da RFC 8414 essa comparação é a única guarda:** a view do toolkit engole o
+  `NoReverseMatch` de um endpoint sem rota e omite a chave com 200, e é o que acusaria uma lista
+  de protocolo desmontada do include (ADR 0024).
+- **`registration_endpoint` ausente dos dois.**
 
-**Logout pela RP.** `tests/test_logout_rp.py` lê a trilha pelo arquivo real para onde o
-executor a redireciona, e não por `assertLogs`, que não vê o `request_id` posto pelo filtro do
-handler: é o que prova que `tokens_revogados` e `user_logged_out` saem da mesma requisição. O
-alcance da revogação é conferido pelo efeito, `/o/userinfo/` e o refresh em `/o/token/`, e não
-só pela contagem de linhas. O caso de controle de `SaidaComHintVivoTests` liga
-`OIDC_RP_INITIATED_LOGOUT_DELETE_TOKENS` e vê os tokens da outra `Application` caírem: é ele que
-distingue "a revogação é restrita" de "a outra `Application` nunca teria sido tocada". Todo
-destino de fixture é `https`, porque o executor não neutraliza
-`OIDC_RP_INITIATED_LOGOUT_STRICT_REDIRECT_URIS`, e um destino `http` passaria na jornada de
-construção e cairia na de container; o `http` só aparece em `DestinoTests`, sob
-`override_settings`. Os hints forjados são assinados no próprio teste, com a chave do IdP ou com
-uma gerada ali, para variar uma condição de cada vez.
+**Admin de `Application`** — `tests/test_admin_oauth2_application.py`
 
-`EntradaForjadaAmpliadaTests` cobre o AC-18 ampliado: as entradas que o toolkit deixaria chegar a
-500 e que a subclasse recusa com 400. São quatro casos:
-- `test_ii`, `client_id` com o caractere NUL;
-- `test_v`, hint com `aud` igual a NUL;
-- `test_vi_e_vii`, destino que não se decompõe como URL, em três `subTest`s: colchete aberto no
-  host, porta acima de 65535 e porta não numérica;
-- `test_viii`, hint HS256 com `jti` que não é UUID, assinado com o segredo de uma `Application`
-  confidencial criada no caso. O `client_secret` da fixture passa de 32 bytes, porque o jwcrypto
-  exige 256 bits de chave para HS256.
+- Desde a ADR 0024 é a única superfície de gestão. O que se prova é a costura entre o formulário,
+  o `clean()` do modelo do toolkit e `ALLOWED_REDIRECT_URI_SCHEMES`.
+- Os dois valores dessa chave estão na mesma classe: `["https"]` por `override_settings` sobre
+  `OAUTH2_PROVIDER`, e o neutro que o executor aplica.
+- O endurecido nunca se alcança por `override_settings(BEHIND_TLS_PROXY=True)`, que mudaria
+  também o redirecionamento, a procedência e o issuer.
+- A classe do CRUD confere que o clique em "View on site" responde 500: é a dívida que a ADR 0024
+  aceita, e o caso existe para que a correção dela, ou a troca por um 200 silencioso, não passe
+  sem ser vista.
 
-Todo caso confere, depois do 400, que a sessão, os tokens e a trilha ficaram intactos, e faz um
-`GET /` autenticado, que consulta o banco. Em `test_ii` e `test_v` essa consulta **não** prova o
-savepoint: o psycopg 3 recusa o NUL no cliente, antes de a consulta chegar ao servidor, e a
-conexão não fica marcada. Os dois casos passam com ou sem savepoint; o que eles provam é o 400.
+**Gestão do DOT ausente** — `tests/test_gestao_dot_ausente.py`
 
-A prova do savepoint é `SavepointDaEntradaForjadaTests` (T-22). A classe roda num `TestCase`,
-isto é, dentro de um bloco atômico externo, e provoca um `DataError` que só o servidor levanta,
-uma divisão por zero (`SELECT 1/0`), dentro de cada um dos três trechos que a view envolve em
-`transaction.atomic()`. O erro entra por `mock.patch` no método do toolkit que o `super()`
-resolve, ou na API privada do validador:
-- `test_a`, no `super()` de `get_request_application`;
-- `test_b`, no `super()` de `validate_logout_request_user`;
-- `test_c`, no corpo de `_aplicacao_do_hint_sem_linha`, pela consulta de `aud`
-  (`_get_client_by_audience`), com um hint autêntico e sem linha. Um segundo patch faz o
-  `super()` de `validate_logout_request_user` levantar `InvalidIDTokenError`, para que o erro
-  passe só por este savepoint.
+- A prova é de ausência de rota: o esperado é 404 sem `Location` para toda identidade,
+  superusuário incluído. 403 seria permissão negada por view, e 302, redirecionamento para o
+  login.
+- As rotas com `pk` recebem o de objetos gravados pelo módulo: um `pk` inexistente daria 404 pela
+  ausência do objeto, e as duas causas não se distinguiriam.
 
-Cada caso passa por um savepoint só e cai se o `transaction.atomic()` dele for removido. Depois do
-400, o `GET /` seguinte tem de funcionar, e sessão, tokens e trilha têm de estar intactos. Sem o
-savepoint, o erro do servidor aborta a transação no Postgres sem que o Django saiba, e o `GET /`
-seguinte levanta `InternalError` ("current transaction is aborted"), constatado por mutação.
+**Política de senha** — `tests/test_politica_de_senha.py`
 
-O caso do hint autêntico sem linha (T-14) foi adaptado. O desenho pedia afirmar que o
-`refresh_token` sobrevive e continua utilizável depois da saída. Para fabricar o hint sem linha, o
-próprio teste apaga o `IDToken`; o `cleartokens` não faria isso, porque só apaga `IDToken` sem
-access token ligado (`oauth2_provider/models.py:1296-1300`). Apagar o `IDToken` apaga em cascata
-o `AccessToken` ligado, e o toolkit recusa o refresh que ficou órfão com `invalid_grant`, por
-conta própria e não por decisão da view. O teste afirma,
-então, que o refresh **não foi revogado**, pela linha sem `revoked`, e não que ele ainda troca
-por token. O 200 no refresh é afirmado em outro caso, o do hint sem linha de outra conta, em
-que o `jti` da linha é trocado em vez de apagado e os tokens do dono seguem inteiros.
+- As recusas são asseridas pelo `code` do `ValidationError`, nunca pelo texto.
+- No `createsuperuser` interativo, o `stdin` é substituído por um que se declara terminal, sem o
+  que o comando sai antes de pedir senha.
+- O caso sem bypass termina num `KeyboardInterrupt` simulado, porque o comando, ao contrário do
+  `changepassword`, não tem teto de tentativas.
+- O arquivo vizinho, `tests/test_login_senha_legada.py`, prova o outro lado do mesmo silêncio,
+  registrado no comentário de `AUTH_PASSWORD_VALIDATORS`: o login não valida a política.
 
-**Correlação por `request_id`.** A classe `RequestIdCorrelationTests`, em
-`tests/test_observabilidade.py`, é a prova de regressão da ADR (Architecture Decision Record)
-`docs/adr/0014-manter-o-identificador-de-requisicao-ate-a-requisicao-seguinte.md`: é o caso que
-fica vermelho se alguém repuser o `reset()` do `ContextVar` no middleware. O que a sustenta é o
-momento em que a linha nasce — tanto o 404 quanto o 400 devolvido por uma view são registrados
-por `log_response`, depois que a cadeia de middleware inteira retornou, e um `reset()` ali os
-mandaria de volta ao sentinela `-`, sem ligação com o pedido que os causou.
+**CORS** — `tests/test_cors.py`
 
-### Três guardas cuja razão de ser não está no nome
+- As duas classes fixam `CORS_ALLOWED_ORIGINS` por `override_settings`, com o mesmo literal do
+  `.env`, para que o que esteja sob prova seja só `CORS_URLS_REGEX`.
+- Fora de `/o/`, a asserção é só a ausência de `Access-Control-Allow-Origin`, e nunca a de `Vary`,
+  cabeçalho que outras camadas também escrevem e cuja presença nada diria sobre CORS.
+- Dentro de `/o/`, o 401 de `/o/userinfo/` também leva a origem exata: sem ela, o navegador da
+  aplicação de página única (SPA, de _Single-Page Application_) esconderia o 401 atrás de um
+  erro de CORS.
 
-**A `redirect_uri` com uma barra a mais.** Em `tests/test_authorize_guards.py`, a
-registrada é `.../noop` e a enviada, `.../noop/`. O teste é prova de igualdade exata: se a
-comparação um dia afrouxar para prefixo, este caso passa a falhar, e essa falha é o objetivo.
-Um teste com `redirect_uri` grosseiramente diferente passaria nos dois mundos sem dizer nada.
+**Prontidão** — `tests/test_health.py`
 
-**`GET /accounts/logout/` responde 405 e preserva a sessão.** Um logout que aceitasse GET
-tornaria qualquer `<img src="/accounts/logout/">` numa página de terceiro um vetor de logout
-forjado. A asserção não é de conveniência: é o fechamento desse vetor, e está em
-`tests/test_logout_view.py`.
+- **O caso sem banco** prova que um componente falhando não apaga o estado do outro: com o banco
+  fora, `"cache": "ok"` continua presente e correto. É a guarda que cai se alguém unificar os dois
+  blocos de tratamento num só.
+- **Os dois casos da isenção de HTTPS** ligam `SECURE_SSL_REDIRECT` por override — sem isso a
+  isenção fica inerte na suíte inteira — e resolvem a rota por nome em vez de escrevê-la: renomear
+  a rota sem atualizar o regex da isenção é a segunda mutação silenciosa possível ali.
+- **O caso de controle**, com a rota não isenta recebendo 301, é o que distingue "a isenção
+  funciona" de "o redirecionamento nunca esteve ligado".
 
-**O comentário de template que vaza.** `{# ... #}` é comentário de uma linha só no Django; com
-o `#}` em outra linha, o texto sai renderizado no corpo da página.
-`tests/test_template_comment_leak.py` cobre as três telas originais e assere pelos
-delimitadores, nunca pelo texto de um comentário — o texto muda, os delimitadores nunca podem
-aparecer numa resposta. A tela do logout pela RP, na confirmação e no erro, confere também o
-começo do texto do comentário: ela se documenta num `{% comment %}`, cuja forma de vazar é virar
-texto solto, sem delimitador nenhum. A procura por texto só vale enquanto o texto procurado
-existir no template, e por isso ela tem âncora:
-`test_ancora_o_texto_esta_no_bloco_comment_do_template` lê a fonte do template e confere que o
-trecho está entre `{% comment %}` e `{% endcomment %}`. Se a redação do comentário mudar, a
-âncora fica vermelha, e a ausência do texto na tela deixa de passar sem provar nada. É uma
-classe de defeito que nenhuma leitura de código pega: só aparece na tela renderizada.
+**Correlação por `request_id`** — `RequestIdCorrelationTests`, em `tests/test_observabilidade.py`
 
-## `tests/runner.py`, e por que a suíte tem executor próprio
+- É a prova de regressão da ADR (Architecture Decision Record)
+  `docs/adr/0014-manter-o-identificador-de-requisicao-ate-a-requisicao-seguinte.md`: fica vermelho
+  se alguém repuser o `reset()` do `ContextVar` no middleware.
+- O que a sustenta é o momento em que a linha nasce: tanto o 404 quanto o 400 devolvido por uma
+  view são registrados por `log_response`, depois que a cadeia de middleware inteira retornou.
+- Um `reset()` ali os mandaria de volta ao sentinela `-`, sem ligação com o pedido que os causou.
 
-`TEST_RUNNER`, em `config/settings.py`, aponta para `tests.runner.RunnerComTrilhaIsolada`. Sem
-ele, `manage.py test` escreveria na **trilha de auditoria do ambiente** — o arquivo de
-`AUDIT_LOG_PATH` —, misturando linha de teste com evidência de operação. As settings são únicas,
-sem separação entre desenvolvimento e produção, de modo que não há um segundo `LOGGING` a
-declarar.
+### 4.2 Logout pela RP — `tests/test_logout_rp.py`
 
-Na trilha, o que ele faz é trocar um valor só: em `setup_test_environment()`, reaplica o
-`dictConfig` com o `filename` do handler `audit` apontando para um diretório temporário, e desfaz
-no teardown.
-Formatador, filtro, handler, receptores e esquema são os mesmos objetos sob teste e em produção,
-e a escrita é real, em arquivo real — é o que permite a um teste varrer a trilha em busca de
-campo proibido. O precedente é `DATABASES`, cujo nome o mesmo executor já redireciona para
-`test_*`; a alternativa recusada, um `if TESTING:` nas settings, está registrada em
-`docs/adr/0013-registrar-a-trilha-de-auditoria-dos-quatro-sinais-em-arquivo-duravel.md`.
+**Geral**
 
-A consequência de operação: **rodar a suíte não polui a trilha, e a trilha da suíte não
-sobrevive à execução.** Quem quiser inspecionar o que um teste escreveu tem de fazê-lo de dentro
-do próprio teste.
+| Guarda | Razão |
+| --- | --- |
+| Lê a trilha pelo arquivo real para onde o executor a redireciona, e não por `assertLogs` | `assertLogs` não vê o `request_id` posto pelo filtro do handler; é o que prova que `tokens_revogados` e `user_logged_out` saem da mesma requisição |
+| Alcance da revogação conferido pelo efeito, `/o/userinfo/` e o refresh em `/o/token/` | não só pela contagem de linhas |
+| Caso de controle de `SaidaComHintVivoTests` liga `OIDC_RP_INITIATED_LOGOUT_DELETE_TOKENS` e vê os tokens da outra `Application` caírem | distingue "a revogação é restrita" de "a outra `Application` nunca teria sido tocada" |
+| Todo destino de fixture é `https`; o `http` só aparece em `DestinoTests`, sob `override_settings` | o executor não neutraliza `OIDC_RP_INITIATED_LOGOUT_STRICT_REDIRECT_URIS`, e um destino `http` passaria na jornada de construção e cairia na de container |
+| Hints forjados assinados no próprio teste, com a chave do IdP ou com uma gerada ali | variar uma condição de cada vez |
 
-O mesmo executor troca um segundo valor, pela mesma razão e com a mesma disciplina de reposição:
-`settings.RATE_LIMIT_POR_CAMINHO` fica `{}` durante a suíte inteira, e o teto de produção é
-guardado em `tests.runner.RATE_LIMIT_DE_PRODUCAO`. O que se esvazia é o dicionário inteiro, e não
-apenas as entradas de `/o/`: o contador de cada caminho limitado vive no Redis do ambiente, não
-volta com o rollback do `TestCase`, e o `REMOTE_ADDR` default do cliente de teste — `127.0.0.1` —
-é a mesma chave que o `runserver` da jornada de construção usa. Sem o desligamento, execuções
-seguidas da suíte somariam ao contador do ambiente até um caso que não fala de limitação nenhuma
-falhar com 429. Dicionário vazio não abre ramo dormente: é o caminho que toda requisição de
-caminho não limitado já percorre em produção, e o middleware continua na cadeia. Quem precisa do
-limitador ligado o religa por `override_settings`, com `REMOTE_ADDR` forjado, e apaga as próprias
-chaves por `config.limites.chave_do_contador` — nunca por `cache.clear()`, que o `RedisCache`
-implementa como `FLUSHDB` e levaria junto a cópia quente das sessões (ADR 0005).
+**`EntradaForjadaAmpliadaTests`** — cobre o AC-18 ampliado: as entradas que o toolkit deixaria
+chegar a 500 e que a subclasse recusa com 400.
 
-O terceiro valor é `settings.SECURE_SSL_REDIRECT`, zerado durante a suíte e guardado em
-`tests.runner.SECURE_SSL_REDIRECT_DE_PRODUCAO`. Na jornada de container o compose liga
-`BEHIND_TLS_PROXY`, de que o redirecionamento deriva, e o cliente de teste fala HTTP simples:
-sem o zeramento, toda requisição a rota não isenta receberia 301 antes de a view rodar. Zera-se
-o redirecionamento, e nunca `BEHIND_TLS_PROXY`, porque é esta variável que decide a procedência
-da origem (ADR 0018) e o esquema do issuer, e a jornada de container existe para exercitá-las.
-`override_settings(SECURE_SSL_REDIRECT=True)` continua valendo por cima do zeramento.
+| Caso | Entrada |
+| --- | --- |
+| `test_ii` | `client_id` com o caractere NUL |
+| `test_v` | hint com `aud` igual a NUL |
+| `test_vi_e_vii` | destino que não se decompõe como URL, em três `subTest`s: colchete aberto no host, porta acima de 65535 e porta não numérica |
+| `test_viii` | hint HS256 com `jti` que não é UUID, assinado com o segredo de uma `Application` confidencial criada no caso. O `client_secret` da fixture passa de 32 bytes, porque o jwcrypto exige 256 bits de chave para HS256 |
 
-O quarto é `settings.OAUTH2_PROVIDER`, pela mesma razão do terceiro: com `BEHIND_TLS_PROXY`
-ligado, `ALLOWED_REDIRECT_URI_SCHEMES` é `["https"]`, e as fixtures registram `redirect_uri` em
-`http://` — o 302 de `/o/authorize/` viraria 400 em todo teste de fluxo. O executor guarda o
-dicionário de produção em `tests.runner.OAUTH2_PROVIDER_DE_PRODUCAO`, põe no lugar uma cópia
-com `"ALLOWED_REDIRECT_URI_SCHEMES": ["http", "https"]` e envia
-`django.test.signals.setting_changed` com `setting="OAUTH2_PROVIDER"` e `enter=True`; no
-teardown repõe o original e envia o sinal com `enter=False`. A cópia, e nunca a mutação no
-lugar nem um `setattr` em `oauth2_settings`: o objeto de settings do toolkit guarda referência
-ao dicionário e faz cache por atributo, e só o `reload()` que o sinal dispara limpa os dois
-caches. O sinal é o mesmo canal do `override_settings`, e é isso que mantém a suíte
-independente de ordem. A neutralização é incondicional, como a do terceiro valor. Dois testes, em
-`tests/test_endurecimento_transporte.py`, fecham o par: um lê de volta o valor guardado para
-provar que o de produção segue `BEHIND_TLS_PROXY`, e o outro confere que o cache do toolkit
-chegou a `["http", "https"]`, o que só o sinal garante.
+- Todo caso confere, depois do 400, que a sessão, os tokens e a trilha ficaram intactos, e faz um
+  `GET /` autenticado, que consulta o banco.
+- Em `test_ii` e `test_v` essa consulta **não** prova o savepoint: o psycopg 3 recusa o NUL no
+  cliente, antes de a consulta chegar ao servidor, e a conexão não fica marcada. Os dois casos
+  passam com ou sem savepoint; o que eles provam é o 400.
 
-A cópia troca só `ALLOWED_REDIRECT_URI_SCHEMES`. `OIDC_RP_INITIATED_LOGOUT_STRICT_REDIRECT_URIS`,
-que também segue `BEHIND_TLS_PROXY`, não é neutralizada: na jornada de container ela recusa
-destino de logout em `http` para `Application` pública, e por isso as fixtures do logout usam
-`https`.
+**`SavepointDaEntradaForjadaTests`** (T-22) — a prova do savepoint.
 
-## `tests/oauth_helpers.py`
+- Roda num `TestCase`, isto é, dentro de um bloco atômico externo.
+- Provoca um `DataError` que só o servidor levanta, uma divisão por zero (`SELECT 1/0`), dentro de
+  cada um dos três trechos que a view envolve em `transaction.atomic()`.
+- O erro entra por `mock.patch` no método do toolkit que o `super()` resolve, ou na API privada
+  do validador:
 
-O inventário do que já existe pronto para quem for escrever teste novo de fluxo. Reusar daqui
-é a regra; duplicar o ritual do fluxo em cada arquivo é o que este módulo existe para evitar.
+| Caso | Onde o erro entra |
+| --- | --- |
+| `test_a` | no `super()` de `get_request_application` |
+| `test_b` | no `super()` de `validate_logout_request_user` |
+| `test_c` | no corpo de `_aplicacao_do_hint_sem_linha`, pela consulta de `aud` (`_get_client_by_audience`), com um hint autêntico e sem linha. Um segundo patch faz o `super()` de `validate_logout_request_user` levantar `InvalidIDTokenError`, para que o erro passe só por este savepoint |
+
+- Cada caso passa por um savepoint só e cai se o `transaction.atomic()` dele for removido.
+- Depois do 400, o `GET /` seguinte tem de funcionar, e sessão, tokens e trilha têm de estar
+  intactos.
+- Sem o savepoint, o erro do servidor aborta a transação no Postgres sem que o Django saiba, e o
+  `GET /` seguinte levanta `InternalError` ("current transaction is aborted"), constatado por
+  mutação.
+
+**O hint autêntico sem linha (T-14), adaptado**
+
+- **O desenho pedia** afirmar que o `refresh_token` sobrevive e continua utilizável depois da
+  saída.
+- **Para fabricar o hint sem linha**, o próprio teste apaga o `IDToken`. O `cleartokens` não faria
+  isso, porque só apaga `IDToken` sem access token ligado (`oauth2_provider/models.py:1296-1300`).
+- **Apagar o `IDToken`** apaga em cascata o `AccessToken` ligado, e o toolkit recusa o refresh que
+  ficou órfão com `invalid_grant`, por conta própria e não por decisão da view.
+- **O teste afirma, então,** que o refresh **não foi revogado**, pela linha sem `revoked`, e não
+  que ele ainda troca por token.
+- **O 200 no refresh** é afirmado em outro caso, o do hint sem linha de outra conta, em que o
+  `jti` da linha é trocado em vez de apagado e os tokens do dono seguem inteiros.
+
+### 4.3 Três guardas cuja razão de ser não está no nome
+
+| Guarda | Arquivo | Razão |
+| --- | --- | --- |
+| A `redirect_uri` com uma barra a mais: registrada `.../noop`, enviada `.../noop/` | `tests/test_authorize_guards.py` | prova de igualdade exata. Se a comparação um dia afrouxar para prefixo, este caso passa a falhar, e essa falha é o objetivo. Um teste com `redirect_uri` grosseiramente diferente passaria nos dois mundos sem dizer nada |
+| `GET /accounts/logout/` responde 405 e preserva a sessão | `tests/test_logout_view.py` | um logout que aceitasse GET tornaria qualquer `<img src="/accounts/logout/">` numa página de terceiro um vetor de logout forjado. A asserção não é de conveniência: é o fechamento desse vetor |
+| O comentário de template que vaza | `tests/test_template_comment_leak.py` | ver abaixo |
+
+**O comentário de template que vaza.** É uma classe de defeito que nenhuma leitura de código pega:
+só aparece na tela renderizada.
+
+- **O defeito:** `{# ... #}` é comentário de uma linha só no Django; com o `#}` em outra linha, o
+  texto sai renderizado no corpo da página.
+- **As três telas originais:** a asserção é pelos delimitadores, nunca pelo texto de um
+  comentário — o texto muda, os delimitadores nunca podem aparecer numa resposta.
+- **A tela do logout pela RP, na confirmação e no erro:** confere também o começo do texto do
+  comentário. Ela se documenta num `{% comment %}`, cuja forma de vazar é virar texto solto, sem
+  delimitador nenhum.
+- **A âncora:** a procura por texto só vale enquanto o texto procurado existir no template.
+  `test_ancora_o_texto_esta_no_bloco_comment_do_template` lê a fonte do template e confere que o
+  trecho está entre `{% comment %}` e `{% endcomment %}`. Se a redação do comentário mudar, a
+  âncora fica vermelha, e a ausência do texto na tela deixa de passar sem provar nada.
+
+---
+
+## 5. `tests/runner.py`, e por que a suíte tem executor próprio
+
+`TEST_RUNNER`, em `config/settings.py`, aponta para `tests.runner.RunnerComTrilhaIsolada`. As
+settings são únicas, sem separação entre desenvolvimento e produção, de modo que não há um
+segundo `LOGGING` nem um segundo conjunto de chaves a declarar: o executor troca quatro valores
+durante a suíte e os repõe no teardown.
+
+| Valor | Durante a suíte | Produção guardada em | Sem a troca | Religar num caso |
+| --- | --- | --- | --- | --- |
+| `filename` do handler `audit` | diretório temporário | — (desfeito no teardown) | `manage.py test` escreveria na trilha de auditoria do ambiente, o arquivo de `AUDIT_LOG_PATH`, misturando linha de teste com evidência de operação | — |
+| `settings.RATE_LIMIT_POR_CAMINHO` | `{}` | `tests.runner.RATE_LIMIT_DE_PRODUCAO` | execuções seguidas somariam ao contador do ambiente até um caso que não fala de limitação falhar com 429 | `override_settings`, com `REMOTE_ADDR` forjado |
+| `settings.SECURE_SSL_REDIRECT` | zerado | `tests.runner.SECURE_SSL_REDIRECT_DE_PRODUCAO` | na jornada de container, toda requisição a rota não isenta receberia 301 antes de a view rodar | `override_settings(SECURE_SSL_REDIRECT=True)` vale por cima do zeramento |
+| `settings.OAUTH2_PROVIDER` | cópia com `"ALLOWED_REDIRECT_URI_SCHEMES": ["http", "https"]` | `tests.runner.OAUTH2_PROVIDER_DE_PRODUCAO` | na jornada de container, o 302 de `/o/authorize/` viraria 400 em todo teste de fluxo | `override_settings` sobre `OAUTH2_PROVIDER` |
+
+### 5.1 A trilha
+
+- **O que troca:** em `setup_test_environment()`, reaplica o `dictConfig` com o `filename` do
+  handler `audit` apontando para um diretório temporário, e desfaz no teardown.
+- **O que não troca:** formatador, filtro, handler, receptores e esquema são os mesmos objetos
+  sob teste e em produção, e a escrita é real, em arquivo real. É o que permite a um teste varrer
+  a trilha em busca de campo proibido.
+- **Precedente:** `DATABASES`, cujo nome o mesmo executor já redireciona para `test_*`.
+- **Alternativa recusada:** um `if TESTING:` nas settings, registrada em
+  `docs/adr/0013-registrar-a-trilha-de-auditoria-dos-quatro-sinais-em-arquivo-duravel.md`.
+- **Consequência de operação:** **rodar a suíte não polui a trilha, e a trilha da suíte não
+  sobrevive à execução.** Quem quiser inspecionar o que um teste escreveu tem de fazê-lo de dentro
+  do próprio teste.
+
+### 5.2 O limitador
+
+- Mesma razão e mesma disciplina de reposição da trilha.
+- **Esvazia o dicionário inteiro**, e não apenas as entradas de `/o/`:
+  - o contador de cada caminho limitado vive no Redis do ambiente e não volta com o rollback do
+    `TestCase`;
+  - o `REMOTE_ADDR` default do cliente de teste — `127.0.0.1` — é a mesma chave que o `runserver`
+    da jornada de construção usa.
+- **Dicionário vazio não abre ramo dormente:** é o caminho que toda requisição de caminho não
+  limitado já percorre em produção, e o middleware continua na cadeia.
+- **Quem religa** apaga as próprias chaves por `config.limites.chave_do_contador` — nunca por
+  `cache.clear()`, que o `RedisCache` implementa como `FLUSHDB` e levaria junto a cópia quente das
+  sessões (ADR 0005).
+
+### 5.3 O redirecionamento para HTTPS
+
+- Na jornada de container o compose liga `BEHIND_TLS_PROXY`, de que o redirecionamento deriva, e
+  o cliente de teste fala HTTP simples.
+- **Zera-se o redirecionamento, e nunca `BEHIND_TLS_PROXY`:** é esta variável que decide a
+  procedência da origem (ADR 0018) e o esquema do issuer, e a jornada de container existe para
+  exercitá-las.
+
+### 5.4 `OAUTH2_PROVIDER`
+
+- **Mesma razão do redirecionamento:** com `BEHIND_TLS_PROXY` ligado,
+  `ALLOWED_REDIRECT_URI_SCHEMES` é `["https"]`, e as fixtures registram `redirect_uri` em
+  `http://`.
+- **Mecanismo:**
+  1. guarda o dicionário de produção em `tests.runner.OAUTH2_PROVIDER_DE_PRODUCAO`;
+  2. põe no lugar uma cópia com `"ALLOWED_REDIRECT_URI_SCHEMES": ["http", "https"]`;
+  3. envia `django.test.signals.setting_changed` com `setting="OAUTH2_PROVIDER"` e `enter=True`;
+  4. no teardown, repõe o original e envia o sinal com `enter=False`.
+- **A cópia, e nunca a mutação no lugar nem um `setattr` em `oauth2_settings`:** o objeto de
+  settings do toolkit guarda referência ao dicionário e faz cache por atributo, e só o `reload()`
+  que o sinal dispara limpa os dois caches.
+- **O sinal** é o mesmo canal do `override_settings`, e é isso que mantém a suíte independente de
+  ordem.
+- **Incondicional**, como a do redirecionamento.
+- **Dois testes fecham o par**, em `tests/test_endurecimento_transporte.py`: um lê de volta o
+  valor guardado para provar que o de produção segue `BEHIND_TLS_PROXY`; o outro confere que o
+  cache do toolkit chegou a `["http", "https"]`, o que só o sinal garante.
+- **A cópia troca só `ALLOWED_REDIRECT_URI_SCHEMES`.** `OIDC_RP_INITIATED_LOGOUT_STRICT_REDIRECT_URIS`,
+  que também segue `BEHIND_TLS_PROXY`, não é neutralizada: na jornada de container ela recusa
+  destino de logout em `http` para `Application` pública, e por isso as fixtures do logout usam
+  `https`.
+
+---
+
+## 6. `tests/oauth_helpers.py`
+
+O inventário do que já existe pronto para quem for escrever teste novo de fluxo. Reusar daqui é a
+regra; duplicar o ritual do fluxo em cada arquivo é o que este módulo existe para evitar.
 
 | Peça | O que entrega |
 | --- | --- |
@@ -386,26 +445,20 @@ O inventário do que já existe pronto para quem for escrever teste novo de flux
 | `exchange_code_for_tokens(...)` | o POST em `/o/token/` com o `code_verifier`, sem `client_secret` |
 | `decode_jwt(token)` | cabeçalho e payload de um JWT (JSON Web Token) compacto, sem verificar assinatura |
 
-Duas dessas peças existem por um motivo que não se lê na assinatura:
+O motivo que não se lê na assinatura:
 
-- **`extract_hidden_inputs`** — o GET em `/o/authorize/` com parâmetros válidos devolve 200 com
-  o formulário de consentimento, e os campos ocultos dele precisam ser repostados
-  **integralmente** no POST. Ler o HTML e repostar é o que substitui um navegador aqui. O mesmo
-  helper sustenta o caso de recusa: como ele só captura campos ocultos, os dois botões de envio
-  ficam de fora, e o dicionário resultante já nasce sem `allow` — exatamente o corpo que o
-  clique em "Recusar" enviaria.
-- **`decode_jwt`** — decodifica de propósito sem verificar a assinatura. Nenhuma demanda pede
-  verificação criptográfica, e fazê-la aqui acrescentaria dependência; `base64` e `json` da
-  biblioteca padrão bastam para ler `alg`, `kid` e as claims.
+| Peça | Motivo |
+| --- | --- |
+| `extract_hidden_inputs` | o GET em `/o/authorize/` com parâmetros válidos devolve 200 com o formulário de consentimento, e os campos ocultos dele precisam ser repostados **integralmente** no POST. Ler o HTML e repostar é o que substitui um navegador aqui. Sustenta também o caso de recusa: como só captura campos ocultos, os dois botões de envio ficam de fora, e o dicionário resultante já nasce sem `allow` — exatamente o corpo que o clique em "Recusar" enviaria |
+| `decode_jwt` | decodifica de propósito sem verificar a assinatura. Nenhuma demanda pede verificação criptográfica, e fazê-la aqui acrescentaria dependência; `base64` e `json` da biblioteca padrão bastam para ler `alg`, `kid` e as claims |
+| `authorize_and_get_code` | devolve `code` igual a `None` quando o servidor recusa antes de emitir — é o que permite às guardas distinguir uma recusa de um código de verdade, e por isso também devolve a resposta bruta |
 
-`authorize_and_get_code` devolve `code` igual a `None` quando o servidor recusa antes de emitir
-— é o que permite às guardas distinguir uma recusa de um código de verdade, e por isso a função
-também devolve a resposta bruta.
+---
 
-## `tests/logout_helpers.py`
+## 7. `tests/logout_helpers.py`
 
-A infraestrutura do logout pela RP, reusada por `tests/test_logout_rp.py` e pelos arquivos que
-a TASK-027 estendeu. Constrói sobre `tests/oauth_helpers.py`, sem duplicá-lo.
+A infraestrutura do logout pela RP, reusada por `tests/test_logout_rp.py` e pelos arquivos que a
+TASK-027 estendeu. Constrói sobre `tests/oauth_helpers.py`, sem duplicá-lo.
 
 | Peça | O que entrega |
 | --- | --- |
@@ -415,109 +468,118 @@ a TASK-027 estendeu. Constrói sobre `tests/oauth_helpers.py`, sem duplicá-lo.
 | `status_userinfo(access_token)` e `status_refresh(aplicacao, refresh_token)` | o status de `/o/userinfo/` e do grant de refresh em `/o/token/`, a prova da revogação pelo efeito |
 | `tamanho_da_trilha()` e `linhas_da_trilha_desde(tamanho)` | as linhas que a trilha ganhou desde um ponto, lidas do arquivo para onde o executor a redireciona |
 | `partes_do_token`, `b64`, `claims_de_hint`, `assinar`, `chave_do_idp`, `gerar_chave_rsa` | a montagem de hints: partir um `id_token` real, assinar claims com a chave do IdP ou com outra |
-| `adulterar_assinatura(id_token)` | troca um caractere do meio da assinatura |
+| `adulterar_assinatura(id_token)` | troca um caractere do meio da assinatura — nunca o último: o final da assinatura em base64 carrega bits de preenchimento, e trocá-lo pode deixar a assinatura válida |
 
-`adulterar_assinatura` troca o caractere do meio, e nunca o último: o final da assinatura em
-base64 carrega bits de preenchimento, e trocá-lo pode deixar a assinatura válida.
+---
 
-## A convenção de rastreabilidade
+## 8. A convenção de rastreabilidade
 
-Todo teste nomeia, no docstring do módulo, a demanda que o originou. Duas formas convivem:
+Todo teste nomeia, no docstring do módulo, a demanda que o originou.
 
-- **qualificada** — `TASK-007/T-01`, `TASK-008/T-01`, `TASK-009/T-01`: tarefa e demanda de
-  teste no mesmo rótulo;
-- **curta** — `T-01` a `T-05`, nos cinco módulos da TASK-006, cuja tarefa aparece na linha
-  seguinte do mesmo docstring (`Demanda do quality-assurance (TASK-006)`).
+| Forma | Exemplo | Onde |
+| --- | --- | --- |
+| Qualificada | `TASK-007/T-01`, `TASK-008/T-01`, `TASK-009/T-01` | tarefa e demanda de teste no mesmo rótulo |
+| Curta | `T-01` a `T-05` | nos cinco módulos da TASK-006, cuja tarefa aparece na linha seguinte do mesmo docstring (`Demanda do quality-assurance (TASK-006)`) |
+| Critério de aceite | `AC-10` em `tests/test_oauth_validators.py`, `AC-05` em `tests/test_logout_view.py` | no docstring do caso que o prova |
 
-Critérios de aceite entram pela mesma porta, no docstring do caso que os prova: `AC-10` em
-`tests/test_oauth_validators.py`, `AC-05` em `tests/test_logout_view.py`.
+- **Formato dos rótulos:** fixado em "Convenções compartilhadas", em
+  `.claude/PROTOCOLO-AGENTES.md` — `AC-NN` e `T-NN`, dois dígitos, `TASK-NNN` com três. São
+  **rótulos de contrato**, casados literalmente: não se renumeram, não se reescrevem e não se
+  acentuam.
+- **O que a convenção compra:** a travessia nos dois sentidos — de um critério de aceite até o
+  teste que o prova, com um `grep`; e de um teste vermelho de volta ao que se pediu e por quê, sem
+  depender de quem lembre.
+- **Por isso o porquê de cada teste mora no docstring**, e não neste documento: aqui ele
+  envelheceria longe do código que descreve.
 
-Uma demanda se resolveu **por declaração**, e por isso nenhum docstring a nomeia: a `T-05` da
-TASK-015 — dois `X-Forwarded-For` distintos atrás do mesmo proxy contando separado — já estava
-provada por `DoisClientesAtrasDoMesmoProxyTests`, em `tests/test_limite_login.py`, escrita
-para a `T-04` da TASK-014. Caso novo nenhum nasceu dela. Quem procurar esse rótulo em `tests/`
-não acha nada, e é por isso que ele está registrado aqui: demanda que não virou caso de teste
-não tem docstring que a carregue.
+**Demanda resolvida por declaração.** Nenhum docstring a nomeia; por isso está registrada aqui.
 
-O formato dos rótulos está fixado em "Convenções compartilhadas", em
-`.claude/PROTOCOLO-AGENTES.md`: `AC-NN` e `T-NN`, dois dígitos, `TASK-NNN` com três. São
-**rótulos de contrato**, casados literalmente — não se renumeram, não se reescrevem e não
-se acentuam.
+| Demanda | Resolução |
+| --- | --- |
+| `T-05` da TASK-015 — dois `X-Forwarded-For` distintos atrás do mesmo proxy contando separado | já provada por `DoisClientesAtrasDoMesmoProxyTests`, em `tests/test_limite_login.py`, escrita para a `T-04` da TASK-014. Caso novo nenhum nasceu dela; quem procurar esse rótulo em `tests/` não acha nada |
 
-O que a convenção compra é a travessia nos dois sentidos: de um critério de aceite até o teste
-que o prova, com um `grep`; e de um teste vermelho de volta ao que se pediu e por quê, sem
-depender de quem lembre. É por isso que o porquê de cada teste mora no docstring, e não neste
-documento: aqui ele envelheceria longe do código que descreve.
+---
 
-## Quem escreve teste aqui
+## 9. Quem escreve teste aqui
 
-O repositório separa três papéis, e a separação é rígida:
+A separação é rígida.
 
-- o **`quality-assurance`** decide o que testar e em que nível, e emite as demandas `T-NN`;
-- o **`tester`** implementa essas demandas, e só elas — é o único agente que escreve em
-  `tests/`;
-- o **`writer`** escreve o código de produção e a documentação, e **não toca em arquivo de
-  teste** em hipótese nenhuma, nem ao corrigir o defeito que um teste apontou.
+| Papel | Faz | Não faz |
+| --- | --- | --- |
+| `quality-assurance` | decide o que testar e em que nível, e emite as demandas `T-NN` | — |
+| `tester` | implementa essas demandas, e só elas; é o único agente que escreve em `tests/` | — |
+| `writer` | escreve o código de produção e a documentação | **não toca em arquivo de teste** em hipótese nenhuma, nem ao corrigir o defeito que um teste apontou |
 
-As definições estão em `.claude/agents/quality-assurance.md`, `.claude/agents/tester.md` e
+Definições em `.claude/agents/quality-assurance.md`, `.claude/agents/tester.md` e
 `.claude/agents/writer.md`; a tabela de fronteiras de escrita, em `.claude/PROTOCOLO-AGENTES.md`.
 
-A regra prática que decorre disso: **teste vermelho não se conserta ajustando o teste.** Ou o
-teste está malfeito, e quem o conserta é quem o escreveu, ou o código de produção está errado,
-e a correção é dele. Um teste ajustado para passar sobre comportamento errado é pior que teste
-ausente, porque mente sobre a cobertura.
+**Teste vermelho não se conserta ajustando o teste.**
 
-## O que a suíte não cobre
+- Teste malfeito: quem o conserta é quem o escreveu.
+- Código de produção errado: a correção é dele.
+- Um teste ajustado para passar sobre comportamento errado é pior que teste ausente, porque mente
+  sobre a cobertura.
+
+---
+
+## 10. O que a suíte não cobre
 
 Não há medida de cobertura neste projeto. O que segue é leitura da suíte e do código, não
 relatório de ferramenta — vale como inventário, não como percentual.
 
-- **Carga e concorrência.** Nada. Nenhum teste com mais de um cliente simultâneo, nenhuma
-  medição de tempo de resposta.
-- **Expiração de token.** O ciclo de vida de `access_token` e `refresh_token` não é exercitado:
-  a suíte emite e usa, nunca espera vencer nem tenta usar vencido. A única exceção é o
-  `id_token` que `tests/test_logout_rp.py` emite já vencido, por `ID_TOKEN_EXPIRE_SECONDS`
-  negativo, para provar que a aba aberta há mais de dez horas sai.
-- **Verificação criptográfica da assinatura.** `decode_jwt` lê o `id_token` sem validá-lo. O que
-  se prova é que o `kid` do cabeçalho é o publicado no JWKS, não que a assinatura confere. No
-  logout pela RP a verificação é da view, e a suíte prova que ela recusa assinatura adulterada
-  ou de outra chave, mas não verifica por conta própria a assinatura do que o IdP emite.
-- **`docker/entrypoint.sh`.** A sequência de boot — `migrate`, `collectstatic`,
-  `exec gunicorn` — não tem teste nenhum.
-- **O `BASE_URL` de uma implantação.** As duas asserções de issuer que existem — uma em
-  `tests/test_discovery.py`, sobre o documento de descoberta, e outra em
-  `tests/test_authorization_code_flow.py`, sobre a claim `iss` do `id_token` — comparam o valor
-  publicado com `f"{settings.BASE_URL.rstrip('/')}/o"`, derivado do `BASE_URL` vigente e não de
-  um literal. A expressão esperada repete a composição de `config/settings.py`, de modo que o
-  que ela pega é defeito de **composição**: sufixo `/o` ausente, barra dobrada, barra final
-  indevida, esquema divergente do `BASE_URL`. O que ela não pode pegar é um `BASE_URL` errado —
-  os dois lados da igualdade se movem juntos, e um issuer apontando para o host errado passa
-  nas duas. Quem o detecta é o procedimento de `docs/receita.md`, lido por uma pessoa, e é a
-  única coisa deste repositório que a suíte declaradamente entrega à verificação manual.
-- **A fronteira de transporte inteira.** O serviço `proxy`, o `docker/Caddyfile`, a ausência
-  de `ports:` no `app`, o `requirepass` do Redis e o `USER` do container são propriedades de
-  arquivos que a suíte não lê. O que ela exercita do ramo de proxy é `config/origem.py`, por
-  `override_settings`, com um `X-Forwarded-For` que os testes escrevem — nunca um que um proxy
-  tenha escrito. A única exceção é `tests/test_borda_do_tunel.py`, que lê o `docker/Caddyfile`
-  e o `docker-compose.prod.yml` como texto só para comparar o literal do endereço do conector,
-  duplicado à mão entre os dois (ADR 0027, "Literal duplicado"), e a sua posição na rede
-  `borda`, fora da faixa dinâmica. A igualdade dos literais não prova que o proxy confie no
-  conector, e a posição fora do `ip_range` não prova que o daemon do Docker respeite a faixa: o
-  comportamento do proxy e o do daemon continuam fora da suíte.
-- **O `HEALTHCHECK` como o Docker o executa.** `tests/test_health.py` exercita a view e a
-  isenção de redirecionamento, ambas em processo. A probe de verdade, com os tempos de
-  `docs/adr/0011-dar-teto-de-tempo-ao-health-e-derivar-o-healthcheck-dele.md`, nunca roda aqui.
-- **O build da imagem.** Nada verifica que o `Dockerfile` constrói, nem que a imagem sobe.
-- **Segredo que a suíte não conhece.** A varredura do log e da trilha procura valores que o
-  próprio fluxo produziu — senha, `code`, `code_verifier`, tokens, `SECRET_KEY`, o e-mail
-  digitado —, em todos os loggers do processo, a raiz inclusive. O que ela não pode fazer é
-  procurar o que não sabe existir: dado sensível de um caminho que a suíte não exercita, ou de
-  um campo que alguém acrescente amanhã, passa sem ser visto.
-- **O que o container instala.** A suíte roda contra o ambiente virtual do host, resolvido a
-  partir de `requirements.txt`. O container instala de um wheelhouse construído por `pip wheel`
-  no momento do build, que resolve as dependências transitivas sem versão fixada. São dois
-  conjuntos de pacotes que podem divergir, e a suíte só enxerga um deles.
+| Lacuna | O que falta | Exceção ou quem cobre |
+| --- | --- | --- |
+| Carga e concorrência | nenhum teste com mais de um cliente simultâneo, nenhuma medição de tempo de resposta | — |
+| Expiração de token | o ciclo de vida de `access_token` e `refresh_token`: a suíte emite e usa, nunca espera vencer nem tenta usar vencido | o `id_token` que `tests/test_logout_rp.py` emite já vencido, por `ID_TOKEN_EXPIRE_SECONDS` negativo, para provar que a aba aberta há mais de dez horas sai |
+| Verificação criptográfica da assinatura | `decode_jwt` lê o `id_token` sem validá-lo; prova-se que o `kid` do cabeçalho é o publicado no JWKS, não que a assinatura confere | no logout pela RP a verificação é da view, e a suíte prova que ela recusa assinatura adulterada ou de outra chave — mas não verifica por conta própria a assinatura do que o IdP emite |
+| `docker/entrypoint.sh` | a sequência de boot — `migrate`, `collectstatic`, `exec gunicorn` | — |
+| O `BASE_URL` de uma implantação | um `BASE_URL` errado (10.1) | o procedimento de `docs/receita.md`, lido por uma pessoa |
+| A fronteira de transporte inteira | o serviço `proxy`, o `docker/Caddyfile`, a ausência de `ports:` no `app`, o `requirepass` do Redis e o `USER` do container (10.2) | `tests/test_borda_do_tunel.py`, só para o endereço do conector |
+| O `HEALTHCHECK` como o Docker o executa | a probe de verdade, com os tempos de `docs/adr/0011-dar-teto-de-tempo-ao-health-e-derivar-o-healthcheck-dele.md` | `tests/test_health.py` exercita a view e a isenção de redirecionamento, ambas em processo |
+| O build da imagem | nada verifica que o `Dockerfile` constrói, nem que a imagem sobe | — |
+| Segredo que a suíte não conhece | dado sensível de um caminho que a suíte não exercita, ou de um campo que alguém acrescente amanhã (10.3) | — |
+| O que o container instala | o conjunto de pacotes do container (10.4) | — |
 
-Entre esses itens, o último toca o núcleo: a biblioteca que assina o `id_token` está entre as
-transitivas sem versão fixada. O `docs/seguranca.md`, na seção 4, "Controles ausentes", registra
-a consequência operacional disso.
+### 10.1 O `BASE_URL` de uma implantação
+
+- **As duas asserções de issuer:** uma em `tests/test_discovery.py`, sobre o documento de
+  descoberta, e outra em `tests/test_authorization_code_flow.py`, sobre a claim `iss` do
+  `id_token`.
+- **O que comparam:** o valor publicado com `f"{settings.BASE_URL.rstrip('/')}/o"`, derivado do
+  `BASE_URL` vigente e não de um literal.
+- **O que pegam:** a expressão esperada repete a composição de `config/settings.py`, de modo que
+  pegam defeito de **composição** — sufixo `/o` ausente, barra dobrada, barra final indevida,
+  esquema divergente do `BASE_URL`.
+- **O que não podem pegar:** um `BASE_URL` errado. Os dois lados da igualdade se movem juntos, e
+  um issuer apontando para o host errado passa nas duas.
+- **Quem detecta:** o procedimento de `docs/receita.md`, lido por uma pessoa. É a única coisa
+  deste repositório que a suíte declaradamente entrega à verificação manual.
+
+### 10.2 A fronteira de transporte
+
+- Os itens da tabela são propriedades de arquivos que a suíte não lê.
+- **O que ela exercita do ramo de proxy** é `config/origem.py`, por `override_settings`, com um
+  `X-Forwarded-For` que os testes escrevem — nunca um que um proxy tenha escrito.
+- **A única exceção** é `tests/test_borda_do_tunel.py`, que lê o `docker/Caddyfile` e o
+  `docker-compose.prod.yml` como texto só para comparar o literal do endereço do conector,
+  duplicado à mão entre os dois (ADR 0027, "Literal duplicado"), e a sua posição na rede `borda`,
+  fora da faixa dinâmica.
+- **O que ela não prova:** a igualdade dos literais não prova que o proxy confie no conector, e a
+  posição fora do `ip_range` não prova que o daemon do Docker respeite a faixa. O comportamento do
+  proxy e o do daemon continuam fora da suíte.
+
+### 10.3 Segredo que a suíte não conhece
+
+- **O que a varredura do log e da trilha procura:** valores que o próprio fluxo produziu — senha,
+  `code`, `code_verifier`, tokens, `SECRET_KEY`, o e-mail digitado —, em todos os loggers do
+  processo, a raiz inclusive.
+- **O que ela não pode fazer:** procurar o que não sabe existir.
+
+### 10.4 O que o container instala
+
+- A suíte roda contra o ambiente virtual do host, resolvido a partir de `requirements.txt`.
+- O container instala de um wheelhouse construído por `pip wheel` no momento do build, que
+  resolve as dependências transitivas sem versão fixada.
+- São dois conjuntos de pacotes que podem divergir, e a suíte só enxerga um deles.
+- **Este item toca o núcleo:** a biblioteca que assina o `id_token` está entre as transitivas sem
+  versão fixada. O `docs/seguranca.md`, na seção 4.13, registra a consequência operacional disso.

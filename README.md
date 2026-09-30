@@ -1,4 +1,4 @@
-# nova_api
+# IdP
 
 Provedor de identidade (IdP, de *Identity Provider*) OpenID Connect (OIDC) sobre Django e
 `django-oauth-toolkit`: fecha o fluxo Authorization Code + PKCE (Proof Key for Code Exchange),
@@ -96,10 +96,11 @@ container o `docker-compose.yml` o sobrescreve por um caminho em volume nomeado.
 e o certificado; o `.env.example` traz o valor sugerido, e é o único arquivo versionado deste
 repositório que carrega um nome de host.
 
-`SPA_URL` é a origem da `nova_api_SPA`, destino do botão "Ir para a aplicação" da home: só
-esquema, host e porta, sem barra final. A carga das settings recusa forma errada, e em produção
-o valor é `https://`, o mesmo da entrada de `CORS_ALLOWED_ORIGINS`
-(`docs/runbook.md`, seção 27).
+`SPA_URL` é a origem da aplicação de página única (SPA, de _Single-Page Application_), destino
+do botão "Ir para a aplicação" da home: só esquema, host e porta, sem barra final. A carga das settings recusa forma errada, e em produção
+o valor é `https://`, o mesmo da entrada de `CORS_ALLOWED_ORIGINS`. O `http://localhost:5173`
+do exemplo passa na carga mesmo atrás do proxy, porque loopback é isento, e o botão levaria à
+máquina de quem clica.
 
 `REDIS_PASSWORD` **não pode ficar vazia**: para o compose, vazia e ausente são o mesmo caso, e
 o `up` aborta nomeando a variável nos dois. O `./scripts/gen_env_secrets.sh` a imprime em
@@ -111,7 +112,7 @@ volta a depender de você se uma delas for trocada à mão, e nenhum mecanismo a
 Se o seu ambiente **já rodou** o stack alguma vez, uma correção de posse, uma vez só:
 
 ```bash
-docker compose run --rm --user root app chown -R 10001:10001 /var/log/nova_api
+docker compose run --rm --user root app chown -R 10001:10001 /var/log/idp
 ```
 
 O processo deixou de rodar como `root`, e o volume `auditlog` já existente continua sendo de
@@ -125,9 +126,11 @@ justamente o que a ADR 0019 tirou do caminho.
 ## Produção
 
 Produção roda num clone próprio, com os dois arquivos do compose em todo comando (ADR 0027). O
-procedimento completo é o passo 6 de `docs/plano-implantacao.md`, e a operação corrente está na
-seção "Produção pelo túnel" de `docs/runbook.md`. O que este arquivo registra, porque a ADR 0027
-o manda registrar aqui, é o que vive fora do repositório e nada nele verifica.
+procedimento de implantação e o roteiro de operação ficaram no histórico: o passo 6 em
+`git show 8caf117:docs/plano-implantacao.md`, e a seção "Produção pelo túnel" em
+`git show 8caf117:docs/runbook.md`. Os dois projetos consolidados antes do deploy estão em
+`../pre-deploy.md`. O que este arquivo registra, porque a ADR 0027 o manda registrar aqui, é o
+que vive fora do repositório e nada nele verifica.
 
 A zona do IdP, na conta da Cloudflare:
 
@@ -150,8 +153,8 @@ O clone de produção:
   "outros";
 - ganha um `.env` novo a partir do `.env.example`, nunca copiado do de desenvolvimento. Nele, as
   seis linhas impressas por `./scripts/gen_env_secrets.sh`, cada uma no lugar da linha do
-  exemplo, mais `PUBLIC_HOST`, `CORS_ALLOWED_ORIGINS`, `COMPOSE_PROJECT_NAME=nova_api_prod` e
-  `TUNNEL_ID`;
+  exemplo, mais `PUBLIC_HOST`, `CORS_ALLOWED_ORIGINS`, `SPA_URL` em `https://`,
+  `COMPOSE_PROJECT_NAME=nova_api_prod` e `TUNNEL_ID`;
 - roda todo comando com `docker compose -f docker-compose.yml -f docker-compose.prod.yml`,
   digitado, sem script, `COMPOSE_FILE` nem link.
 
@@ -163,15 +166,17 @@ repositório.
 
 | Documento | A que pergunta responde |
 | --- | --- |
+| `docs/nucleo-idp.md` | o que é um IdP, as invariantes, o contrato com toda relying party e o núcleo de tecnologias |
 | `docs/arquitetura.md` | que módulos existem, onde passa a fronteira entre eles e por onde caminha um pedido |
 | `docs/receita.md` | como subir o stack passo a passo, o que rodar no dia a dia e o que falta decidir para produção |
-| `docs/runbook.md` | quebrou: qual o sintoma, qual a causa, qual a correção; e como operar o que já está de pé |
 | `docs/integracao-rp.md` | o que uma relying party — a aplicação que delega a autenticação a este IdP — precisa saber para integrar |
 | `docs/seguranca.md` | o que o IdP protege, o que não protege e o que muda antes de ele sair de `localhost` |
 | `docs/testes.md` | o que a suíte cobre, em que nível, com que rastreabilidade, e o que ficou de fora |
-| `docs/esboco.md` | o que é um IdP e por que cada tecnologia do núcleo, com prós e contras |
-| `docs/plano-implantacao.md` | o contrato com a `nova_api_SPA` e os passos até produção, cada um com a sua checklist |
+| `docs/observabilidade.md` | o que o log e a trilha registram, onde falham em silêncio e o que falta medir |
 | `CLAUDE.md` | as regras de trabalho deste repositório |
+
+O runbook, o plano de implantação e o esboço saíram na reorganização de 2026-09-29 e seguem
+legíveis no histórico, por `git show 8caf117:docs/<arquivo>`.
 
 As decisões de arquitetura vivem em `docs/adr/`, uma por arquivo e imutáveis depois de aceitas.
 O índice está em `docs/arquitetura.md`; o formato, em `docs/adr/template-adr.md`.

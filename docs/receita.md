@@ -1,12 +1,8 @@
-# Receita — nova_api
+# Receita — IdP
 
 Como colocar este provedor de identidade (IdP) de pé, o que rodar no dia a dia e o que ainda
 falta decidir antes de pensar em produção. Cada passo traz o que faz, o comando e o sinal de
-que deu certo.
-
-Quando um passo falha, o diagnóstico não está aqui: sintoma, causa e correção vivem em
-`docs/runbook.md`. Este documento nomeia em uma frase a falha que se parece com outra coisa, e
-aponta para lá.
+que deu certo. Onde uma falha se parece com outra coisa, o passo a nomeia em uma frase.
 
 ## Passo zero: escolher a jornada
 
@@ -21,9 +17,9 @@ aponta para lá.
 As duas leem o mesmo `.env`, e o `docker-compose.yml` sobrescreve seis variáveis dele quando a
 aplicação roda em container. Três são de endereço — `DATABASE_URL`, `REDIS_URL` e
 `AUDIT_LOG_PATH` —, porque lá dentro `localhost` seria o próprio container. As outras três são
-a fronteira de transporte — `BASE_URL`, `ALLOWED_HOSTS` e `BEHIND_TLS_PROXY` —, derivadas de
-`PUBLIC_HOST` e ligadas só atrás do proxy: é o endurecimento que não faz sentido no
-`runserver`, que fala texto claro (`docs/adr/0017-terminar-o-tls-num-proxy-declarado-no-compose.md`).
+a fronteira de transporte — `BASE_URL` e `ALLOWED_HOSTS`, derivadas de `PUBLIC_HOST`, e
+`BEHIND_TLS_PROXY`, fixada em `"True"` —, ligadas só atrás do proxy: é o endurecimento que não
+faz sentido no `runserver`, que fala texto claro (`docs/adr/0017-terminar-o-tls-num-proxy-declarado-no-compose.md`).
 
 Além do Docker, os comandos abaixo usam `openssl` e `curl`. O Python que gera o par PKCE
 (Proof Key for Code Exchange) é o da própria imagem, e não precisa estar no host.
@@ -55,22 +51,21 @@ senha depois dos dois pontos. Dentro do container o compose monta a mesma URL a 
 mesma variável, de modo que a senha do servidor e a do cliente não podem divergir. **Vazia é o
 mesmo que ausente**: nos dois casos `${REDIS_PASSWORD:?}` aborta o `up` nomeando a variável, e
 servidor nenhum sobe sem `requirepass`. Fora do container a repetição é sua — a `REDIS_URL` do
-`.env` carrega a senha à mão, e divergir dela derruba toda requisição do `runserver`
-(`docs/runbook.md`).
+`.env` carrega a senha à mão, e divergir dela derruba toda requisição do `runserver`.
 
 `PUBLIC_HOST` já sai preenchida no exemplo, e é o nome pelo qual o proxy atende — dele o
 compose deriva `BASE_URL`, `ALLOWED_HOSTS` e o certificado, e de `BASE_URL` sai o issuer,
 `{BASE_URL}/o`. **Trocá-lo por um nome de verdade é editar esta linha antes de o nome antigo
 ter sido usado; depois, não é.** Cada coisa que já foi emitida sob o nome velho tem de ser
-refeita fora daqui: o certificado da CA local, a linha de `/etc/hosts` do passo 3b, o estado de
-HSTS (HTTP Strict Transport Security) de um ano em cada navegador que visitou, e o issuer
-cacheado em cada relying party (RP) que já integrou. O custo completo está no fim deste
-documento, em "Produção — o que ainda não existe".
+refeita fora daqui: o certificado da autoridade certificadora (CA) local, a linha de
+`/etc/hosts` do passo 3b, o estado de HSTS (HTTP Strict Transport Security) de um ano em cada
+navegador que visitou, e o issuer cacheado em cada relying party (RP) que já integrou. O custo
+completo está no fim deste documento, em "Produção — o que ainda não existe".
 
-**A forma do issuer de produção está congelada pela ADR 0025: `https://<PUBLIC_HOST>/o`.** O nome
-não entra no repositório: vive só no `.env` do clone de produção e no painel da Vercel, e é escolhido no
-passo 6 de `docs/plano-implantacao.md`. A partir do primeiro login de produção ele é
-permanente, porque o issuer fica cacheado do outro lado
+**A forma do issuer de produção está congelada pela ADR (Architecture Decision Record) 0025:
+`https://<PUBLIC_HOST>/o`.** O nome não entra no repositório: vive só no `.env` do clone de
+produção e no painel da Vercel, e é escolhido pelas regras da mesma ADR. A partir do primeiro
+login de produção ele é permanente, porque o issuer fica cacheado do outro lado
 (`docs/adr/0007-fixar-o-issuer-do-idp-em-base-url-barra-o.md`).
 
 **Nada confere o nome que você escrever.** As quatro derivações — o certificado,
@@ -106,7 +101,7 @@ não mudam.
 `AUDIT_LOG_PATH` já sai preenchida com `logs/audit.log`, o caminho da trilha de auditoria na
 jornada de construção — relativo ao diretório de trabalho, e é por isso que os comandos se rodam
 da raiz do repositório. O diretório `logs/` vem versionado no clone, por um `.gitkeep`. Dentro do
-container o `docker-compose.yml` sobrescreve a variável para `/var/log/nova_api/audit.log`, no
+container o `docker-compose.yml` sobrescreve a variável para `/var/log/idp/audit.log`, no
 volume nomeado `auditlog`. **Se o seu `.env` é anterior a esta variável, acrescente a linha à
 mão**: sem ela nada sobe, e a mensagem nomeia a variável
 (`docs/adr/0013-registrar-a-trilha-de-auditoria-dos-quatro-sinais-em-arquivo-duravel.md`). O
@@ -122,8 +117,7 @@ O comando imprime o arquivo do compose já interpolado. Três conferências ali:
 de `DATABASE_URL` e a dentro de `REDIS_URL` idênticas às do `.env`, caractere a caractere; e
 `BASE_URL`, `ALLOWED_HOSTS` e o `PUBLIC_HOST` do serviço `proxy` carregando o mesmo nome.
 Valor truncado é senha com `$`, e a manifestação é um erro de autenticação com as duas strings
-iguais a olho nu. Variável ausente não chega aqui: o comando aborta nomeando-a
-(`docs/runbook.md`).
+iguais a olho nu. Variável ausente não chega aqui: o comando aborta nomeando-a.
 
 ### 2. Conferir a chave RSA, antes de subir o stack
 
@@ -132,25 +126,24 @@ O script a imprime com as quebras do PEM (Privacy-Enhanced Mail) escapadas como 
 3072 bits (`docs/adr/0028-gerar-a-chave-de-assinatura-em-rsa-3072-pelo-gerador-unico-de-segredos.md`).
 
 O script não escreve no arquivo de propósito: trocar a chave invalida todo token vivo e quebra o
-JWKS (JSON Web Key Set) cacheado das relying parties (RPs), conforme a ADR (Architecture
-Decision Record) `docs/adr/0004-assinar-tokens-com-rs256-e-custodiar-a-chave-privada-no-ambiente.md`.
+JWKS (JSON Web Key Set) cacheado das RPs, conforme a ADR
+`docs/adr/0004-assinar-tokens-com-rs256-e-custodiar-a-chave-privada-no-ambiente.md`.
 
 **Como você sabe que deu certo.** A linha colada é uma linha só, abre com
 `OIDC_RSA_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----\n` e fecha com `-----END PRIVATE KEY-----\n`.
 A confirmação de verdade vem no passo 6, no `alg` da descoberta: sem a chave o IdP sobe e
-responde normalmente, e a falha é silenciosa (`docs/runbook.md`).
+responde normalmente, e a falha é silenciosa.
 
 ### 3. Subir o stack
 
 **O que faz.** Constrói a imagem, sobe `postgres`, `redis`, `app` e `proxy` nessa ordem e
 espera ficarem prontos. O entrypoint do `app` roda `migrate` e `collectstatic` antes do
-gunicorn; o `proxy` emite o certificado do nome público pela sua autoridade certificadora (CA)
-interna.
+gunicorn; o `proxy` emite o certificado do nome público pela sua CA interna.
 
 Se este ambiente **já rodou** o stack alguma vez, um passo antes, uma vez só:
 
 ```bash
-docker compose run --rm --user root app chown -R 10001:10001 /var/log/nova_api
+docker compose run --rm --user root app chown -R 10001:10001 /var/log/idp
 ```
 
 O processo deixou de rodar como `root`, e o volume `auditlog` já existente continua sendo de
@@ -166,10 +159,9 @@ docker compose up --wait
 derivados dos tetos da própria aplicação, não escolhidos — a conta está em
 `docs/adr/0011-dar-teto-de-tempo-ao-health-e-derivar-o-healthcheck-dele.md`.
 
-Pare o `runserver` antes: ele responde no mesmo `localhost:8000` de que a jornada de
-construção depende, e a confusão entre o que está de pé e o que não está custa caro. Disputa
-de porta já não há — o serviço `app` não publica nenhuma, e quem ocupa o host é o `proxy`, nas
-portas 80 e 443 (`docs/runbook.md`).
+Pare o `runserver` antes: ele responde em `localhost:8000`, e a confusão entre o que está de pé
+e o que não está custa caro. Disputa de porta não há — o serviço `app` não publica nenhuma, e
+quem ocupa o host é o `proxy`, nas portas 80 e 443.
 
 ### 3b. Confiar no certificado
 
@@ -227,16 +219,20 @@ Entre em `https://$PUBLIC_HOST/admin/oauth2_provider/application/add/`:
 - `client_type` = **public**
 - `authorization_grant_type` = **authorization-code**
 - `algorithm` = **RS256**
-- `redirect_uri` = `http://localhost:8000/noop`
+- `redirect_uri` = `https://rp.invalid/noop`
 
-O `redirect_uri` aponta para uma URL que não precisa existir — e agora não existe mesmo: a
-porta 8000 deixou de ser publicada, e o navegador mostra erro de conexão em vez do 404 de
-antes. Tanto faz. O que importa é que ele foi levado para lá com o `code` na query string, e é
-da barra de endereços que o `code` é lido.
+**O esquema tem de ser `https`.** Atrás do proxy, `ALLOWED_REDIRECT_URI_SCHEMES` só aceita
+`https`, e o admin recusa `http://` no campo. O `redirect_uri` aponta para uma URL que não
+precisa existir, e esta não existe mesmo: o domínio `.invalid` é reservado e nunca resolve, e o
+navegador mostra erro de conexão. Tanto faz. O que importa é que ele foi levado para lá com o
+`code` na query string, e é da barra de endereços que o `code` é lido.
+
+O contrato completo de uma `Application`, com `post_logout_redirect_uris` e
+`skip_authorization`, está em `docs/integracao-rp.md`.
 
 **Como você sabe que deu certo.** Depois de salvar, a Application aparece na listagem com o
 `client_id` preenchido — anote-o. Deixar `algorithm` em branco não acusa nada, nem aqui nem
-no `/o/authorize/`: a falha só se manifesta na troca do código (`docs/runbook.md`).
+no `/o/authorize/`: a falha só se manifesta na troca do código, que vem sem `id_token`.
 
 ### 6. Conferir a descoberta
 
@@ -250,8 +246,8 @@ curl -s --cacert ./ca-local.crt https://$PUBLIC_HOST/o/.well-known/openid-config
 **Como você sabe que deu certo.** Duas coisas no documento: `issuer` igual a
 `https://$PUBLIC_HOST/o`, que é a claim `iss` de todo `id_token` e o que cada RP guarda em
 cache; e
-`id_token_signing_alg_values_supported` igual a `["RS256","HS256"]`. Os quatro endpoints —
-authorize, token, userinfo e jwks — ficam listados com chave ou sem, e por isso é o `alg` que
+`id_token_signing_alg_values_supported` igual a `["RS256","HS256"]`. Os endpoints — authorize,
+token, userinfo, end_session e jwks — ficam listados com chave ou sem, e por isso é o `alg` que
 denuncia a chave ausente.
 
 ### 7. Fechar o fluxo PKCE à mão
@@ -274,18 +270,16 @@ print('code_challenge =', c)
 Abra no navegador, substituindo `CLIENT_ID` e `CODE_CHALLENGE`:
 
 ```
-https://SEU_PUBLIC_HOST/o/authorize/?response_type=code&client_id=CLIENT_ID&redirect_uri=http://localhost:8000/noop&scope=openid%20profile%20email&state=xyz&code_challenge=CODE_CHALLENGE&code_challenge_method=S256
+https://SEU_PUBLIC_HOST/o/authorize/?response_type=code&client_id=CLIENT_ID&redirect_uri=https://rp.invalid/noop&scope=openid%20profile%20email&state=xyz&code_challenge=CODE_CHALLENGE&code_challenge_method=S256
 ```
 
 O `redirect_uri` da query tem de ser **idêntico** ao registrado na Application, caractere a
-caractere — é por isso que ele continua em `http://localhost:8000/noop` mesmo agora que o IdP
-atende em outro esquema e outro nome. Ele não é buscado pelo IdP; é só comparado e devolvido
-ao navegador.
+caractere. Ele não é buscado pelo IdP; é só comparado e devolvido ao navegador.
 
 `code_challenge_method=S256` é obrigatório e literal: a descoberta anuncia
 `code_challenge_methods_supported` igual a `["S256"]`. Com `plain` a tela de consentimento ainda
 aparece normalmente, e a recusa vem só depois — quem trocar o método para depurar vai depurar a
-tela errada (`docs/runbook.md`).
+tela errada.
 
 Autentique em `/accounts/login/`, consinta na tela seguinte e copie o `code` da barra de
 endereços depois do erro esperado em `/noop`. Troque-o por token:
@@ -294,7 +288,7 @@ endereços depois do erro esperado em `/noop`. Troque-o por token:
 curl -s --cacert ./ca-local.crt -X POST https://$PUBLIC_HOST/o/token/ \
   -d grant_type=authorization_code \
   -d code=CODE \
-  -d redirect_uri=http://localhost:8000/noop \
+  -d redirect_uri=https://rp.invalid/noop \
   -d client_id=CLIENT_ID \
   -d code_verifier=CODE_VERIFIER
 ```
@@ -311,7 +305,8 @@ quem edita código: a alteração vale no request seguinte, sem rebuild de image
 ### 1. Ambiente virtual com Python 3.14
 
 **O que faz.** Isola as dependências fixadas em `requirements.txt` sob o interpretador que a
-imagem também usa. O piso de compatibilidade é o Python 3.14 com Django 5.2.17
+imagem também usa. O Django fixado é o 5.2.17; o piso de compatibilidade com o Python 3.14 é o
+5.2.8, e o `requirements.txt` proíbe baixar dele
 (`docs/adr/0001-adotar-django-5-2-lts-sobre-python-3-14.md`).
 
 ```bash
@@ -345,7 +340,7 @@ A `REDIS_URL` daqui carrega a mesma `REDIS_PASSWORD` do servidor, em
 `redis://:SENHA@localhost:6379/0`. Sem ela, toda operação de cache falha com
 `redis.exceptions.AuthenticationError` — e, como `SESSION_ENGINE` é `cached_db`, toda
 requisição falha junto. A mensagem é a do cliente Python, que negocia com `HELLO`, e não traz
-`NOAUTH`: o texto medido está na seção 20 de `docs/runbook.md`.
+`NOAUTH`.
 
 As três variáveis de transporte — `BASE_URL`, `ALLOWED_HOSTS` e `BEHIND_TLS_PROXY` — também
 ficam como o exemplo as traz. **Não as aponte para o nome público**: o `runserver` fala texto
@@ -370,15 +365,14 @@ não aplica nada.
 ```
 
 **Como você sabe que deu certo.** `http://127.0.0.1:8000/` abre a home. Página sem estilo
-significa `collectstatic` não executado, tratado em "Coletar estáticos", abaixo. O serviço
-`app` e o `runserver` disputam a porta 8000, e a mensagem de erro fala de bind
-(`docs/runbook.md`).
+significa `collectstatic` não executado, tratado em "Coletar estáticos", abaixo.
 
 Superusuário, Application, descoberta e fluxo PKCE são os passos 4 a 7 da outra jornada,
 trocando o prefixo `docker compose run --rm app python` por `.venv/bin/python`. O endereço,
 esse, **não** é o mesmo: aqui é `http://localhost:8000`, sem proxy e sem certificado, porque
 `BASE_URL` é o do `.env`. Cai fora o `--cacert` de todo `curl`, e o issuer da descoberta é
-`http://localhost:8000/o`.
+`http://localhost:8000/o`. O `redirect_uri` pode ficar o mesmo: aqui o IdP aceita `http` e
+`https`.
 
 Os passos 3b e o `chown` do passo 3 não têm equivalente aqui: não há proxy nem volume. A
 trilha de auditoria vai para `logs/audit.log`, no diretório de trabalho.
@@ -440,15 +434,15 @@ que governa também a linha de acesso. Na jornada de construção esse mesmo log
 `runserver`.
 
 **Toda linha da aplicação é um objeto JSON**, e o log do container é misto: as linhas do gunicorn
-e a saída de `migrate` e de `collectstatic` continuam em texto plano. A forma que funciona é a de
-`docs/runbook.md`:
+e a saída de `migrate` e de `collectstatic` continuam em texto plano. O `jq` filtra as linhas
+JSON e descarta as demais:
 
 ```bash
 docker compose logs --no-color --no-log-prefix app | jq -R 'fromjson? | select(.level=="ERROR")'
 ```
 
 Não há coleta externa: o log operacional some com o container. A trilha de auditoria, essa não —
-vive em volume nomeado, e como lê-la está em `docs/runbook.md`.
+vive no volume nomeado `auditlog`, em `/var/log/idp/audit.log`.
 
 ### Desbloquear uma conta ou uma origem
 
@@ -466,23 +460,25 @@ docker compose exec app python manage.py axes_reset_ip 203.0.113.10
 
 `axes_list_attempts` mostra o que está registrado — origem, identificador tentado e número de
 falhas —, e `axes_reset` sem argumento apaga tudo de todo mundo, evidência de ataque inclusive.
-O e-mail vai como foi digitado na tentativa, sem normalizar caixa. Os tetos de requisição de
-`/accounts/login/`, de `/o/token/`, de `/o/authorize/` e de `/o/device-authorization/` não têm
-comando — a janela dos quatro expira em sessenta segundos, e comando nenhum acima alcança o 429 em JSON que o teto da própria
-tela de login devolve. Sintoma, causa e o resto do procedimento estão em `docs/runbook.md`.
+O e-mail vai como foi digitado na tentativa, sem normalizar caixa.
+
+Os tetos de requisição por origem não têm comando: `/accounts/login/`, `/o/token/`,
+`/o/authorize/`, `/o/device-authorization/` e `/o/logout/`. A janela dos cinco expira em
+sessenta segundos, e comando nenhum acima alcança o 429 em JSON que o teto da própria tela de
+login devolve.
 
 ## Produção — o que ainda não existe
 
-**Esta seção não é procedimento.** O ensaio do passo 4 de `docs/plano-implantacao.md`
-exercitou parte do caminho de produção, e o procedimento está no passo 6 do plano e na seção
-"Produção pelo túnel" de `docs/runbook.md`. O que fica aqui é a lista das diferenças já
-conhecidas e das decisões que o repositório ainda não tomou.
+**Esta seção não é procedimento.** A operação de produção é de quem opera, e os dois projetos
+consolidados antes do deploy estão em `../pre-deploy.md`; a decisão que a sustenta é a ADR
+0027. O que fica aqui é a lista das diferenças já conhecidas e das decisões que o repositório
+ainda não tomou.
 
 ### Diferenças de configuração já conhecidas
 
 Quatro itens desta lista saíram dela com o proxy: `BASE_URL`, `BEHIND_TLS_PROXY` e
-`ALLOWED_HOSTS` passaram a ser derivados de `PUBLIC_HOST` pelo próprio compose, e a porta do
-`app` deixou de ser publicada. O que continua sendo diferença:
+`ALLOWED_HOSTS` passaram a ser declarados pelo próprio compose — os dois nomes derivados de
+`PUBLIC_HOST`, a variável fixada em `"True"` —, e a porta do `app` deixou de ser publicada. O que continua sendo diferença:
 
 - **A publicação.** Em desenvolvimento e na jornada de container, o proxy publica em
   `127.0.0.1:80` e `127.0.0.1:443`. Em produção, nada é publicado: no clone de produção, todo
@@ -496,26 +492,27 @@ Quatro itens desta lista saíram dela com o proxy: `BASE_URL`, `BEHIND_TLS_PROXY
 - **O nome em `PUBLIC_HOST`.** Com ele muda o `issuer`, que é `{BASE_URL}/o` e fica cacheado em cada
   RP (`docs/adr/0007-fixar-o-issuer-do-idp-em-base-url-barra-o.md`). E o HSTS de um ano marca o
   navegador de quem visitar: trocar de nome depois exige limpar esse estado em cada navegador. A
-  forma está congelada pela ADR 0025, e o nome de produção é escolhido no passo 6, pelas regras
-  dela; a partir do primeiro login de produção, ele é permanente.
+  forma está congelada pela ADR 0025, e o nome de produção é escolhido pelas regras dela; a
+  partir do primeiro login de produção, ele é permanente.
 - **`TRUSTED_PROXY_COUNT`.** Vale `1`, também em produção. A borda e o conector não somam
   salto, porque o Caddy lê o cliente de `CF-Connecting-IP`, só vindo do conector, e reescreve o
   `X-Forwarded-For` com `{client_ip}`, um valor só. O valor 2 é alternativa descartada pela ADR
   0027. Errar o número devolve à trilha e ao limitador de taxa um endereço que não é o do
   cliente.
+- **Os segredos.** Ficam no `.env` do clone de produção, com backup cifrado fora da máquina e um
+  diretório ancestral do clone fechado para "outros" (ADR 0027). O arquivo guarda `SECRET_KEY` e
+  a chave privada RSA em texto claro, e qualquer processo do usuário de desenvolvimento o lê: é
+  risco aceito, na negativa "Mesmo privilégio" da mesma ADR.
 
 ### Decisões que o repositório ainda não tomou
 
-- **Onde ficam os segredos. Decidido.** No `.env` do clone de produção, com backup cifrado fora
-  da máquina e um diretório ancestral do clone fechado para "outros" (ADR 0027). O arquivo guarda
-  `SECRET_KEY` e a chave privada RSA em texto claro, e qualquer processo do usuário de
-  desenvolvimento o lê: é risco aceito, na negativa "Mesmo privilégio" da mesma ADR.
 - **A migração no entrypoint.** Correta para uma réplica, errada para duas — com mais de uma,
   ela sai do boot e vira passo próprio.
 - **Rotação da chave RSA.** Existe uma chave, sem conjunto de rotação: a primeira troca
   invalida todo token vivo. O toolkit oferece o conjunto por `OIDC_RSA_PRIVATE_KEYS_INACTIVE`.
-  Ligá-lo põe mais de uma chave no JWKS, que é contrato com a `nova_api_SPA`, e é tarefa
-  própria, com ADR nos dois projetos, ainda não decidida.
+  Ligá-lo põe mais de uma chave no JWKS, que é contrato com a aplicação de página única (SPA,
+  de _Single-Page Application_), e é tarefa própria, com ADR nos dois projetos, ainda não
+  decidida.
 - **Coleta de log.** Só stdout: o log operacional some com o container.
 - **Retenção da trilha de auditoria.** O arquivo é durável e cresce indefinidamente; poda e
   retenção não estão decididas.

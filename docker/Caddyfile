@@ -45,7 +45,8 @@ https://{$PUBLIC_HOST} {
 	# de exemplo é `.localhost`, reservado pela RFC 6761, e nenhuma autoridade pública o
 	# emitiria. Tirar esta diretiva não produz erro de configuração — produz um Caddy que
 	# tenta validar o domínio contra a internet, falha por desafio, e serve 502 ou nada
-	# enquanto tenta de novo. Está na seção 19 de `docs/runbook.md`.
+	# enquanto tenta de novo. Está na seção 19 do runbook, hoje histórico:
+	# `git show 8caf117:docs/runbook.md`.
 	#
 	# A raiz desta CA vive em `/data/caddy/pki/authorities/local/root.crt`, dentro do volume
 	# nomeado `caddydata`. É de lá que ela se extrai para confiar no navegador; sem o volume,
