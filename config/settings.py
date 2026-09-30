@@ -42,7 +42,7 @@ CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS")
 # escrita em RATE_LIMIT_POR_CAMINHO.
 CORS_URLS_REGEX = r"^/o/"
 
-# Origem da nova_api_SPA, destino do botão "Ir para a aplicação" da home. A raiz não
+# Origem da SPA, destino do botão "Ir para a aplicação" da home. A raiz não
 # redireciona para ela: é o destino de LOGIN_REDIRECT_URL e de LOGOUT_REDIRECT_URL, e é dela
 # que sai o "Sair" do cabeçalho.
 #
@@ -311,7 +311,8 @@ AXES_FAILURE_LIMIT = 5
 # atualiza o registro a cada nova falha, inclusive as que chegam com a conta já bloqueada
 # (`AXES_RESET_COOL_OFF_ON_FAILURE_DURING_LOCKOUT`, cujo default é True na 8.3.1). Quem
 # insiste adia o próprio acesso, e um ataque sustentado mantém a conta fora enquanto durar —
-# daí a saída manual de `docs/runbook.md`. É este prazo que a tela de bloqueio declara.
+# daí a saída manual de `docs/receita.md`, "Desbloquear uma conta ou uma origem". É este prazo
+# que a tela de bloqueio declara.
 AXES_COOLOFF_TIME = timedelta(minutes=15)
 # DOIS ELEMENTOS, e é o número deles que separa "por conta OU por origem" de "pela combinação
 # das duas". `get_client_parameters` (`axes/helpers.py:285-293`) percorre a lista e faz de cada

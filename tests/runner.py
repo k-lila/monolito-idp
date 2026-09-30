@@ -235,7 +235,7 @@ class RunnerComTrilhaIsolada(DiscoverRunner):
         # Um diretório por execução, não um arquivo fixo: duas suítes concorrentes na mesma
         # máquina — jornada de construção e clonar-e-rodar, cada uma no seu próprio processo —
         # não disputam o mesmo caminho nem se misturam.
-        self._diretorio_trilha_de_teste = tempfile.mkdtemp(prefix="nova_api-trilha-teste-")
+        self._diretorio_trilha_de_teste = tempfile.mkdtemp(prefix="idp-trilha-teste-")
 
         # copy.deepcopy, e não um dict novo com update raso: `LOGGING` tem dicionário dentro de
         # dicionário (handlers -> audit -> filename), e uma cópia rasa compartilharia o

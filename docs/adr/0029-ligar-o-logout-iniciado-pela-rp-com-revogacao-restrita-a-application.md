@@ -4,14 +4,14 @@
 
 Proposto — 2026-09-29
 
-Passa a Aceito quando a ADR (Architecture Decision Record) 0019 da `nova_api_SPA`, a contraparte,
-estiver gravada. O caminho dela entra na seção Decisão nesse mesmo ato. Amplia o conjunto de eventos
+Passa a Aceito quando a ADR (Architecture Decision Record) 0019 da aplicação de página única
+(SPA, de _Single-Page Application_), a contraparte, estiver gravada. O caminho dela entra na seção Decisão nesse mesmo ato. Amplia o conjunto de eventos
 da ADR 0013 sem tocar no esquema de campos dela, como a 0016 já fez. O mecanismo, uma subclasse da
 view do toolkit, é a ADR 0030.
 
 ## Contexto
 
-O "Sair" da `nova_api_SPA` só esquece os tokens na memória da página (ADR 0010 da SPA). A sessão
+O "Sair" da SPA só esquece os tokens na memória da página (ADR 0010 da SPA). A sessão
 Django do provedor de identidade (IdP, de _Identity Provider_) continua viva, o "Entrar" seguinte
 volta sem senha pelo SSO (_single sign-on_) da ADR 0005, e o `access_token` segue aceito em
 `/o/userinfo/` por até dez horas.
@@ -101,7 +101,7 @@ mecanismo da ADR 0016. `/accounts/logout/` não muda: só POST, encerra a sessã
 A descoberta OIDC passa a publicar `end_session_endpoint`, igual ao issuer seguido de `/logout/`. É
 mudança de contrato público. O documento da RFC 8414 não o publica.
 
-Contraparte: a ADR 0019 da `nova_api_SPA`, a gravar. O caminho relativo entra aqui na aceitação.
+Contraparte: a ADR 0019 da SPA, a gravar. O caminho dela, interno à SPA, entra aqui na aceitação.
 
 ## Consequências
 

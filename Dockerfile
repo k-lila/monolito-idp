@@ -45,10 +45,10 @@ RUN chmod +x docker/entrypoint.sh
 # copia dono e modo ao inicializar um volume nomeado VAZIO. Ambiente que já rodou tem o
 # volume populado e de posse de `root`, e para volume não vazio o Docker não recopia nada —
 # ali é preciso o passo avulso de `docs/receita.md`, uma vez só.
-RUN groupadd --gid 10001 nova_api \
-    && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin nova_api \
-    && mkdir -p /app/staticfiles /var/log/nova_api \
-    && chown nova_api:nova_api /app/staticfiles /var/log/nova_api
+RUN groupadd --gid 10001 idp \
+    && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin idp \
+    && mkdir -p /app/staticfiles /var/log/idp \
+    && chown idp:idp /app/staticfiles /var/log/idp
 
 EXPOSE 8000
 
@@ -82,7 +82,7 @@ HEALTHCHECK --interval=10s --timeout=8s --start-period=30s --retries=3 \
 # O USER vale também para `docker compose run`, inclusive o `createsuperuser` que a ADR 0019
 # tornou o único caminho da conta administrativa. Tarefa que precise de root pede `--user
 # root` explicitamente, e o entrypoint não escala privilégio nenhum por conta própria.
-USER nova_api
+USER idp
 
 # Caminho absoluto: o ENTRYPOINT não depende do WORKDIR vigente nem do PATH.
 ENTRYPOINT ["/app/docker/entrypoint.sh"]

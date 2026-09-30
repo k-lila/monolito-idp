@@ -532,3 +532,21 @@ AC-19; o AC-15 fica parcial até a jornada de container.
   divergências de `../retoques.md` (cita `settings.py:347` e `DELETE_TOKENS True`) — documento
   de trabalho, superado pela decisão P4.
 - **Tipo:** decisão, pendência com dono e tech-debt.
+
+## [2026-09-29] Nomear os projetos pelo papel: IdP e SPA, não `nova_api` e `nova_api_SPA`
+
+- **Decisão (usuário):** `nova_api` e `nova_api_SPA` são nomes de diretório improvisados. Texto,
+  comentário e referência cruzada chamam os projetos de IdP e SPA, e um arquivo do outro lado
+  pelo caminho interno a ele ("`docs/contrato-idp.md` da SPA"), sem `../` nem nome de diretório.
+  A única linha que liga papel a diretório fica no `CLAUDE.md` da raiz (`idp/`).
+- **Fora da troca, por decisão:** as ADRs aceitas, que continuam imutáveis e citam os nomes
+  antigos; a memória de agentes, que é registro histórico; `POSTGRES_DB`/`POSTGRES_USER`
+  (`nova_api`) e `COMPOSE_PROJECT_NAME=nova_api_prod`, que ficam presos a volumes com dados.
+- **Divergência aceita, sem ADR:** o usuário do container passou a `idp` (UID/GID 10001
+  inalterados), e a trilha, a `/var/log/idp`. A ADR 0013, aceita, segue dizendo
+  `/var/log/nova_api`: vale o `docker-compose.yml`. O volume `auditlog` é o mesmo, e a posse
+  fica na raiz dele, então não se perde trilha. Vale na próxima imagem construída.
+- **Silencioso:** o compose de desenvolvimento não tem `name:`, e o nome do projeto, dos volumes
+  e dos containers deriva do diretório (`nova_api_*`). Renomear o diretório troca o projeto sem
+  aviso e deixa os volumes antigos órfãos.
+- **Tipo:** decisão sem ADR e tech-debt.

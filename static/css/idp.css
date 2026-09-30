@@ -1,7 +1,7 @@
 /* Folha única do IdP: login, home e consentimento. Sem framework e sem CDN (Content
    Delivery Network) — tela onde se digita senha não busca recurso de terceiro.
 
-   Os tokens copiam à mão valores da paleta neutral do Tailwind, que a nova_api_SPA usa, para
+   Os tokens copiam à mão valores da paleta neutral do Tailwind, que a SPA usa, para
    aproximar as duas telas sem importar nada dela. A cópia não acompanha a SPA: se ela trocar
    de paleta, esta folha não percebe. */
 

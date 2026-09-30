@@ -31,7 +31,8 @@ services:
     # `PUBLIC_HOST=x REDIS_PASSWORD= docker compose up --dry-run redis` para com
     # `required variable REDIS_PASSWORD is missing a value`. O que continua sem mecanismo é
     # a coerência com a REDIS_URL do `.env`, que vale só para a jornada de construção: ali a
-    # senha é escrita de novo à mão, e divergir dela está na seção 20 de `docs/runbook.md`.
+    # senha é escrita de novo à mão, e divergir dela está na seção 20 do runbook, hoje
+    # histórico: `git show 8caf117:docs/runbook.md`.
     command:
       [
         "redis-server",
@@ -83,7 +84,7 @@ services:
       # jornada de construção, relativo ao repositório, que dentro do container gravaria na
       # camada de escrita e sumiria no primeiro `down`. Aqui a trilha aponta para o volume
       # nomeado e sobrevive a `docker compose down` (ADR 0013).
-      AUDIT_LOG_PATH: /var/log/nova_api/audit.log
+      AUDIT_LOG_PATH: /var/log/idp/audit.log
       # A fronteira de transporte, e o único lugar em que ela é ligada (ADR 0017). As três
       # saem de `PUBLIC_HOST`, que aparece uma vez só: o nome público é valor de
       # implantação, e nenhum arquivo versionado o aprende — exceto o exemplo.
@@ -108,7 +109,7 @@ services:
       # `REMOTE_ADDR` (ADR 0018).
       BEHIND_TLS_PROXY: "True"
     volumes:
-      - auditlog:/var/log/nova_api
+      - auditlog:/var/log/idp
     # SEM `ports:`, e isto é o controle, não vigilância (ADR 0017): quem publica é o `proxy`,
     # e a porta 8000 só é alcançável pela rede interna do compose. Enquanto ela estiver
     # publicada, `SECURE_PROXY_SSL_HEADER` faz o Django confiar em `X-Forwarded-Proto` de
