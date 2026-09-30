@@ -7,8 +7,10 @@ nomeando-se. Não há split dev/prod — um arquivo de dev que nunca roda em pro
 
 from datetime import timedelta
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import environ
+from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -39,6 +41,78 @@ CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS")
 # põe `Access-Control-Allow-Origin: *` à mão. Literal no código, e não no `.env`, pela razão
 # escrita em RATE_LIMIT_POR_CAMINHO.
 CORS_URLS_REGEX = r"^/o/"
+
+# Origem da SPA, destino do botão "Ir para a aplicação" da home. A raiz não
+# redireciona para ela: é o destino de LOGIN_REDIRECT_URL e de LOGOUT_REDIRECT_URL, e é dela
+# que sai o "Sair" do cabeçalho.
+#
+# Sem default, deliberadamente, e com custo: ausente, esta linha derruba o boot e a suíte de
+# todo ambiente cujo `.env` não a tenha, nomeando a si mesma, como AUDIT_LOG_PATH. O `.env` de
+# desenvolvimento e o de produção recebem a variável antes do código que a lê.
+#
+# A forma é a de uma entrada de CORS_ALLOWED_ORIGINS, e o valor de produção coincide com ela.
+# Coincidência mantida à mão: nenhum mecanismo une as duas, e divergir não quebra nada que a
+# suíte veja.
+#
+# Validada aqui, na carga, e não na renderização: um erro de digitação só apareceria como um
+# botão que leva a lugar errado, e nada o denunciaria. System check não serve, porque o
+# gunicorn não roda checks. A mensagem nunca repete o valor, que poderia trazer credenciais.
+#
+# A isenção de loopback existe porque http://localhost é origem potencialmente confiável
+# (W3C Secure Contexts) e porque o container de desenvolvimento força BEHIND_TLS_PROXY "True"
+# no docker-compose.yml, com a SPA servida pelo Vite em http://localhost:5173. O preço é um
+# silêncio: `http://localhost` num `.env` de produção passa, e o botão leva à máquina de quem
+# clica.
+_HOSTS_DE_LOOPBACK = {"localhost", "127.0.0.1", "::1"}
+
+
+def _porta_legivel(partes):
+    # urlsplit só avalia a porta quando `.port` é lido: até lá, `https://x:abc` e
+    # `https://x:99999` são origens como outras. A ValueError não sobe porque a mensagem dela
+    # repete o trecho recusado do valor.
+    try:
+        partes.port
+    except ValueError:
+        return False
+    return True
+
+
+def _validar_spa_url(valor, behind_tls_proxy):
+    partes = urlsplit(valor)
+    if partes.scheme not in ("http", "https") or not partes.hostname:
+        raise ImproperlyConfigured("SPA_URL precisa ser uma origem http:// ou https:// com host.")
+    if "@" in partes.netloc:
+        raise ImproperlyConfigured("SPA_URL não pode conter credenciais (usuario:senha@).")
+    # Comparar com a origem remontada recusa de uma vez caminho, barra final, query e
+    # fragmento, inclusive o `?` e o `#` vazios, que urlsplit descarta. O que ela não vê fica
+    # dentro do netloc, que urlsplit não valida:
+    # - a barra invertida, caractere comum para urlsplit, que o navegador lê como `/` em
+    #   esquema especial (WHATWG URL Standard): `https://x\y` navega para `https://x/y`, com
+    #   caminho;
+    # - o espaço em branco, que urlsplit mantém no host quando vem no fim, e que iria ao href
+    #   do botão; o do começo, o tab e a quebra de linha urlsplit já remove, e a comparação os
+    #   recusa;
+    # - a porta vazia de `https://x:`, para a qual `.port` devolve None sem erro;
+    # - a porta que não é número ou passa de 65535, em _porta_legivel.
+    if (
+        valor != f"{partes.scheme}://{partes.netloc}"
+        or "\\" in valor
+        or any(c.isspace() for c in valor)
+        or partes.netloc.endswith(":")
+        or not _porta_legivel(partes)
+    ):
+        raise ImproperlyConfigured(
+            "SPA_URL é uma origem: esquema, host e porta opcional, sem caminho, barra final, "
+            "query nem fragmento."
+        )
+    if behind_tls_proxy and partes.scheme == "http" and partes.hostname not in _HOSTS_DE_LOOPBACK:
+        raise ImproperlyConfigured(
+            "SPA_URL em http:// fora de loopback com BEHIND_TLS_PROXY verdadeiro: use https://."
+        )
+    return valor
+
+
+SPA_URL = _validar_spa_url(env.str("SPA_URL"), BEHIND_TLS_PROXY)
 
 # Sem default, deliberadamente: um default faria a trilha de auditoria gravar dentro da
 # camada de escrita do container e desaparecer no primeiro `docker compose down` —
@@ -237,7 +311,8 @@ AXES_FAILURE_LIMIT = 5
 # atualiza o registro a cada nova falha, inclusive as que chegam com a conta já bloqueada
 # (`AXES_RESET_COOL_OFF_ON_FAILURE_DURING_LOCKOUT`, cujo default é True na 8.3.1). Quem
 # insiste adia o próprio acesso, e um ataque sustentado mantém a conta fora enquanto durar —
-# daí a saída manual de `docs/runbook.md`. É este prazo que a tela de bloqueio declara.
+# daí a saída manual de `docs/receita.md`, "Desbloquear uma conta ou uma origem". É este prazo
+# que a tela de bloqueio declara.
 AXES_COOLOFF_TIME = timedelta(minutes=15)
 # DOIS ELEMENTOS, e é o número deles que separa "por conta OU por origem" de "pela combinação
 # das duas". `get_client_parameters` (`axes/helpers.py:285-293`) percorre a lista e faz de cada
@@ -317,6 +392,12 @@ AXES_VERBOSE = False
 # registrada: `clear_expired()` não apaga `DeviceGrant`, de modo que as linhas continuam
 # acumulando a partir de origens distintas, sem nada que as recolha.
 #
+# Cento e vinte em `/o/logout/`, o mesmo valor de `/o/authorize/` (ADR 0029). A rota é anônima
+# e custa mais que uma página: valida o `id_token_hint` com consultas ao banco — a Application
+# pelo `aud`, o IDToken pelo `jti` — e, com hint válido, apaga linhas. Uma saída legítima custa
+# uma requisição, duas com a confirmação. O teto limita o custo por origem, e não a revogação
+# por quem tem o `id_token` de alguém: essa é a posse de uma credencial, que teto nenhum limita.
+#
 # Literais no código versionado, NUNCA variáveis de ambiente: não são segredo, não variam por
 # ambiente, e uma variável nova sem default derrubaria o boot e a suíte de todo ambiente já
 # montado — o `.env` é untracked e não tem cópia, como `AUDIT_LOG_PATH` mostrou. Política vive
@@ -326,6 +407,7 @@ RATE_LIMIT_POR_CAMINHO = {
     "/o/authorize/": 120,
     "/accounts/login/": 60,
     "/o/device-authorization/": 30,
+    "/o/logout/": 120,
 }
 RATE_LIMIT_JANELA_SEGUNDOS = 60
 
@@ -341,10 +423,38 @@ OAUTH2_PROVIDER = {
     # requisição de autorização — quem observa o pedido troca o code interceptado por um
     # token. Restringe a S256 (RFC 9700 §2.1.1); default do DOT programado para flipar na 4.0.
     "COMPLIANT_BCP_RFC9700_PKCE_METHOD": True,
-    # Default já é False. A linha existe porque a própria biblioteca documenta que defaults
-    # dela estão programados para flipar na 4.0: sem a declaração explícita, um `pip install -U`
-    # publicaria end_session_endpoint na discovery sem uma linha de log.
-    "OIDC_RP_INITIATED_LOGOUT_ENABLED": False,
+    # O logout iniciado pela relying party (RP), em cinco chaves, todas declaradas mesmo quando
+    # coincidem com o default da 3.4.1: a própria biblioteca documenta que defaults dela estão
+    # programados para mudar na 4.0, e sem a declaração explícita um `pip install -U` mudaria o
+    # comportamento de /o/logout/ sem uma linha de log (ADR 0029). Quem atende a rota é a
+    # subclasse `accounts.logout_rp.LogoutPelaRPView` (ADR 0030). O "Sair" do topo das telas
+    # do IdP é outra rota, /accounts/logout/ (LogoutView do Django), fora destas chaves: encerra
+    # a sessão e não revoga token nenhum. A unificação dos dois é trabalho à parte.
+    #
+    # Liga /o/logout/, que responde 404 enquanto esta chave for falsa, e publica
+    # end_session_endpoint na descoberta. É contrato público com a RP: desligar é quebra.
+    "OIDC_RP_INITIATED_LOGOUT_ENABLED": True,
+    # Falsa, e não quer dizer "não revoga": a revogação do toolkit é por conta, em todas as
+    # Applications; a desta aplicação é a da subclasse, restrita à Application que pede. O
+    # SILÊNCIO desta linha: verdadeira, o toolkit revoga a conta inteira depois da subclasse, e
+    # nada acusa.
+    "OIDC_RP_INITIATED_LOGOUT_DELETE_TOKENS": False,
+    # Sem pergunta quando o hint vivo é da conta da sessão; a view pergunta quando o hint falta,
+    # não tem linha ou é de outra conta (must_prompt, oauth2_provider/views/oidc.py:369-429). O
+    # SILÊNCIO: sem sessão, a view nunca pergunta, e quem tem o id_token vivo de alguém revoga
+    # os tokens dele naquela Application sem pergunta nenhuma.
+    "OIDC_RP_INITIATED_LOGOUT_ALWAYS_PROMPT": False,
+    # A aba aberta há mais de dez horas, com o id_token vencido, também precisa sair. Lida
+    # também pela subclasse, no desempate do hint sem linha. O SILÊNCIO: o `cleartokens` apaga
+    # as linhas vencidas, e o hint delas passa a ser tratado como ausente, sem revogar nada.
+    "OIDC_RP_INITIATED_LOGOUT_ACCEPT_EXPIRED_TOKENS": True,
+    # Segue BEHIND_TLS_PROXY, como ALLOWED_REDIRECT_URI_SCHEMES logo abaixo (ADR 0006).
+    # Verdadeira, recusa post_logout_redirect_uri em `http` para Application pública, o que
+    # atrás do proxy ALLOWED_REDIRECT_URI_SCHEMES já recusa: é redundante ali, e está declarada
+    # para ancorar contra a 4.0 e para não afirmar, com um False literal, que `http` é aceito.
+    # Na jornada de construção vale falsa, e a SPA de desenvolvimento volta a
+    # http://localhost:5173/. O runner da suíte não a neutraliza: o valor dela segue a jornada.
+    "OIDC_RP_INITIATED_LOGOUT_STRICT_REDIRECT_URIS": BEHIND_TLS_PROXY,
     # Descrições em português: são renderizadas cruas na tela de consentimento e lidas pela
     # pessoa usuária. LANGUAGE_CODE governa a i18n do Django, não o conteúdo destas strings.
     "SCOPES": {
@@ -366,7 +476,7 @@ OAUTH2_PROVIDER = {
     # Application já gravada com `http://`, o redirecionamento vira DisallowedRedirect, isto é,
     # 400 depois do login, sem `code`. Na suíte vale sempre ["http", "https"], por
     # tests/runner.py. Declarada mesmo quando coincide com o default da 3.4.1: a biblioteca
-    # anuncia defaults que mudam na 4.0 (ver OIDC_RP_INITIATED_LOGOUT_ENABLED), e um teste
+    # anuncia defaults que mudam na 4.0 (ver o bloco do logout pela RP, acima), e um teste
     # indexa esta chave.
     "ALLOWED_REDIRECT_URI_SCHEMES": ["https"] if BEHIND_TLS_PROXY else ["http", "https"],
 }
@@ -401,9 +511,9 @@ SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https") if BEHIND_TLS_PROX
 # `saltos[0]`, o primeiro elemento — o que o cliente escreve. Com o cabeçalho presente, isso
 # entrega ao cliente a escolha da própria chave de contagem; com o cabeçalho AUSENTE, a lista
 # está vazia e a leitura levanta `IndexError`, isto é, 500 em toda tentativa de login e em
-# toda requisição a `/o/token/` e a `/o/authorize/` — as três superfícies limitadas, que são
-# as que chamam a função. O resto do site, `/health` inclusive, segue respondendo, e é o que
-# torna o estrago difícil de ler pela sonda. Não há guarda contra o zero, deliberadamente: o
+# toda requisição aos demais caminhos de RATE_LIMIT_POR_CAMINHO, que são os que chamam a
+# função. O resto do site, `/health` inclusive, segue respondendo, e é o que torna o estrago
+# difícil de ler pela sonda. Não há guarda contra o zero, deliberadamente: o
 # número é literal versionado, não vem do ambiente, e o cenário só existe se alguém escrever
 # `0` nesta linha.
 TRUSTED_PROXY_COUNT = 1

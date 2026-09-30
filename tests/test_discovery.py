@@ -41,13 +41,20 @@ class DiscoveryDocumentTests(TestCase):
             self.assertIn(key, body)
             self.assertTrue(body[key])
 
-    def test_end_session_endpoint_ausente(self):
-        """OIDC_RP_INITIATED_LOGOUT_ENABLED=False (settings): guarda contra flip
-        silencioso no upgrade do DOT — o próprio default da lib está programado
-        para virar True na 4.0 (comentário em config/settings.py)."""
+    def test_end_session_endpoint_presente_com_o_valor_exato(self):
+        """TASK-027/T-01 — o logout iniciado pela RP está ligado
+        (`OIDC_RP_INITIATED_LOGOUT_ENABLED=True`, ADR 0029), e a descoberta o anuncia no
+        issuer mais `/logout/`. Falha se a chave voltar a `False`: o toolkit omite o campo
+        sem erro. Substitui o caso `test_end_session_endpoint_ausente`, que guardava o
+        estado anterior."""
         response = self.client.get("/o/.well-known/openid-configuration")
 
-        self.assertNotIn("end_session_endpoint", response.json())
+        body = response.json()
+        self.assertIn("end_session_endpoint", body)
+        self.assertEqual(body["end_session_endpoint"], body["issuer"] + "/logout/")
+        self.assertEqual(
+            body["end_session_endpoint"], f"{settings.BASE_URL.rstrip('/')}/o/logout/"
+        )
 
     def test_discovery_na_raiz_do_host_e_404(self):
         """As rotas do DOT vivem sob /o/ (ADR 0007) — na raiz não há view nenhuma."""
@@ -107,9 +114,10 @@ class OAuthAuthorizationServerMetadataDocumentTests(TestCase):
     def test_registration_e_end_session_endpoint_ausentes(self):
         """`registration_endpoint`: mesma razão do par OIDC, `DCR_ENABLED=False` e a rota
         fora do URLConf. `end_session_endpoint`: a RFC 8414 nem declara esta chave — não é
-        vocabulário dela —, e a guarda aqui é simétrica à de
-        `DiscoveryDocumentTests.test_end_session_endpoint_ausente`, para o documento que
-        aquele caso não cobre."""
+        vocabulário dela —, e mesmo com o logout pela RP ligado (TASK-027) o documento da
+        RFC 8414 não a ganha: o caso OIDC, `DiscoveryDocumentTests.
+        test_end_session_endpoint_presente_com_o_valor_exato`, é o que a exige, e este
+        guarda a ausência no documento que aquele não cobre (AC-02)."""
         response = self.client.get("/o/.well-known/oauth-authorization-server")
         body = response.json()
 

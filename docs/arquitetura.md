@@ -1,223 +1,309 @@
-# Arquitetura — nova_api
+# Arquitetura — IdP
 
-Guia de orientação para quem abre este repositório sem contexto prévio. Dá o modelo mental do
-sistema e diz, para cada assunto, em que arquivo o detalhe já está escrito. Onde há detalhe em
-outro lugar, este documento aponta em vez de repetir.
+O mapa do projeto e o desenho do sistema. A parte I diz onde cada coisa está; a parte II, como
+as peças se ligam. O que o sistema é, as invariantes e o contrato com as relying parties (RPs)
+estão em `docs/nucleo-idp.md`; o apêndice traz o índice das ADRs (Architecture Decision
+Records).
 
-## O que o sistema é
+Em uma linha: um provedor de identidade (IdP, de _Identity Provider_) OpenID Connect (OIDC),
+monolítico, sobre Django 5.2 e `django-oauth-toolkit` 3.4.1, que fecha o fluxo Authorization
+Code com PKCE (Proof Key for Code Exchange) e emite `id_token` assinado em RS256 (RSA, de
+Rivest–Shamir–Adleman, com SHA-256) para as RPs que delegam a autenticação a ele.
 
-Um provedor de identidade (IdP) OpenID Connect (OIDC), monolítico, sobre Django 5.2 e
-`django-oauth-toolkit` 3.4.1. Fecha o fluxo Authorization Code com PKCE (Proof Key for Code
-Exchange) restrito a `S256`, publica descoberta e JWKS (JSON Web Key Set) e emite `id_token`
-assinado em RS256 (RSA com SHA-256). As aplicações que delegam a autenticação a ele são as
-relying parties (RPs).
+---
 
-Monólito significa que modelo de usuário, telas de login e consentimento, servidor de
-autorização, emissão de token e endpoints de descoberta vivem em uma aplicação implantável só.
+## I. Árvore de arquivos
 
-O escopo declarado é o de host único e uma réplica. O TLS (Transport Layer Security) termina num
-proxy do próprio compose, que é o único caminho até a aplicação (ADR 0017); a aplicação continua
-falando texto claro na rede interna. Postgres e Redis publicam em `127.0.0.1`, e o proxy também,
-fora de produção. O proxy é a exceção declarada em produção: a ADR 0026 o publica em 80 e 443 fora
-de loopback por um arquivo de override do compose que quem opera invoca com `-f`, com um salto de
-proxy só e o security group da AWS (Amazon Web Services) como única barreira de rede. Isso não é
-provisório por descuido — é premissa de várias decisões registradas, e a lista do
-que ainda não existe está em `docs/seguranca.md`, como risco, e em `docs/receita.md`, como
-pendência de produção.
+Os diretórios e arquivos que importam, cada um com o que **decide**. Migrações, `__init__.py`
+e arquivos de apoio ficam de fora.
 
-## Os módulos e a fronteira entre eles
+```
+./
+├── config/                    a borda e a composição; não afirma nada sobre identidade
+│   ├── settings.py            toda a configuração, lida do ambiente, e o bloco OAUTH2_PROVIDER
+│   ├── urls.py                a superfície HTTP: o que existe, sob que prefixo, com que nome
+│   ├── views.py               home (com o botão para a SPA) e health, a sonda de prontidão
+│   ├── origem.py              de que endereço veio a requisição, e de onde esse valor saiu
+│   ├── limites.py             o teto de requisições por origem nos caminhos de autenticação
+│   ├── observabilidade.py     como uma linha de log é escrita e como duas linhas se ligam
+│   └── wsgi.py                ponto de entrada do gunicorn
+├── accounts/                  a identidade: a pessoa e o que o IdP afirma sobre ela
+│   ├── models.py              User com e-mail único e sem username; a chave primária é o sub
+│   ├── oauth_validators.py    o que um token afirma sobre a pessoa (sub, name, email)
+│   ├── logout_rp.py           o que o "Sair" de uma RP faz com os tokens da pessoa
+│   ├── auditoria.py           o que a trilha afirma sobre quem autenticou
+│   ├── admin.py               a administração de contas
+│   └── apps.py                liga os receptores da trilha no ready()
+├── templates/
+│   ├── base.html              o esqueleto das telas e o form de logout
+│   ├── home.html              a home pública
+│   ├── registration/          login.html e bloqueio.html (excesso de tentativas)
+│   └── oauth2_provider/       authorize.html (consentimento) e logout_confirm.html
+├── static/css/idp.css         a aparência das telas
+├── tests/                     a suíte inteira, com o executor e os helpers do fluxo
+│   ├── runner.py              aponta a trilha de auditoria da suíte para diretório temporário
+│   ├── oauth_helpers.py       a infraestrutura do fluxo OIDC usada pelos testes
+│   ├── logout_helpers.py      a infraestrutura do logout pela RP
+│   └── test_*.py              um arquivo por comportamento garantido
+├── docker/
+│   ├── entrypoint.sh          a sequência de boot: migrate, collectstatic, gunicorn
+│   └── Caddyfile              o nome atendido, o certificado, o destino e a confiança no conector
+├── scripts/gen_env_secrets.sh gera os segredos do .env, a chave RSA inclusive; não escreve nele
+├── Dockerfile                 a imagem em dois estágios, o usuário sem root e o HEALTHCHECK
+├── docker-compose.yml         os quatro serviços, a ordem de subida e o que se publica no host
+├── docker-compose.prod.yml    o override de produção: o conector do túnel e nenhuma porta
+├── requirements.txt           as versões fixadas
+├── .env.example               o contrato de variáveis de ambiente
+├── logs/                      a trilha de auditoria da jornada de construção (.gitkeep)
+├── docs/
+│   ├── nucleo-idp.md          espelho e guia: o que o IdP é e o que se preserva
+│   ├── arquitetura.md         este mapa
+│   ├── integracao-rp.md       o contrato de quem integra uma RP
+│   ├── receita.md             subir o stack e as tarefas do dia a dia
+│   ├── seguranca.md           o que o IdP protege e o que não protege
+│   ├── testes.md              os níveis de teste e o que cada arquivo garante
+│   ├── observabilidade.md     o que o log e a trilha registram, e o que falta
+│   └── adr/                   as decisões, uma por arquivo, mais o template
+├── .claude/                   o sistema de agentes; não participa da execução do IdP
+├── CLAUDE.md                  as regras de trabalho do repositório
+└── README.md                  a identidade do projeto e o arranque mínimo
+```
 
-Quatro módulos, com fronteira nítida. Cada um decide uma coisa.
+Fora do versionamento, e só no clone de cada ambiente: o `.env`, com a única chave privada e a
+única `SECRET_KEY` daquele clone, e, no de produção, o diretório `cloudflared/`, com as
+credenciais do túnel (ADR 0027).
 
-**`config` — a borda e a composição.** Não afirma nada sobre identidade e não toca o modelo de
-usuário. Contém a configuração (`config/settings.py`, arquivo único dirigido por ambiente, sem
-default no código e sem separação entre desenvolvimento e produção), o URLConf raiz
-(`config/urls.py`) e duas views em `config/views.py`: `home`, destino de `LOGIN_REDIRECT_URL` e
-de `LOGOUT_REDIRECT_URL`, e `health`, a sonda de prontidão. Também três arquivos que
-decidem uma coisa cada: `config/observabilidade.py`, o formato de uma linha de log, o
-identificador que correlaciona as linhas de um mesmo pedido e a linha de acesso;
-`config/origem.py`, de que endereço veio uma requisição, de onde esse valor saiu e o que esse
-endereço é para o próprio processo, o seu gateway padrão ou não — resposta única do sistema,
-consumida pela trilha de auditoria, pelo limitador de taxa e pelo `django-axes` (ADRs 0015,
-0018 e 0020); e `config/limites.py`, o teto de requisições por origem em
-`/o/token/`, em `/o/authorize/`, em `/o/device-authorization/` e em `/accounts/login/`. Nenhum deles afirma nada sobre identidade: o limitador não conhece pessoa
-nem conta.
+---
 
-`LOGIN_URL`, `LOGIN_REDIRECT_URL` e `LOGOUT_REDIRECT_URL` guardam nomes de rota (`"login"`,
-`"home"`), não caminhos: quem os resolve é `resolve_url`, em tempo de execução, e não
-`reverse` nas settings, lidas antes do URLConf. Renomear uma rota produz `NoReverseMatch`,
-falha ruidosa.
+## II. Arquitetura
 
-**`accounts` — a identidade.** É o app dono da pessoa e do que o IdP afirma sobre ela:
+### 1. Contexto: o IdP e quem fala com ele
 
-- `accounts/models.py` — `User` herdando de `AbstractUser`, com `username = None` e e-mail
-  único como identificador de login;
-- `accounts/oauth_validators.py` — `IdPOAuth2Validator`, o único ponto em que o comportamento
-  do servidor de autorização é customizado. Decide claims (`sub`, `name`, `email`); não toca
-  em fluxo;
-- `accounts/auditoria.py` — os cinco receptores de sinal e o que a trilha de auditoria afirma
-  sobre quem autenticou: `sub`, origem, a procedência dessa origem, o que ela é para o
-  processo que a gravou (`ip_edge`) e o desfecho, nunca e-mail nem valor de token. Ligados em
-  `AccountsConfig.ready()`. É o único ponto em que `accounts` importa de `config`: a função de
-  origem, e nada mais (ADRs 0015, 0018 e 0020);
-- `accounts/admin.py` — `UserAdmin` ajustado a um modelo sem `username`.
+```
+                         ┌──────────────────────────────┐
+     pessoa usuária ────►│          navegador           │
+                         └──┬──────────────┬────────────┘
+         (a) redirect de    │              │ (b) fetch com CORS
+         navegador: login,  │              │     /o/token/, /o/userinfo/,
+         consentimento,     │              │     descoberta, JWKS
+         "Sair"             │              │
+                            ▼              ▼
+                ┌───────────────────────────────────────┐
+                │  borda da Cloudflare (só em produção) │  TLS do navegador termina aqui
+                └───────────────────┬───────────────────┘
+                                    │ túnel nomeado, iniciado de dentro
+                                    ▼
+      ┌──────────────────────────────────────────────────────────┐
+      │                       o IdP (monólito)                   │
+      │  login · consentimento · emissão de token · descoberta   │
+      └──────────────────────────────────────────────────────────┘
+                                    ▲
+                                    │ (c) servidor a servidor: /o/token/, /o/userinfo/
+                          ┌─────────┴─────────┐
+                          │ RP com back-end   │  (nenhuma hoje)
+                          └───────────────────┘
 
-**`oauth2_provider` — o protocolo.** É dependência de terceiro, montada sob o prefixo `o/` em
-`config/urls.py`: três das cinco listas de rotas que o módulo exporta, as de protocolo, num
-`include` com o namespace `oauth2_provider` (ADR 0024). Nenhum método de protocolo é
-sobrescrito; a única peça substituída é o template da tela de consentimento,
-`templates/oauth2_provider/authorize.html`.
+      RPs no navegador: a SPA (primeira parte). Cada RP é uma Application no admin.
+```
 
-**`axes` — o teto da tela de login.** Também dependência de terceiro, e a única que entra no
-caminho de `authenticate()`: `AUTHENTICATION_BACKENDS` passa a existir por causa dela, com
-`AxesStandaloneBackend` antes do `ModelBackend` do Django. Conta tentativas falhas por conta e
-por origem, em tabela própria, e a origem que ela conta vem de `config/origem.py` (ADR 0016).
+O IdP não conhece as RPs pelo código, só pela configuração: cada uma é uma `Application`
+cadastrada no admin e, se roda no navegador, uma origem em `CORS_ALLOWED_ORIGINS`. Há três
+canais, e cada um tem uma regra própria:
 
-O acoplamento entre `accounts` e o toolkit é uma chave só: `OAUTH2_VALIDATOR_CLASS`, no bloco
-`OAUTH2_PROVIDER` de `config/settings.py`. É contrato por string, resolvido no boot — caminho
-errado falha ali; chave ausente não dá erro nenhum e o `id_token` sai só com `sub`.
+- **(a) Redirect de navegador.** É o único caminho da autenticação. A senha só é digitada em
+  tela do IdP e nunca chega à RP.
+- **(b) `fetch` de uma RP de navegador.** Passa pelo CORS (Cross-Origin Resource Sharing), com
+  origem exata e só sob `/o/` (ADR 0022).
+- **(c) Servidor a servidor.** Não passa pelo CORS e dispensa configuração no IdP.
 
-## O caminho de um pedido
+### 2. Implantação: os serviços e o que se publica
 
-1. A relying party redireciona o navegador para `/o/authorize/`, com `code_challenge` e
+```
+  desenvolvimento e jornada de container          produção (dois -f: base + override)
+  ──────────────────────────────────────          ───────────────────────────────────
+  host: 127.0.0.1:80/443 ──► proxy                internet ──► borda Cloudflare
+                               │                                     │ túnel
+                               │                           cloudflared (rede borda,
+                               │                                     │   10.203.14.200)
+                               ▼                                     ▼
+                     ┌──────────────────┐                  ┌──────────────────┐
+                     │ proxy (Caddy)    │                  │ proxy (Caddy)    │ redes default
+                     │ tls internal     │                  │ tls internal     │ e borda
+                     └────────┬─────────┘                  └────────┬─────────┘
+                              │ http, rede interna                   │
+                              ▼                                      ▼
+                     ┌──────────────────┐                  ┌──────────────────┐
+                     │ app (gunicorn,   │ sem ports:       │ app              │ DEBUG="False"
+                     │ 3 workers, :8000)│                  │                  │
+                     └───┬──────────┬───┘                  └───┬──────────┬───┘
+                         ▼          ▼                          ▼          ▼
+                     postgres    redis                     postgres    redis
+                     (127.0.0.1) (127.0.0.1)               (sem porta) (sem porta)
+```
+
+O arquivo base é o mesmo nos dois lados, e o override de produção só subtrai e acrescenta:
+
+- **Base, `docker-compose.yml`.** Quatro serviços: `proxy` (`caddy:2.11.4`, fixado em versão
+  exata), `app`, `postgres` (17) e `redis` (7). A subida espera os dois de estado por
+  `depends_on` com `condition: service_healthy`.
+- **Override, `docker-compose.prod.yml`.** Zera por `!reset []` o `ports:` de `proxy`,
+  `postgres` e `redis`. Declara o `cloudflared` na rede `borda`, com endereço fixo, põe
+  `restart: unless-stopped` em todos os serviços e fixa `DEBUG`.
+- **O `app` não publica porta em nenhum dos dois.** A rede interna é o único caminho até a
+  porta 8000 (ADR 0017).
+- **O TLS (Transport Layer Security).** Em produção, o do navegador termina na borda da
+  Cloudflare; o Caddy mantém a CA (autoridade certificadora) interna nos dois ambientes, e o
+  conector não a verifica (ADR 0027).
+- **O nome atendido.** Sai de `PUBLIC_HOST`. Dele o compose deriva `BASE_URL` e `ALLOWED_HOSTS`
+  do `app`, ao lado de `BEHIND_TLS_PROXY`, fixada em `"True"`, e de `BASE_URL` sai o issuer.
+
+A imagem é construída em dois estágios sobre `python:3.14-slim` e roda como o usuário
+`idp`, UID e GID 10001. O `docker/entrypoint.sh` roda `migrate`, `collectstatic` e `exec
+gunicorn`; a conta administrativa não nasce ali, e sim por `createsuperuser` interativo (ADR
+0019). O `HEALTHCHECK` deriva os tempos dos tetos da aplicação: 2 s de banco, 4 s de cache e
+1 s de folga, dentro de 8 s externos (ADR 0011).
+
+Há também a jornada de construção: a aplicação roda em `runserver` no host, em
+`http://localhost:8000`, contra o Postgres e o Redis do compose, sem proxy. Os passos das duas
+jornadas estão em `docs/receita.md`.
+
+### 3. Módulos: a fronteira dentro do monólito
+
+```
+   ┌────────────────────────── config (a borda) ───────────────────────────┐
+   │ settings · urls · views(home, health) · origem · limites · observab.  │
+   └──────┬───────────────────────┬────────────────────────────┬───────────┘
+          │ OAUTH2_VALIDATOR_CLASS│ rota-sombra /o/logout/     │ origem da
+          │ (string, no boot)     │ (import, antes do include) │ requisição
+          ▼                       ▼                            ▼
+   ┌──────────────────────── accounts (a identidade) ───────────────────────┐
+   │ User · IdPOAuth2Validator · LogoutPelaRPView · auditoria · admin       │
+   └──────┬──────────────────────────────┬──────────────────────────────────┘
+          │ herda / estende              │ auditoria importa de config só
+          ▼                              │ a função de origem
+   ┌──────────────────────┐   ┌──────────┴────────────┐
+   │ oauth2_provider      │   │ axes                  │
+   │ (terceiro) protocolo │   │ (terceiro) teto do    │
+   │ sob /o/              │   │ login; origem de      │
+   └──────────────────────┘   │ config/origem.py      │
+                              └───────────────────────┘
+```
+
+Cada módulo decide uma coisa:
+
+- **`config`, a borda e a composição.** Não toca o modelo de usuário. Dois arquivos respondem
+  perguntas que servem a vários consumidores. `config/origem.py` diz de que endereço veio a
+  requisição, e a resposta é única no sistema: servem-se dela a trilha, o limitador e o
+  `django-axes` (ADRs 0015, 0018 e 0020). `config/limites.py` limita requisições por origem em
+  `/o/token/`, `/o/authorize/`, `/o/device-authorization/`, `/o/logout/` e `/accounts/login/`,
+  sem conhecer pessoa nem conta (ADR 0016).
+- **`accounts`, a identidade.** É dono da pessoa e do que o IdP afirma sobre ela.
+  `IdPOAuth2Validator` é o único ponto em que se decidem claims. `LogoutPelaRPView` é o único
+  código deste projeto no caminho de um endpoint de protocolo, com revogação restrita à
+  `Application` que pede (ADRs 0029 e 0030). A trilha de auditoria grava `sub`, origem,
+  procedência e desfecho, nunca e-mail nem valor de token.
+- **`oauth2_provider`, o protocolo.** Dependência de terceiro, montada sob `o/` com só três das
+  cinco listas de rotas, as de protocolo (ADR 0024). Nenhum método de protocolo é sobrescrito,
+  salvo o logout. As outras peças trocadas são templates.
+- **`axes`, o teto da tela de login.** A única dependência que entra em `authenticate()`, com
+  `AxesStandaloneBackend` antes do `ModelBackend`. Conta falhas por conta e por origem (ADR
+  0016).
+
+O acoplamento entre `accounts` e o toolkit passa por dois pontos, e os dois falham sem erro
+nenhum:
+
+- **`OAUTH2_VALIDATOR_CLASS`.** É um contrato por string. Um caminho errado falha no boot, mas
+  a chave ausente emite o `id_token` só com `sub`.
+- **A rota-sombra de `/o/logout/`.** Ela precisa vir antes do `include`. Fora de ordem, a view
+  do toolkit volta a atender, e o "Sair" deixa de revogar.
+
+### 4. O caminho de um pedido
+
+```
+  RP            navegador           IdP (/o/…, /accounts/…)           Postgres / Redis
+  │ 1 redirect ──►│── GET /o/authorize/ (code_challenge, S256) ──►│
+  │               │◄── 302 /accounts/login/?next=… (sem sessão) ───│
+  │               │── POST credenciais ────────────────────────────►│── sessão SSO ──►│
+  │               │◄── consentimento (pulado se skip_authorization)│
+  │               │◄── 302 redirect_uri?code=…&state=… ────────────│
+  │◄── code ──────│                                                │
+  │── POST /o/token/ (code, code_verifier) ───────────────────────►│── grant/tokens ─►│
+  │◄── access_token, refresh_token, id_token ──────────────────────│
+  │── GET /o/.well-known/jwks.json, confere assinatura e iss ─────►│
+  │     …                                                          │
+  │ 8 "Sair" ──►│── GET /o/logout/ (id_token_hint, destino, state)►│── revoga na App ─►│
+  │◄────────────│◄── 302 post_logout_redirect_uri?state=… ─────────│   encerra sessão
+```
+
+1. A RP redireciona o navegador para `/o/authorize/` com `code_challenge` e
    `code_challenge_method=S256`.
-2. Sem sessão, a view do toolkit desvia para `/accounts/login/` carregando o `next`.
-3. Autenticada a pessoa, abre-se a sessão de login (SSO), no backend `cached_db`: grava no
-   Postgres, lê do Redis.
-4. A tela de consentimento lista os scopes concedidos, com as descrições declaradas em
-   `SCOPES` — salvo na `Application` de primeira parte, com `skip_authorization` marcado: a
-   tela não aparece e o passo 5 vem direto (ADR 0021).
-5. O consentimento redireciona de volta à `redirect_uri` registrada, com o código de
-   autorização na query string.
-6. A RP troca o código em `POST /o/token/`, apresentando o `code_verifier`, e recebe
-   `access_token`, `refresh_token` e `id_token`.
-7. A RP verifica a assinatura do `id_token` contra `/o/.well-known/jwks.json` e confere o
-   `iss`, que é `{BASE_URL}/o`.
+2. Sem sessão, o toolkit desvia para `/accounts/login/`, carregando o `next`.
+3. Autenticada a pessoa, abre-se a sessão de login (SSO, de _Single Sign-On_) no backend
+   `cached_db`, que grava no Postgres e lê do Redis (ADR 0005).
+4. A tela de consentimento lista os scopes. Na `Application` de primeira parte, com
+   `skip_authorization`, ela não aparece (ADR 0021).
+5. O IdP redireciona à `redirect_uri` registrada, com `code` e `state`.
+6. A RP troca o código em `POST /o/token/`, com o `code_verifier`, e recebe os três tokens.
+7. A RP verifica o `id_token` contra o JWKS (JSON Web Key Set) e confere o `iss`, que é
+   `{BASE_URL}/o`.
+8. No "Sair", a RP manda o navegador a `/o/logout/`. O IdP revoga os tokens da conta naquela
+   `Application`, encerra a sessão e devolve o navegador ao destino cadastrado (ADR 0029).
 
-A superfície HTTP própria do projeto é curta: `/`, `/health` (sem barra final, porque é a URL
-da sonda do container), `/accounts/login/`, `/accounts/logout/` (só POST) e `/admin/`. Tudo o
-mais vem do toolkit sob `/o/`: `authorize/`, `token/`, `userinfo/`,
-`.well-known/openid-configuration` e `.well-known/jwks.json`, e junto com eles o fluxo de device
-grant, a revogação e a introspecção — rotas que este projeto não usa, mas que estão nas mesmas
-listas. A gestão de Applications e de tokens e o registro dinâmico de client não são montados:
-`/o/applications/`, `/o/authorized_tokens/` e `/o/register/` respondem 404, e a gestão é do
-admin (ADR 0024). `/accounts/password_reset/` é um 404 deliberado, explicado no comentário de
-`config/urls.py`.
+A superfície HTTP própria é curta: `/`, `/health` (sem barra final, porque é a URL da sonda),
+`/accounts/login/`, `/accounts/logout/` (só POST) e `/admin/`. O resto vem do toolkit sob
+`/o/`:
 
-## Onde mora o estado
+- `authorize/`, `token/` e `userinfo/`;
+- `logout/`, atendido pela subclasse de `accounts`;
+- a descoberta OIDC e o JWKS, sob `.well-known/`;
+- device grant, revogação, introspecção e os metadados das RFCs 8414 e 9728, que estão nas
+  mesmas listas mas não são usados.
+
+`/o/applications/`, `/o/authorized_tokens/` e `/o/register/` respondem 404: a gestão é do admin
+(ADR 0024). `/accounts/password_reset/` é um 404 deliberado, explicado em `config/urls.py`.
+
+### 5. Onde mora o estado
 
 | Lugar | O que guarda |
 | --- | --- |
-| Postgres | contas, Applications, grants, tokens, `django_session` e as tentativas de login que o `axes` conta; volume `pgdata` |
-| Redis | cópia quente da sessão, a chave da sonda do `/health` e os contadores de taxa dos quatro caminhos limitados; volume `redisdata` |
+| Postgres | contas, Applications, grants, tokens, `django_session` e as tentativas que o `axes` conta; volume `pgdata` |
+| Redis | cópia quente da sessão, a chave da sonda do `/health` e os contadores de taxa; volume `redisdata` |
 | Ambiente do processo | a chave privada RSA e a `SECRET_KEY`, fora do banco e da imagem |
-| Cookie do navegador | apenas o identificador da sessão |
-| Arquivo, no container | a trilha de auditoria; volume `auditlog`, montado em `/var/log/nova_api` |
-| Volume do proxy | a autoridade certificadora local do Caddy, em `caddydata`; sem ela, cada `up` emitiria um certificado de uma CA nova |
+| Cookie do navegador | só o identificador da sessão |
+| Arquivo, no container | a trilha de auditoria; volume `auditlog`, em `/var/log/idp` |
+| Volume do proxy | a CA interna do Caddy, em `caddydata`; sem ele, cada `up` emite por uma CA nova |
+| `cloudflared/` do clone de produção | as credenciais do túnel, segredo da mesma classe da chave RSA (ADR 0027) |
 
-O Redis é descartável — a sessão sobrevive a `flush` e a reinício dele —, mas o IdP não tolera
-sua ausência: `SESSION_ENGINE = cached_db` toca o cache a cada requisição. O detalhe está na
-ADR (Architecture Decision Record) `docs/adr/0005-manter-a-sessao-sso-em-sessao-django-com-backend-cached-db.md`.
+O Redis é descartável, porque a sessão sobrevive a `flush` e a reinício dele. Mas o IdP não
+tolera a ausência do Redis: `cached_db` toca o cache a cada requisição.
 
-## A árvore, comentada
+### 6. Onde a arquitetura falha em silêncio
 
-Cada entrada diz o que aquele arquivo **decide**.
+- `OAUTH2_VALIDATOR_CLASS` ausente: o `id_token` sai só com `sub`.
+- `OIDC_RSA_PRIVATE_KEY` presente e vazia: o JWKS sai vazio, com 200. Ausente, o processo cai na
+  leitura das settings, nomeando a variável (ADR 0004).
+- `CorsMiddleware` fora do topo do `MIDDLEWARE`: o erro não aparece enquanto a allowlist de CORS
+  estiver vazia.
+- A rota-sombra de `/o/logout/` depois do `include`: o "Sair" deixa de revogar.
+- O endereço fixo do `cloudflared` divergente entre `docker-compose.prod.yml` e
+  `docker/Caddyfile`: toda requisição passa a ter a mesma origem, e o limitador tranca todos os
+  clientes numa chave só. O comentário do `Caddyfile` descreve esse caso.
 
-```
-config/
-  settings.py          toda a configuração; leitura do ambiente e o bloco OAUTH2_PROVIDER
-  urls.py              a superfície HTTP: o que existe, sob que prefixo, com que nome de rota
-  views.py             home e health — a borda que não afirma nada sobre identidade
-  observabilidade.py   como uma linha de log é escrita e como duas linhas se ligam
-  origem.py            de que endereço veio a requisição, e de onde esse valor saiu
-  limites.py           o teto de requisições por origem em /o/token/, /o/authorize/,
-                       /o/device-authorization/ e /accounts/login/
-  wsgi.py              ponto de entrada do gunicorn
-accounts/
-  models.py            o que é uma pessoa aqui: e-mail único, sem username
-  oauth_validators.py  o que um token afirma sobre a pessoa
-  auditoria.py         o que a trilha afirma sobre quem autenticou
-  admin.py             a tela de administração de contas
-  apps.py              registro do app
-  migrations/          o esquema de accounts, a chave primária de 64 bits que vira o `sub`
-tests/                 a suíte inteira: fluxo OIDC, telas, validador, /health, log e auditoria
-logs/                  a trilha de auditoria da jornada de construção; versionado por .gitkeep
-templates/
-  base.html            o esqueleto das telas e o form de logout
-  home.html            a home pública
-  registration/login.html            a tela de login
-  registration/bloqueio.html         a tela de quem foi barrado por excesso de tentativas
-  oauth2_provider/authorize.html     a tela de consentimento (override de template, não de view)
-static/css/idp.css     a aparência das telas
-docker/entrypoint.sh   a sequência de boot do container
-docker/Caddyfile       o nome que o proxy atende, o certificado e o destino interno
-scripts/gen_dev_key.sh gera o par RSA de desenvolvimento; não escreve no .env de propósito
-Dockerfile             a imagem e o HEALTHCHECK
-docker-compose.yml     os quatro serviços, a ordem de subida e o que é publicado no host
-requirements.txt       as versões fixadas, e o piso de compatibilidade do Django
-.env.example           o contrato de variáveis de ambiente
-docs/adr/              as decisões de arquitetura, uma por arquivo, mais o template
-.claude/               sistema de agentes; não participa da execução do IdP
-```
+---
 
-## Empacotamento e execução
+## III. Apêndice
 
-Imagem em dois estágios sobre `python:3.14-slim`: o primeiro constrói o wheelhouse, o segundo
-instala a partir dele. O processo não roda como `root` — o usuário `nova_api`, de UID e GID
-fixos em 10001, é dono dos dois diretórios que ele escreve, os estáticos e a trilha. O
-`docker-compose.yml` sobe quatro serviços — `app`, `postgres` (17), `redis` (7) e `proxy`
-(`caddy:2.11.4`, o único fixado em versão exata, porque a propriedade antiforja do
-`X-Forwarded-For` repousa num default medido nessa versão) —, e a espera pelos dois de estado é
-do `depends_on` com `condition: service_healthy`, não de laço no entrypoint.
+### Índice das ADRs
 
-Quem publica a porta da aplicação é o `proxy`. No `docker-compose.yml`, em `127.0.0.1:80` e
-`127.0.0.1:443`, e é assim em desenvolvimento e na jornada de container. Na instância de
-produção, quem opera invoca o arquivo base junto do override da ADR 0026 — `docker compose -f
-docker-compose.yml -f docker-compose.prod.yml` —, que substitui essas publicações por 80 e 443 sem
-endereço. O override entra no passo 3 de `docs/plano-implantacao.md`; até lá, o proxy publica
-em `127.0.0.1` também na instância, e o `docker/Caddyfile` emite pela CA interna (`tls internal`).
-Postgres e Redis ficam em `127.0.0.1` nos dois casos. O `app` não tem `ports:`, e a rede
-interna do compose é o único caminho até a porta 8000 (ADR 0017). O nome que o proxy
-atende sai de `PUBLIC_HOST`, variável do `.env` da qual o compose deriva também `BASE_URL`,
-`ALLOWED_HOSTS` e `BEHIND_TLS_PROXY` do serviço `app`.
-
-`docker/entrypoint.sh` abre com uma guarda de comando explícito — argumento passado à imagem
-roda sozinho, sem a sequência de boot — e depois executa `migrate`, `collectstatic` e o `exec
-gunicorn` com três workers. A conta administrativa não nasce dali: ela é criada por
-`docker compose run --rm app python manage.py createsuperuser`, interativo (ADR 0019).
-
-O `HEALTHCHECK` do `Dockerfile` deriva seus tempos dos tetos da própria aplicação, em vez de
-escolhê-los: 2 s de conexão com o banco, 4 s de cache (os dois timeouts do Redis são aditivos)
-e 1 s de folga, dando 7 s internos sob 8 s externos.
-
-Existem duas jornadas de execução, e `docs/receita.md` descreve as duas: clonar-e-rodar, tudo
-em container, e a de construção, com a aplicação em `runserver` no host contra o Postgres e o
-Redis do compose.
-
-## Onde buscar mais detalhe
-
-| Assunto | Arquivo |
-| --- | --- |
-| Passo a passo das duas jornadas, do `.env` ao fluxo PKCE fechado à mão, e as tarefas do dia a dia | `docs/receita.md` |
-| Sintoma, causa e correção, mais os alçapões — `algorithm` em branco, `BEHIND_TLS_PROXY`, estáticos, reciclagem do `sub` | `docs/runbook.md` |
-| O que o IdP protege, o que não protege e o que muda antes de ele sair de `localhost` | `docs/seguranca.md` |
-| O contrato de quem integra uma relying party: claims, verificação do token, tempos de vida | `docs/integracao-rp.md` |
-| Níveis de teste, rastreabilidade, helpers e o que não é coberto | `docs/testes.md` |
-| Identidade do projeto, as duas jornadas nomeadas e o índice dos documentos | `README.md` |
-| Por que cada tecnologia do núcleo, com prós e contras | `docs/esboco.md` |
-| O que é um IdP e como ele se comporta | `docs/esboco.md`, seção A |
-| Motivo de cada valor de configuração | comentários de `config/settings.py` |
-| Regras de trabalho e restrições do repositório | `CLAUDE.md` |
-| Convenções entre agentes, incluindo as de ADR | `.claude/PROTOCOLO-AGENTES.md` |
-
-As decisões de arquitetura, uma por arquivo em `docs/adr/`:
+Uma decisão por arquivo em `docs/adr/`. ADR aceita é imutável: decisão que mudou vira ADR
+nova. O formato está em `docs/adr/template-adr.md`.
 
 | Assunto | ADR |
 | --- | --- |
 | Plataforma: Django 5.2 sobre Python 3.14 | `0001-adotar-django-5-2-lts-sobre-python-3-14.md` |
-| O toolkit como servidor de autorização — **emendada pela 0024** | `0002-usar-django-oauth-toolkit-como-servidor-de-autorizacao.md` |
+| O toolkit como servidor de autorização — **emendada pela 0024 e pela 0030** | `0002-usar-django-oauth-toolkit-como-servidor-de-autorizacao.md` |
 | `User` customizado com e-mail como identificador | `0003-modelar-identidade-em-user-customizado-com-email-como-identificador.md` |
-| RS256 e a custódia da chave privada | `0004-assinar-tokens-com-rs256-e-custodiar-a-chave-privada-no-ambiente.md` |
+| RS256 e a custódia da chave privada — **emendada pela 0028** (proposta) | `0004-assinar-tokens-com-rs256-e-custodiar-a-chave-privada-no-ambiente.md` |
 | A sessão SSO em `cached_db` | `0005-manter-a-sessao-sso-em-sessao-django-com-backend-cached-db.md` |
 | Container único orquestrado por docker-compose | `0006-empacotar-o-idp-como-container-unico-orquestrado-por-docker-compose.md` |
 | O issuer em `{BASE_URL}/o` | `0007-fixar-o-issuer-do-idp-em-base-url-barra-o.md` |
@@ -226,37 +312,45 @@ As decisões de arquitetura, uma por arquivo em `docs/adr/`:
 | A isenção de `/health` no redirecionamento para HTTPS | `0010-isentar-health-do-redirecionamento-para-https.md` |
 | O teto de tempo do `/health` e o `HEALTHCHECK` derivado dele | `0011-dar-teto-de-tempo-ao-health-e-derivar-o-healthcheck-dele.md` |
 | O log operacional em JSON, com identificador de requisição — **emendada pela 0014** | `0012-emitir-o-log-operacional-em-json-com-identificador-de-requisicao.md` |
-| A trilha de auditoria dos quatro sinais, em arquivo durável | `0013-registrar-a-trilha-de-auditoria-dos-quatro-sinais-em-arquivo-duravel.md` |
+| A trilha de auditoria dos quatro sinais, em arquivo durável — **ampliada pela 0016 e pela 0029**; **estendida pela 0018** | `0013-registrar-a-trilha-de-auditoria-dos-quatro-sinais-em-arquivo-duravel.md` |
 | O tempo de vida do identificador de requisição; emenda à 0012 | `0014-manter-o-identificador-de-requisicao-ate-a-requisicao-seguinte.md` |
 | A origem do cliente resolvida num ponto único | `0015-resolver-a-origem-do-cliente-num-ponto-unico.md` |
 | O limite de taxa nas três portas de autenticação | `0016-limitar-a-taxa-na-superficie-de-autenticacao.md` |
-| O proxy de terminação TLS no compose, e só ele publicado — emenda a **0006**; **emendada pela 0026** | `0017-terminar-o-tls-num-proxy-declarado-no-compose.md` |
+| O proxy de terminação TLS no compose, e só ele publicado — emenda a **0006**; **emendada pela 0027** (antes pela 0026, substituída) | `0017-terminar-o-tls-num-proxy-declarado-no-compose.md` |
 | A procedência do endereço em cada linha da trilha — estende a **0013** | `0018-declarar-a-procedencia-do-endereco-em-cada-linha-da-trilha.md` |
 | O superusuário criado por comando explícito — emenda a **0006** | `0019-criar-o-superusuario-por-comando-explicito-fora-do-boot.md` |
-| O endereço colapsado pelo `docker-proxy` marcado em cada linha da trilha — emenda a **0018** | `0020-marcar-na-linha-o-endereco-colapsado-pelo-docker-proxy.md` |
+| O endereço colapsado pelo `docker-proxy` marcado em cada linha da trilha — emenda a **0018**; **emendada pela 0027** | `0020-marcar-na-linha-o-endereco-colapsado-pelo-docker-proxy.md` |
 | O consentimento pulado na `Application` de primeira parte, por `skip_authorization` | `0021-pular-o-consentimento-na-application-de-primeira-parte-por-skip-authorization.md` |
 | O CORS por origem exata, uma por ambiente; previews da Vercel fora | `0022-liberar-o-cors-por-origem-exata-e-deixar-os-previews-da-vercel-fora.md` |
 | Sem cadastro nem edição de perfil nesta fase; contas criadas no admin | `0023-nao-oferecer-cadastro-nem-perfil-nesta-fase-e-manter-a-criacao-de-contas-no-admin.md` |
-| A montagem sob `/o/` só das listas de protocolo do toolkit — emenda a **0002** | `0024-montar-sob-o-so-as-listas-de-protocolo-do-django-oauth-toolkit.md` |
+| A montagem sob `/o/` só das listas de protocolo do toolkit — emenda a **0002**; **emendada pela 0030** | `0024-montar-sob-o-so-as-listas-de-protocolo-do-django-oauth-toolkit.md` |
 | O issuer de produção congelado na forma `https://<PUBLIC_HOST>/o` — cumpre a condição da **0007** | `0025-congelar-o-issuer-de-producao-na-forma-https-public-host-barra-o.md` |
-| A exposição na AWS por um salto de proxy só, com ACME (Automatic Certificate Management Environment) e 80/443 fora de loopback por override de compose — emenda a **0017** | `0026-expor-o-idp-na-aws-por-um-salto-de-proxy-so-com-acme-e-80-443-fora-de-loopback.md` |
+| A exposição na AWS (Amazon Web Services) por um salto de proxy só, com ACME (Automatic Certificate Management Environment) e 80/443 fora de loopback por override de compose — emenda a **0017**; **substituída pela 0027** | `0026-expor-o-idp-na-aws-por-um-salto-de-proxy-so-com-acme-e-80-443-fora-de-loopback.md` |
+| O IdP de produção servido da máquina do dono pelo Cloudflare Tunnel, sem porta de entrada — substitui a **0026**; emenda a **0017** e a **0020** | `0027-servir-o-idp-de-producao-da-maquina-local-pelo-cloudflare-tunnel-sem-porta-de-entrada.md` |
+| A chave de assinatura em RSA 3072, pelo gerador único de segredos — emenda a **0004**; proposta | `0028-gerar-a-chave-de-assinatura-em-rsa-3072-pelo-gerador-unico-de-segredos.md` |
+| O logout iniciado pela RP ligado, com revogação restrita à `Application` e retorno só a destino cadastrado — amplia a **0013**; proposta, passa a aceita quando a ADR 0019 da SPA estiver gravada | `0029-ligar-o-logout-iniciado-pela-rp-com-revogacao-restrita-a-application.md` |
+| A rota de logout do toolkit sombreada por uma subclasse da view, montada antes do `include` — emenda a **0002** e a **0024**; proposta | `0030-sombrear-a-rota-de-logout-do-toolkit-com-uma-subclasse-da-view.md` |
 
-ADR aceita é imutável: decisão que mudou vira ADR nova. O formato está em
-`docs/adr/template-adr.md`.
+### O "passo NN" nos comentários
 
-As ADRs 0008 e 0010 citam "o passo NN do roadmap", e o mesmo rótulo aparece encurtado para
-"passo NN" em comentários do `Dockerfile`, do `docker-compose.yml`, de `config/settings.py`, de
-`accounts/models.py` e de `tests/test_password_reset_urls.py`. São os treze arquivos de
-`docs/roadmap/`, a ordem de implementação que guiou a construção do núcleo, de
-`01-dependencias-e-contrato-de-ambiente.md` a `13-adrs.md`. Foram removidos no commit `b7774d5`
-depois de cumpridos, e cada um segue legível no histórico — por exemplo, `git show
-b7774d5^:docs/roadmap/09-telas-e-estaticos.md`. Onde o código diverge deliberadamente do que um
-passo prescrevia, quem decide é o código, e a divergência está registrada na ADR ou no próprio
-comentário que cita o passo.
+As ADRs 0008 e 0010 e alguns comentários de código citam "passo NN" do roadmap. Os comentários
+estão no `Dockerfile`, no `docker-compose.yml`, em `config/settings.py`, em `accounts/models.py`,
+em `tests/test_password_reset_urls.py`, no `.env.example`, no `.gitignore` e no `.dockerignore`. O roadmap eram os treze arquivos de `docs/roadmap/`,
+removidos no commit `b7774d5` depois de cumpridos, e cada um segue legível no histórico, por
+exemplo em `git show b7774d5^:docs/roadmap/09-telas-e-estaticos.md`. Onde o código diverge
+deliberadamente de um passo, vale o código.
 
-O comportamento verificado está nos arquivos `test_*.py` de `tests/`, ao lado de dois módulos
-que não são teste: `tests/oauth_helpers.py`, que carrega a infraestrutura do fluxo, e
-`tests/runner.py`, o executor que aponta a trilha de auditoria da suíte para um diretório
-temporário. O que cada arquivo garante, em que nível e contra que regressão está em
-`docs/testes.md`, na seção "O que cada arquivo garante"; é lá que também estão como rodar a
-suíte e o que ela não cobre.
+### Onde buscar mais
+
+| Assunto | Arquivo |
+| --- | --- |
+| O que é um IdP, as invariantes, o contrato com toda RP | `docs/nucleo-idp.md` |
+| O contrato de quem integra uma RP: registro, fluxo, claims, verificação, tempos de vida | `docs/integracao-rp.md` |
+| As duas jornadas, do `.env` ao fluxo PKCE fechado à mão, e as tarefas do dia a dia | `docs/receita.md` |
+| O que o IdP protege, o que não protege e a fronteira de exposição | `docs/seguranca.md` |
+| Níveis de teste, o que cada arquivo garante e o que não é coberto | `docs/testes.md` |
+| O log operacional, a trilha de auditoria, o que falha em silêncio e o que falta medir | `docs/observabilidade.md` |
+| O motivo de cada valor de configuração | comentários de `config/settings.py` |
+| Regras de trabalho e restrições do repositório | `CLAUDE.md` |
+| Convenções entre agentes, incluindo as de ADR | `.claude/PROTOCOLO-AGENTES.md` |
+| Os documentos que as ADRs citam e que saíram na reorganização de 2026-09-29: `runbook.md`, `plano-implantacao.md`, `esboco.md`, `robustez.md`, `robustez-info.md`, `implementacao-robustez.md` e `gaps/observabilidade.md` | `git show 8caf117:docs/<arquivo>`, histórico |

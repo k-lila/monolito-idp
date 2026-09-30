@@ -1,8 +1,9 @@
 """URLs do projeto.
 
 Nesta versão, admin e o servidor OAuth2/OIDC: sob `o/` entram só as listas de protocolo do DOT,
-compostas num include com o namespace que o próprio módulo declara (ADR 0024). Login, logout e
-home usam as views prontas do Django e a view de borda em config.views.
+compostas num include com o namespace que o próprio módulo declara (ADR 0024), e uma rota que
+sombreia a de logout do toolkit (ADR 0030). Login, logout e home usam as views prontas do Django
+e a view de borda em config.views.
 """
 
 from django.contrib import admin
@@ -10,10 +11,19 @@ from django.contrib.auth.views import LoginView, LogoutView
 from django.urls import include, path
 from oauth2_provider import urls as oauth2_urls
 
+from accounts.logout_rp import LogoutPelaRPView
 from config.views import health, home
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+    # Sombra deliberada da rota `rp-initiated-logout` do toolkit, que continua dentro do include
+    # abaixo (ADR 0030). O Django atende pela primeira rota que casa, e a descoberta monta
+    # end_session_endpoint por reverse() no namespace, que segue dando /o/logout/. A ordem é o
+    # contrato: declarada depois do include, ou se um upgrade renomear o caminho do toolkit,
+    # /o/logout/ volta à view original, que com OIDC_RP_INITIATED_LOGOUT_DELETE_TOKENS falsa
+    # encerra a sessão, redireciona e não revoga nada. Sem erro nenhum; só a guarda da suíte,
+    # que resolve o caminho do reverse(), acusa.
+    path("o/logout/", LogoutPelaRPView.as_view(), name="logout_rp"),
     # Sob prefixo, nunca na raiz: o prefixo compõe o issuer `{BASE_URL}/o` (ADR 0007) e delimita
     # a superfície de protocolo — é nele que CORS_URLS_REGEX, em config/settings.py, se apoia.
     #

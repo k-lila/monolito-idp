@@ -311,3 +311,22 @@ class LinhaDeAcessoTests(TestCase):
         self.assertEqual(linha["status"], 404)
         self.assertIsInstance(linha["duration_ms"], (int, float))
         self.assertGreaterEqual(linha["duration_ms"], 0)
+
+
+class LinhaDeAcessoDoLogoutPelaRPTests(TestCase):
+    """TASK-027/T-19 — a linha de acesso de `/o/logout/` nomeia a rota `logout_rp` (a sombra
+    de `config/urls.py`) e nunca leva a query, onde viaja o `id_token_hint`."""
+
+    def test_route_e_logout_rp_e_a_linha_nao_contem_a_query(self):
+        coletor = _ColetorDeLinhas()
+        logging.getLogger("access").addHandler(coletor)
+        self.addCleanup(logging.getLogger("access").removeHandler, coletor)
+        hint = "hint-secreto-t19"
+
+        self.client.get("/o/logout/", {"id_token_hint": hint, "state": "s"})
+
+        self.assertEqual(len(coletor.linhas), 1, coletor.linhas)
+        linha = coletor.linhas[0]
+        self.assertEqual(linha["route"], "logout_rp")
+        self.assertNotIn(hint, json.dumps(linha, ensure_ascii=False))
+        self.assertNotIn("id_token_hint", json.dumps(linha, ensure_ascii=False))

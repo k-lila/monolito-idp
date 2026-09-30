@@ -1,12 +1,14 @@
 """O que a trilha de auditoria afirma sobre quem autenticou.
 
-Cinco receptores de sinal, um por evento, escrevendo no logger `audit` — arquivo próprio
+Seis receptores de sinal, um por evento, escrevendo no logger `audit` — arquivo próprio
 e durável, fora do stdout do container (ADR — Architecture Decision Record — 0013). Moram
 em `accounts` porque é o app dono da pessoa. O formato da linha e o `request_id` são de
 `config/observabilidade.py`, que este módulo não importa.
 
 O quinto evento, `user_locked_out`, entrou com o limitador de taxa e amplia o conjunto da
-ADR 0013 sem tocar no esquema de campos dela (ADR 0016).
+ADR 0013 sem tocar no esquema de campos dela (ADR 0016). O sexto, `tokens_revogados`,
+entrou com o logout iniciado pela relying party (RP) e amplia o mesmo conjunto do mesmo jeito
+(ADR 0029). O sinal é deste projeto, e não de biblioteca: o toolkit não emite nada ao revogar.
 
 Regra de desenho, sem exceção: nunca entram na trilha `code`, `code_verifier`,
 `access_token`, `refresh_token`, `id_token`, senha, `SECRET_KEY` nem a chave privada RSA
@@ -24,6 +26,7 @@ from django.contrib.auth.signals import (
 )
 from oauth2_provider.signals import app_authorized
 
+from accounts.logout_rp import tokens_revogados
 from config.origem import origem_completa
 
 # A trilha: nível fixo em INFO e sem propagação para o console, declarados no LOGGING de
@@ -90,7 +93,8 @@ def _resumo_do_identificador(identificador):
 # O que a captura NÃO alcança: erro de escrita do handler — disco cheio, volume desmontado
 # — é engolido pelo próprio `logging`, que o manda para stderr. Ali a trilha para de
 # receber linhas e o sistema segue atendendo, sem que nada aqui perceba. É a falha
-# silenciosa desta decisão, e está na seção 14 de `docs/runbook.md`.
+# silenciosa desta decisão, e está na seção 14 do runbook, hoje histórico:
+# `git show 8caf117:docs/runbook.md`.
 
 
 def registrar_login(sender, request, user, **kwargs):
@@ -215,8 +219,34 @@ def registrar_bloqueio(sender, request, username, **kwargs):
         logger.exception("auditoria: falha ao registrar user_locked_out")
 
 
+def registrar_revogacao(sender, request, user, application, **kwargs):
+    # O sinal é emitido por `accounts/logout_rp.py`, uma vez por saída que revogou ao menos um
+    # token, antes do `user_logged_out` da mesma requisição (ADR 0029). `user` é o dono dos
+    # tokens revogados, que pode não ser a conta da sessão: com o hint de outra conta, ou sem
+    # sessão nenhuma, a linha seguinte de `user_logged_out` traz outro `sub`, ou nenhum.
+    #
+    # Sem contagem, sem `jti` e sem valor de token: a linha diz de quem e de qual RP, e o
+    # esquema da ADR 0013 não ganha campo.
+    try:
+        ip, ip_src, ip_edge = _origem(request)
+        trilha.info(
+            "tokens revogados no logout iniciado pela RP",
+            extra={
+                "event": "tokens_revogados",
+                "sub": str(user.pk),
+                "client_id": application.client_id,
+                "ip": ip,
+                "ip_src": ip_src,
+                "ip_edge": ip_edge,
+                "outcome": "success",
+            },
+        )
+    except Exception:
+        logger.exception("auditoria: falha ao registrar tokens_revogados")
+
+
 def ligar_receptores():
-    """Liga os cinco receptores. Chamada por `AccountsConfig.ready()`."""
+    """Liga os seis receptores. Chamada por `AccountsConfig.ready()`."""
     # Um dispatch_uid próprio por conexão: ready() pode rodar mais de uma vez, e sem ele o
     # mesmo receptor ficaria ligado duas vezes. O resultado seria linha duplicada na
     # trilha, indistinguível de duas tentativas de verdade.
@@ -239,4 +269,8 @@ def ligar_receptores():
     user_locked_out.connect(
         registrar_bloqueio,
         dispatch_uid="accounts.auditoria.registrar_bloqueio",
+    )
+    tokens_revogados.connect(
+        registrar_revogacao,
+        dispatch_uid="accounts.auditoria.registrar_revogacao",
     )

@@ -1,23 +1,24 @@
-# Integrar uma relying party ao nova_api
+# Integrar uma relying party ao IdP
 
 ## 1. A quem serve e o que não cobre
 
-Este documento é o contrato entre o nova_api e quem implementa uma relying party (RP) — a
-aplicação que delega a autenticação a este provedor de identidade (IdP, Identity Provider).
+Este documento é o contrato entre este provedor de identidade (IdP, Identity Provider) e quem
+implementa uma relying party (RP) — a aplicação que delega a autenticação a ele.
 Cobre coordenadas, registro do cliente, o fluxo, as claims emitidas, a verificação do token e
 os tempos de vida.
 
-Não cobre operação. Subir o stack, diagnosticar falha e revogar token vivo são assunto de
-`README.md`, `docs/receita.md` e `docs/runbook.md`, e este documento aponta para eles quando o
-contrato depende de algo que só se resolve do lado do IdP. Há uma exceção, e ela está na seção
-9: a raiz da autoridade certificadora, sem a qual o cliente da RP não chega a abrir conexão.
-Apontar para fora seria apontar para fora do contrato justamente onde ele não fecha.
+Não cobre operação. Subir o stack e as tarefas do lado do IdP são assunto de `README.md` e de
+`docs/receita.md`. Há uma exceção, e ela está na seção 10: a raiz da autoridade certificadora
+da jornada de container, sem a qual o cliente da RP não chega a abrir conexão. Apontar para
+fora seria apontar para fora do contrato justamente onde ele não fecha.
+
+O resumo do que toda RP recebe, e das invariantes que o IdP preserva, está em
+`docs/nucleo-idp.md`. Este documento é o detalhe.
 
 **Aviso de estabilidade.** O par `(iss, sub)` — a chave de identidade que a OpenID Connect
 (OIDC) Core §5.7 manda a RP guardar — é reciclado se o banco do IdP for recriado, e com ele a
 conta que a RP associou a uma pessoa. Em desenvolvimento isso acontece a cada `docker compose
-down -v`; em produção, só com a perda do volume `pgdata`. A condição exata está em
-`docs/runbook.md`.
+down -v`; em produção, só com a perda do volume `pgdata`.
 
 ## 2. Coordenadas
 
@@ -30,10 +31,10 @@ daquela implantação — é ele a fonte, e nunca um literal copiado daqui.
 Duas propriedades do issuer valem em qualquer implantação: ele termina em `/o`, e o esquema é
 `https` se e somente se o IdP está atrás do proxy de terminação TLS (Transport Layer Security).
 
-**A forma do issuer de produção está congelada (ADR 0025): `https://` mais o nome público,
-seguido de `/o`, sem barra final e sem porta.** O nome vive só no ambiente de produção e é
-entregue à RP na integração, nunca escrito neste documento. A partir do primeiro login de
-produção ele é permanente, e trocá-lo exige ADR nova e reconfiguração de quem integrou. Quem lê
+**A forma do issuer de produção está congelada pela ADR (Architecture Decision Record) 0025:
+`https://` mais o nome público, seguido de `/o`, sem barra final e sem porta.** O nome vive só
+no ambiente de produção e é entregue à RP na integração, nunca escrito neste documento. A
+partir do primeiro login de produção ele é permanente, e trocá-lo exige ADR nova e reconfiguração de quem integrou. Quem lê
 o `issuer` da descoberta em vez de fixar um literal atravessa essa troca sem reconfigurar nada;
 quem copiou a string, não.
 
@@ -52,11 +53,38 @@ só sob `/o/`, e nenhuma é montada na raiz. A decisão do prefixo está registr
 `docs/adr/0024-montar-sob-o-so-as-listas-de-protocolo-do-django-oauth-toolkit.md`.
 
 **Derive todo endpoint da descoberta, não os codifique.** O documento traz
-`authorization_endpoint`, `token_endpoint`, `userinfo_endpoint` e `jwks_uri`, e são eles que
-sobrevivem a uma mudança de `BASE_URL` sem que ninguém precise avisar a RP. Os caminhos citados
-adiante estão aqui para tornar o texto legível, não para serem copiados para dentro da RP.
+`authorization_endpoint`, `token_endpoint`, `userinfo_endpoint`, `end_session_endpoint` e
+`jwks_uri`, e são eles que sobrevivem a uma mudança de `BASE_URL` sem que ninguém precise avisar
+a RP. Os caminhos citados adiante estão aqui para tornar o texto legível, não para serem
+copiados para dentro da RP.
 
-## 3. Registrar a Application
+## 3. Entrar como RP: o que se troca
+
+Nada no código do IdP muda para acolher uma RP nova: muda a configuração, feita por quem
+administra o IdP. A integração é uma troca de valores literais.
+
+| A RP entrega | O IdP devolve |
+| --- | --- |
+| cada `redirect_uri`, com esquema, host, porta e path | o `client_id` |
+| cada `post_logout_redirect_uri`, com a barra final se o path a tiver | o `issuer` daquela implantação |
+| se roda no navegador, a origem, para `CORS_ALLOWED_ORIGINS` | |
+| se é de primeira parte, a declaração disso, para `skip_authorization` | |
+
+- **Uma `Application` por ambiente.** Atrás do proxy de terminação TLS o IdP só aceita `https`
+  em `redirect_uris` e em `post_logout_redirect_uris`. A RP de desenvolvimento, em
+  `http://localhost`, fica numa `Application` da jornada de construção, e a de produção, noutra. As
+  duas nunca se misturam.
+- **A origem de CORS (Cross-Origin Resource Sharing) é origem, não URL.** É esquema, host e
+  porta, sem path e sem barra final. Vale uma por ambiente, sem curinga nem regex, e os previews
+  da Vercel ficam fora (ADR 0022).
+- **O `issuer` vai por escrito, mas a RP o lê da descoberta.** O valor entregue serve para a RP
+  conferir que aponta para o IdP certo; a fonte continua sendo o documento de descoberta (seção
+  2).
+- **`SPA_URL` não é configuração de RP.** É o destino do botão da home do IdP, que hoje leva à
+  aplicação de página única (SPA, de _Single-Page Application_) do sistema. Uma RP nova não
+  precisa dela.
+
+## 4. Registrar a Application
 
 O registro é manual, feito por uma pessoa com acesso administrativo ao IdP, em
 `/admin/oauth2_provider/application/add/`. O registro dinâmico de cliente (`/o/register/`)
@@ -65,7 +93,7 @@ default `False` do `django-oauth-toolkit`. Não há como uma RP se auto-registra
 registrar-se por formulário fora do admin.
 
 Quatro campos decidem se a integração funciona; um quinto decide se a pessoa vê a tela de
-consentimento:
+consentimento, e um sexto, se o "Sair" da RP volta a ela:
 
 | Campo | Valor | Por quê |
 | --- | --- | --- |
@@ -74,6 +102,7 @@ consentimento:
 | `algorithm` | `RS256` | sem ele não há `id_token` |
 | `redirect_uris` | a URL de retorno da RP | comparada por igualdade exata |
 | `skip_authorization` | `True` só para RP de primeira parte; `False` (default) para qualquer terceiro | pula a tela de consentimento; `docs/adr/0021-pular-o-consentimento-na-application-de-primeira-parte-por-skip-authorization.md` |
+| `post_logout_redirect_uris` | a URL para onde o "Sair" volta, literal, com a barra final | comparada como `redirect_uris`; sem ela, o "Sair" termina na tela de erro do IdP (seção 5.3) |
 
 **A comparação de `redirect_uri` é por igualdade exata, nunca por prefixo.** Uma barra final a
 mais na URL enviada em `/o/authorize/` já basta para o servidor recusar antes de emitir
@@ -83,22 +112,28 @@ esquema aceito depende da implantação: atrás do proxy de terminação TLS, s�
 de construção, `http` também, o que permite registrar uma RP de desenvolvimento em
 `localhost`.
 
+**`post_logout_redirect_uris` é conferido do mesmo jeito, mas só quando alguém sai.** A
+comparação é a de `redirect_uris`, por igualdade exata, e o esquema segue a mesma regra: atrás
+do proxy, só `https`. O valor é o que a RP envia em `post_logout_redirect_uri`, literal, e para
+a SPA é a landing com a barra final, não a origem. O admin não valida o campo: um
+cadastro esquecido, em `http` ou sem a barra, é gravado sem aviso e só aparece quando alguém
+tenta sair.
+
 O `algorithm` deixado em branco não impede a autorização: o código é emitido normalmente e a
-falha só aparece na troca, sem `id_token` nenhum. O sintoma e o diagnóstico estão em
-`docs/runbook.md`.
+falha só aparece na troca: a resposta de `/o/token/` vem sem `id_token`, e sem erro.
 
 Do registro sai o `client_id`, que é o que a RP guarda. Não há `client_secret`.
 
 **`skip_authorization` separa primeira parte de terceiro.** Marcado, o servidor emite o código
 sem mostrar a tela de consentimento, inclusive na primeira autorização. É o que a `Application`
-da `nova_api_SPA` recebe: ela volta a `/o/authorize/` a cada recarga da página, e uma pergunta
+da SPA recebe: ela volta a `/o/authorize/` a cada recarga da página, e uma pergunta
 cuja resposta já se conhece não informa nada. Numa `Application` de terceiro o campo fica
 desmarcado, sempre — nada no IdP impede marcá-lo, e a regra vive em
 `docs/adr/0021-pular-o-consentimento-na-application-de-primeira-parte-por-skip-authorization.md`.
 
-## 4. O fluxo que a RP implementa
+## 5. O fluxo que a RP implementa
 
-### 4.1 Redirecionar para a autorização
+### 5.1 Redirecionar para a autorização
 
 `GET` no `authorization_endpoint` (`/o/authorize/`), com o navegador da pessoa:
 
@@ -107,7 +142,7 @@ desmarcado, sempre — nada no IdP impede marcá-lo, e a regra vive em
 | `response_type` | `code` |
 | `client_id` | o do registro |
 | `redirect_uri` | uma das registradas, literal |
-| `scope` | `openid`, mais `profile` e `email` conforme a seção 5 |
+| `scope` | `openid`, mais `profile` e `email` conforme a seção 6 |
 | `state` | valor imprevisível gerado pela RP a cada tentativa |
 | `code_challenge` | o desafio PKCE (Proof Key for Code Exchange) |
 | `code_challenge_method` | `S256` |
@@ -127,7 +162,7 @@ O retorno é uma redireção para a `redirect_uri` com `code` e `state` na query
 pessoa recusar o consentimento, ou se o pedido for inválido, a redireção vem com `error` e sem
 `code`.
 
-### 4.2 Trocar o código por tokens
+### 5.2 Trocar o código por tokens
 
 `POST` no `token_endpoint` (`/o/token/`), da própria RP, não do navegador:
 
@@ -143,7 +178,75 @@ Cliente público: **não existe `client_secret`**, e o `code_verifier` é a prov
 que impede que um código interceptado seja trocado por token por outra parte. A resposta traz
 `access_token`, `refresh_token` e, quando o scope inclui `openid`, `id_token`.
 
-## 5. O que o `id_token` afirma
+### 5.3 Encerrar a sessão
+
+`GET` no `end_session_endpoint` (`/o/logout/`), com o navegador da pessoa. É o OpenID Connect
+RP-Initiated Logout 1.0, com as decisões de
+`docs/adr/0029-ligar-o-logout-iniciado-pela-rp-com-revogacao-restrita-a-application.md`. Só
+`GET` vale para a RP; o `POST` na mesma rota é o da tela de confirmação do próprio IdP.
+
+| Parâmetro | Valor |
+| --- | --- |
+| `id_token_hint` | o `id_token` que a RP recebeu na troca, mesmo vencido |
+| `post_logout_redirect_uri` | uma das cadastradas em `post_logout_redirect_uris`, literal |
+| `state` | valor imprevisível gerado pela RP; volta no retorno |
+| `client_id` | opcional; se vier com o hint, tem de ser o do `aud` dele |
+
+Com o hint vivo da conta que tem sessão no navegador, não há pergunta: o IdP encerra a sessão,
+revoga os tokens e responde 302 para `post_logout_redirect_uri?state=<state>`. Há tela de
+confirmação quando o hint falta, é de outra conta ou já não tem registro no IdP; ela é em
+português, e só um `POST` com o token CSRF (Cross-Site Request Forgery) a confirma. Sem sessão no
+navegador, não há o que perguntar, e o IdP segue direto ao destino.
+
+O `state` volta inalterado; compará-lo com o que foi gerado é obrigação da RP, como na seção
+5.1.
+
+**De onde vem a Application, e o que se revoga.**
+
+| Pedido | Application | O que se revoga | Sessão |
+| --- | --- | --- | --- |
+| hint vivo (com ou sem `client_id` igual) | a do `id_token` | os tokens da conta do hint, só nessa Application | termina |
+| hint vivo e `client_id` diferente | — | nada; 400 | intacta |
+| hint autêntico sem registro | a do `aud`; `client_id` diferente dá 400 | com sessão e confirmação, os tokens da conta da sessão nessa Application; sem sessão, nada | termina |
+| só `client_id` | a dele; inexistente dá 400 | com sessão e confirmação, os tokens da conta da sessão nessa Application; sem sessão, nada | termina |
+| nenhum dos dois, com `post_logout_redirect_uri` | nenhuma | nada; 400 | intacta |
+| nenhum dos dois, sem destino | nenhuma | nada; com sessão, pede confirmação | termina; 302 à raiz do IdP |
+
+Revogar é apagar `access_token`, `refresh_token` e `id_token` da conta **naquela Application,
+em todos os dispositivos da conta**, e não só os desta aba. Os tokens da mesma conta em outra
+RP sobrevivem, mas a sessão do IdP termina inteira, e a volta sem senha acaba para todas.
+
+**Com uma segunda RP, o "Sair" de uma alcança a outra.** A outra RP guarda os próprios tokens,
+mas na próxima ida a `/o/authorize/` a pessoa digita a senha de novo. Esse alcance está
+decidido para uma RP só, e a entrada da segunda é o gatilho para revê-lo (ADR 0029).
+
+**O hint sem registro é tratado como ausente.** Um hint com assinatura válida e `iss` deste IdP,
+cujo registro já sumiu, vem de uma saída anterior, por exemplo numa segunda aba, ou da limpeza
+de tokens vencidos. Sem sessão, o pedido vai ao destino com o `state` e nada é revogado; com
+sessão, o IdP pergunta.
+
+**O que termina na tela de erro, com 400, e sem encerrar nem revogar nada:** destino não
+cadastrado, destino em `http` atrás do proxy, destino que não se decompõe como URL, hint de
+assinatura inválida, de outro issuer, malformado ou assinado por uma chave anterior à troca, e
+`client_id` inexistente, com o caractere NUL ou divergente do hint. A RP não recebe redireção
+nesses casos: a pessoa fica no IdP, com um link para o início dele.
+
+### 5.4 RP no navegador
+
+O que uma SPA precisa, e é o caso da SPA deste sistema, se reúne aqui:
+
+- **Cliente público, com PKCE.** Não há segredo que o navegador possa guardar; o
+  `code_verifier` é a única prova de posse.
+- **CORS por origem exata.** A troca em `/o/token/` e a consulta a `/o/userinfo/` partem do
+  navegador por `fetch` e só passam se a origem da RP estiver em `CORS_ALLOWED_ORIGINS`. O CORS
+  vale só sob `/o/`: o login e o admin nunca são chamados por `fetch`.
+- **A sessão do IdP é o que dispensa a senha na volta.** Uma RP que guarda tokens só em memória
+  volta a `/o/authorize/` a cada recarga, e o cookie de sessão do IdP, com `SameSite=Lax`, é o
+  que a faz voltar sem senha. Com `skip_authorization`, a volta não mostra tela nenhuma.
+- **O `refresh_token` rotaciona.** Quem o usar tem de guardar o novo a cada renovação (seção
+  9). A SPA o ignora, e passar a usá-lo é decisão com ADR nos dois projetos.
+
+## 6. O que o `id_token` afirma
 
 Três claims de identidade, e nenhuma além delas:
 
@@ -171,7 +274,7 @@ defeito, e a RP não deve tratar isso como resposta malformada.
 `GET /o/userinfo/`, com o `access_token` no cabeçalho `Authorization: Bearer`, devolve as
 mesmas claims sob os mesmos scopes.
 
-## 6. O que o IdP não afirma
+## 7. O que o IdP não afirma
 
 A seção que mais importa para quem integra: cada linha abaixo é uma garantia que a RP **não**
 recebe e, portanto, precisa obter de outro lugar ou dispensar por escrito.
@@ -179,9 +282,6 @@ recebe e, portanto, precisa obter de outro lugar ou dispensar por escrito.
 - **Não há `email_verified`.** A claim não aparece no `id_token` nem em `/o/userinfo/`, sob
   scope nenhum, porque não existe fluxo de verificação de e-mail nesta fase. A RP não pode
   presumir que o endereço recebido pertence a quem se autenticou.
-- **Não há `end_session_endpoint`.** O logout iniciado pela relying party está desligado, e a
-  chave está ausente do documento de descoberta. Encerrar a sessão na RP não encerra a sessão
-  no IdP: a próxima ida a `/o/authorize/` reautentica sem pedir senha.
 - **Nada além de `name` e `email`.** Não há grupos, papéis, telefone, foto nem atributo
   organizacional. O `claims_supported` da descoberta é exatamente `sub`, `name`, `email`, e o
   acoplamento entre ele e o que o servidor emite está verificado em
@@ -192,9 +292,9 @@ recebe e, portanto, precisa obter de outro lugar ou dispensar por escrito.
   `docs/adr/0002-usar-django-oauth-toolkit-como-servidor-de-autorizacao.md`. Quem precisar do
   estado corrente chama `/o/userinfo/`, uma requisição ao IdP por consulta.
 - **Não há garantia de revogação por desativação de conta:** `access_token` e `refresh_token`
-  já emitidos seguem válidos. O procedimento de revogação está em `docs/runbook.md`.
+  já emitidos seguem válidos até vencer ou até alguém os revogar do lado do IdP.
 
-## 7. Verificar o token
+## 8. Verificar o token
 
 A chave pública está no JWKS (JSON Web Key Set), em `/o/.well-known/jwks.json`, anunciado como
 `jwks_uri` na descoberta. Hoje o conjunto tem **uma** chave RSA (Rivest–Shamir–Adleman) com
@@ -218,7 +318,7 @@ decisão e seu custo estão em
 `docs/adr/0004-assinar-tokens-com-rs256-e-custodiar-a-chave-privada-no-ambiente.md`. Reler o
 JWKS quando aparecer um `kid` desconhecido é a postura que sobrevive a essa troca.
 
-## 8. Ciclo de vida dos tokens
+## 9. Ciclo de vida dos tokens
 
 O projeto não sobrescreve nenhum tempo de vida: os valores abaixo são os defaults do
 `django-oauth-toolkit` 3.4.1, declarados em `oauth2_provider/settings.py`.
@@ -235,38 +335,33 @@ expira por tempo, e é rotacionado a cada uso (`ROTATE_REFRESH_TOKEN` default `T
 período de graça) — a RP tem de guardar o `refresh_token` novo que vem em cada renovação, sob
 pena de perder o acesso ao descartá-lo.
 
-Revogar tokens já emitidos é operação do lado do IdP, e o procedimento está em
-`docs/runbook.md`.
+Revogar tokens já emitidos, fora do "Sair" da seção 5.3, é operação do lado do IdP.
 
-## 9. Ambiente
+## 10. Ambiente
 
-**RP server-side funciona hoje.** A troca em `/o/token/` e a consulta a `/o/userinfo/` partem
-do servidor da RP, e nada nelas depende de configuração adicional **no IdP**. Do lado da RP há
-uma, e só uma, quando o IdP atende em `https`: confiar na raiz da autoridade certificadora,
-logo abaixo.
+**Em produção, a RP não precisa de nada além do contrato.** O IdP é servido por um túnel da
+Cloudflare, e o certificado que o cliente vê é o Universal da borda, que os clientes já
+conhecem (ADR 0027). A borda termina o TLS e vê em texto claro o que passa por ela, os tokens
+inclusive (ADR 0027, "Um terceiro vê tudo"). O que o IdP protege e o que não protege quando
+exposto está em `docs/seguranca.md`.
 
-**RP que rode no navegador exige entrada em `CORS_ALLOWED_ORIGINS`**, que sai vazia no
-`.env.example`. Enquanto a allowlist estiver vazia, uma aplicação de página única que tente
-chamar `/o/token/` ou `/o/userinfo/` diretamente do navegador recebe erro de CORS (Cross-Origin
-Resource Sharing). A origem da RP precisa ser acrescentada à variável no IdP.
+**RP com back-end funciona sem configuração no IdP.** A troca em `/o/token/` e a consulta a
+`/o/userinfo/` partem do servidor da RP e não passam pelo CORS.
 
-### 9.1 O certificado, quando o IdP atende em `https`
+**RP no navegador exige entrada em `CORS_ALLOWED_ORIGINS`**, que sai vazia no `.env.example`.
+Enquanto a origem da RP não estiver lá, o `fetch` a `/o/token/` ou a `/o/userinfo/` recebe erro
+de CORS (seção 5.4).
+
+### 10.1 O certificado da jornada de container
 
 O IdP tem TLS quando está atrás do proxy de terminação, e não tem quando roda em
-`http://localhost:8000` — é a mesma divisão da seção 2, e é o esquema do `issuer` que a
-denuncia. Em desenvolvimento, as duas implantações publicam em `127.0.0.1`, e o certificado da
-jornada de container sai da autoridade interna descrita abaixo. Em produção o proxy é publicado
-fora de loopback, pelo override de compose da ADR 0026, com certificado público por ACME
-(Automatic Certificate Management Environment), e o que segue sobre a autoridade interna não se
-aplica. O override e o certificado público entram no passo 3 de `docs/plano-implantacao.md`;
-até lá, o proxy publica em `127.0.0.1` e o `docker/Caddyfile` emite pela CA interna (`tls
-internal`), a descrita abaixo. O que o IdP protege e o que não protege quando exposto está em
-`docs/seguranca.md`.
+`http://localhost:8000`. É a mesma divisão da seção 2, e o esquema do `issuer` a denuncia. Na
+jornada de container, em `idp.localhost`, o certificado sai de uma **autoridade certificadora
+(CA) interna do Caddy, que cliente nenhum conhece de fábrica**. Esta subseção vale só para ela.
 
-**O certificado do IdP sai de uma autoridade certificadora (CA) interna, que cliente nenhum
-conhece de fábrica.** O sintoma é a troca em `/o/token/` falhar antes de haver resposta, com
-`certificate verify failed: unable to get local issuer certificate`. Recusar é o comportamento
-correto de quem não conhece a autoridade, e não defeito do IdP nem erro de integração.
+O sintoma é a troca em `/o/token/` falhar antes de haver resposta, com `certificate verify
+failed: unable to get local issuer certificate`. Recusar é o comportamento correto de quem não
+conhece a autoridade, e não defeito do IdP nem erro de integração.
 
 A raiz vive dentro do container do proxy, e quem administra o IdP a extrai com um comando:
 
@@ -287,11 +382,7 @@ A raiz é regerada quando o IdP é derrubado com destruição de volumes, e o ce
 ontem passa a ser de outra autoridade. O sintoma é o mesmo erro acima, voltando sem que nada
 tenha mudado na RP; o remédio é extrair a raiz de novo.
 
-Esta subseção inteira vale enquanto o certificado sair da CA interna, que é a configuração de
-hoje. Com um certificado de autoridade que o cliente já conheça, nada aqui é preciso — e o
-sinal da troca é o cliente HTTP da RP parar de exigir a raiz.
-
-## 10. Exemplo mínimo
+## 11. Exemplo mínimo
 
 O fluxo inteiro fechado à mão — gerar o par PKCE, abrir `/o/authorize/` no navegador, ler o
 código e trocá-lo com `curl` — está em `docs/receita.md`, na seção "Fechar o fluxo PKCE à

@@ -1,4 +1,4 @@
-# nova_api
+# IdP
 
 Provedor de identidade (IdP, de *Identity Provider*) OpenID Connect (OIDC) sobre Django e
 `django-oauth-toolkit`: fecha o fluxo Authorization Code + PKCE (Proof Key for Code Exchange),
@@ -12,21 +12,16 @@ Tudo o que está decidido neste repositório descansa sobre uma premissa única:
 - host único, orquestrado por `docker-compose.yml`;
 - uma réplica da aplicação;
 - Postgres e Redis publicados em `127.0.0.1`; a aplicação não publica porta nenhuma;
-- o proxy publicado em `127.0.0.1` em desenvolvimento e na jornada de container. Em produção ele
-  é a exceção declarada: a ADR 0026 o publica em 80 e 443 fora de loopback por um arquivo de
-  override do compose, `docker-compose.prod.yml`, que quem opera a instância da AWS (Amazon Web
-  Services) invoca com `docker compose -f docker-compose.yml -f docker-compose.prod.yml`, com um
-  salto de proxy só. O security group da instância é a única barreira de rede — pré-condição que
-  vive fora do repositório e que nada nele verifica: só 80 e 443 da internet, SSH (Secure Shell)
-  restrito ao endereço de quem opera;
-- TLS (Transport Layer Security) terminado nesse proxy: certificado de uma autoridade
-  certificadora (CA) local na jornada de container em `idp.localhost`, e certificado público, por
-  ACME (Automatic Certificate Management Environment), em produção (ADR 0026). O Gunicorn
-  continua falando texto claro na rede interna, e só o proxy o alcança;
+- o proxy publicado em `127.0.0.1` em desenvolvimento e na jornada de container. Em produção
+  nada é publicado: a ADR (Architecture Decision Record) 0027 serve o IdP da máquina do dono por
+  um túnel nomeado da Cloudflare, e o override `docker-compose.prod.yml` zera por `!reset []` as
+  portas de `proxy`, `postgres` e `redis` e declara o conector, o `cloudflared`. A entrada é o
+  túnel, e quem controla a conta da Cloudflare ou as credenciais do túnel controla a entrada;
+- TLS (Transport Layer Security) do navegador terminado na borda da Cloudflare, com o certificado
+  Universal da zona, em produção, e no proxy, com certificado de uma autoridade certificadora
+  (CA) local, na jornada de container em `idp.localhost`. O Caddy mantém `tls internal` nos dois
+  ambientes, e o Gunicorn continua falando texto claro na rede interna, alcançado só pelo proxy;
 - pessoas usuárias com conta criada no admin (ADR 0023), além de quem opera a máquina.
-
-O override e o certificado público entram no passo 3 de `docs/plano-implantacao.md`; até
-lá, o proxy publica em `127.0.0.1` e o `docker/Caddyfile` emite pela CA interna (`tls internal`).
 
 Isso não é provisório por descuido: é premissa de várias decisões registradas. O que o IdP
 protege hoje, o que não protege e o que muda com a exposição está em `docs/seguranca.md`.
@@ -53,9 +48,8 @@ e ele é propriedade da jornada de container (ADR 0017).
 Clonar-e-rodar, do zero ao `/admin/` aberto:
 
 ```bash
-cp .env.example .env       # preencha SECRET_KEY, POSTGRES_PASSWORD, REDIS_PASSWORD,
-                           # DATABASE_URL e REDIS_URL; confira PUBLIC_HOST
-./scripts/gen_dev_key.sh   # cole a linha impressa na OIDC_RSA_PRIVATE_KEY vazia
+cp .env.example .env
+./scripts/gen_env_secrets.sh   # cole as seis linhas impressas no .env; confira PUBLIC_HOST
 docker compose up --wait
 docker compose run --rm app python manage.py createsuperuser
 ```
@@ -83,16 +77,17 @@ echo "127.0.0.1 $(grep '^PUBLIC_HOST=' .env | cut -d= -f2)" | sudo tee -a /etc/h
 ### Se você já tem um `.env`
 
 **Não rode o `cp` acima.** O `.env` é untracked e não tem cópia: ele guarda a única chave privada
-RSA e a única `SECRET_KEY` deste IdP, e sobrescrevê-lo destrói as duas sem que nenhum `git
+RSA e a única `SECRET_KEY` deste clone, e sobrescrevê-lo destrói as duas sem que nenhum `git
 reset` as devolva.
 
-O que falta ao seu arquivo são três linhas, acrescentadas **à mão e antes de subir**. Sem
+O que falta ao seu arquivo são quatro linhas, acrescentadas **à mão e antes de subir**. Sem
 qualquer uma delas nada sobe, e a mensagem nomeia a variável:
 
 ```
 AUDIT_LOG_PATH=logs/audit.log
 PUBLIC_HOST=
 REDIS_PASSWORD=
+SPA_URL=http://localhost:5173
 ```
 
 `AUDIT_LOG_PATH` é o caminho da trilha de auditoria na jornada de construção; dentro do
@@ -101,19 +96,23 @@ container o `docker-compose.yml` o sobrescreve por um caminho em volume nomeado.
 e o certificado; o `.env.example` traz o valor sugerido, e é o único arquivo versionado deste
 repositório que carrega um nome de host.
 
-`REDIS_PASSWORD` **não pode ficar vazia**: para o compose, vazia e ausente são o mesmo caso, e
-o `up` aborta nomeando a variável nos dois. Gere com `openssl rand -hex 32` — `@`, `:`, `/` e
-`#` quebram a URL — e ponha o mesmo valor na sua `REDIS_URL` da jornada de construção, que é a
-repetição que nenhum mecanismo confere:
+`SPA_URL` é a origem da aplicação de página única (SPA, de _Single-Page Application_), destino
+do botão "Ir para a aplicação" da home: só esquema, host e porta, sem barra final. A carga das settings recusa forma errada, e em produção
+o valor é `https://`, o mesmo da entrada de `CORS_ALLOWED_ORIGINS`. O `http://localhost:5173`
+do exemplo passa na carga mesmo atrás do proxy, porque loopback é isento, e o botão levaria à
+máquina de quem clica.
 
-```
-REDIS_URL=redis://:a-senha-gerada@localhost:6379/0
-```
+`REDIS_PASSWORD` **não pode ficar vazia**: para o compose, vazia e ausente são o mesmo caso, e
+o `up` aborta nomeando a variável nos dois. O `./scripts/gen_env_secrets.sh` a imprime em
+hexadecimal, junto com a `REDIS_URL` da jornada de construção já coerente com ela. Das seis
+linhas que ele imprime, copie só essas duas: as outras quatro trocariam a chave, a `SECRET_KEY`
+e a senha do Postgres que o seu `.env` já usa. A coerência entre as duas é do script; ela só
+volta a depender de você se uma delas for trocada à mão, e nenhum mecanismo a confere.
 
 Se o seu ambiente **já rodou** o stack alguma vez, uma correção de posse, uma vez só:
 
 ```bash
-docker compose run --rm --user root app chown -R 10001:10001 /var/log/nova_api
+docker compose run --rm --user root app chown -R 10001:10001 /var/log/idp
 ```
 
 O processo deixou de rodar como `root`, e o volume `auditlog` já existente continua sendo de
@@ -124,19 +123,60 @@ E, se o seu `.env` tinha `DJANGO_SUPERUSER_EMAIL` e `DJANGO_SUPERUSER_PASSWORD`,
 duas: o boot deixou de lê-las, e a senha de administrador em texto claro num arquivo é
 justamente o que a ADR 0019 tirou do caminho.
 
+## Produção
+
+Produção roda num clone próprio, com os dois arquivos do compose em todo comando (ADR 0027). O
+procedimento de implantação e o roteiro de operação ficaram no histórico: o passo 6 em
+`git show 8caf117:docs/plano-implantacao.md`, e a seção "Produção pelo túnel" em
+`git show 8caf117:docs/runbook.md`. Os dois projetos consolidados antes do deploy estão em
+`../pre-deploy.md`. O que este arquivo registra, porque a ADR 0027 o manda registrar aqui, é o
+que vive fora do repositório e nada nele verifica.
+
+A zona do IdP, na conta da Cloudflare:
+
+- "Always Use HTTPS" ligado, que leva todo acesso a HTTPS (_Hypertext Transfer Protocol Secure_,
+  o HTTP sobre TLS); TLS mínimo 1.2; Pseudo IPv4 (versão 4 do IP, de _Internet Protocol_) em modo
+  de sobrescrita;
+- Security Level no mínimo;
+- desligados: o HSTS (HTTP Strict Transport Security) da Cloudflare, Browser Integrity Check, Bot
+  Fight Mode, Always Online, Rocket Loader, Email Address Obfuscation, Automatic HTTPS Rewrites e
+  Web Analytics automático;
+- nenhuma regra de cache.
+
+A origem não percebe o "Always Use HTTPS" desligado: o trecho do conector ao Caddy é HTTPS, e o
+redirecionamento do Django nunca é acionado. Medido no ensaio, `http://` do nome público respondeu
+200 com a tela de login. A conferência é `http://` responder 301 para `https://`.
+
+O clone de produção:
+
+- fica fora da árvore de desenvolvimento, com ao menos um diretório ancestral fechado para
+  "outros";
+- ganha um `.env` novo a partir do `.env.example`, nunca copiado do de desenvolvimento. Nele, as
+  seis linhas impressas por `./scripts/gen_env_secrets.sh`, cada uma no lugar da linha do
+  exemplo, mais `PUBLIC_HOST`, `CORS_ALLOWED_ORIGINS`, `SPA_URL` em `https://`,
+  `COMPOSE_PROJECT_NAME=nova_api_prod` e `TUNNEL_ID`;
+- roda todo comando com `docker compose -f docker-compose.yml -f docker-compose.prod.yml`,
+  digitado, sem script, `COMPOSE_FILE` nem link.
+
+A conta da Cloudflare e a do registrador do domínio usam segundo fator. A data de expiração do
+domínio e a data-limite de suporte da versão fixada do `cloudflared` ficam com quem opera, fora do
+repositório.
+
 ## Os demais documentos
 
 | Documento | A que pergunta responde |
 | --- | --- |
+| `docs/nucleo-idp.md` | o que é um IdP, as invariantes, o contrato com toda relying party e o núcleo de tecnologias |
 | `docs/arquitetura.md` | que módulos existem, onde passa a fronteira entre eles e por onde caminha um pedido |
 | `docs/receita.md` | como subir o stack passo a passo, o que rodar no dia a dia e o que falta decidir para produção |
-| `docs/runbook.md` | quebrou: qual o sintoma, qual a causa, qual a correção; e como operar o que já está de pé |
 | `docs/integracao-rp.md` | o que uma relying party — a aplicação que delega a autenticação a este IdP — precisa saber para integrar |
 | `docs/seguranca.md` | o que o IdP protege, o que não protege e o que muda antes de ele sair de `localhost` |
 | `docs/testes.md` | o que a suíte cobre, em que nível, com que rastreabilidade, e o que ficou de fora |
-| `docs/esboco.md` | o que é um IdP e por que cada tecnologia do núcleo, com prós e contras |
-| `docs/plano-implantacao.md` | o contrato com a `nova_api_SPA` e os passos até produção, cada um com a sua checklist |
+| `docs/observabilidade.md` | o que o log e a trilha registram, onde falham em silêncio e o que falta medir |
 | `CLAUDE.md` | as regras de trabalho deste repositório |
+
+O runbook, o plano de implantação e o esboço saíram na reorganização de 2026-09-29 e seguem
+legíveis no histórico, por `git show 8caf117:docs/<arquivo>`.
 
 As decisões de arquitetura vivem em `docs/adr/`, uma por arquivo e imutáveis depois de aceitas.
 O índice está em `docs/arquitetura.md`; o formato, em `docs/adr/template-adr.md`.

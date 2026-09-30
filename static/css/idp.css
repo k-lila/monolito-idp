@@ -1,14 +1,20 @@
-/* Folha única do IdP: login, home e consentimento. Sem framework e sem CDN — tela
-   onde se digita senha não busca recurso de terceiro. */
+/* Folha única do IdP: login, home e consentimento. Sem framework e sem CDN (Content
+   Delivery Network) — tela onde se digita senha não busca recurso de terceiro.
+
+   Os tokens copiam à mão valores da paleta neutral do Tailwind, que a SPA usa, para
+   aproximar as duas telas sem importar nada dela. A cópia não acompanha a SPA: se ela trocar
+   de paleta, esta folha não percebe. */
 
 :root {
-    --fundo: #f4f5f7;
+    --fundo: #f5f5f5;
     --superficie: #ffffff;
-    --borda: #d5d8de;
-    --texto: #1c1f24;
-    --suave: #5b6270;
-    --acento: #2f5bd7;
-    --erro: #a8261f;
+    --borda: #d4d4d4;
+    --texto: #171717;
+    --suave: #525252;
+    --acento: #171717;
+    --erro: #b91c1c;
+    --raio: 0.25rem;
+    --raio-cartao: 0.5rem;
 }
 
 * {
@@ -59,7 +65,7 @@ body {
 .cartao {
     background: var(--superficie);
     border: 1px solid var(--borda);
-    border-radius: 8px;
+    border-radius: var(--raio-cartao);
     padding: 1.75rem;
 }
 
@@ -94,7 +100,7 @@ input[type="password"] {
     width: 100%;
     padding: 0.6rem 0.7rem;
     border: 1px solid var(--borda);
-    border-radius: 6px;
+    border-radius: var(--raio);
     background: var(--superficie);
     color: var(--texto);
     font-size: 1rem;
@@ -106,18 +112,26 @@ input:focus {
 }
 
 button,
-input[type="submit"] {
-    padding: 0.55rem 1.1rem;
+input[type="submit"],
+a.botao {
+    padding: 0.5rem 1rem;
     border: 1px solid var(--borda);
-    border-radius: 6px;
+    border-radius: var(--raio);
     background: var(--superficie);
     color: var(--texto);
     font-size: 0.95rem;
     cursor: pointer;
 }
 
+/* Link com aparência de botão: navega, não submete, e por isso é <a> e não <button>. */
+a.botao {
+    display: inline-block;
+    text-decoration: none;
+}
+
 button.primario,
-input[type="submit"].primario {
+input[type="submit"].primario,
+a.botao.primario {
     background: var(--acento);
     border-color: var(--acento);
     color: #ffffff;
@@ -144,8 +158,8 @@ input[type="submit"].primario {
     padding: 0.6rem 0.8rem;
     list-style: none;
     border: 1px solid var(--erro);
-    border-radius: 6px;
-    background: #fdeceb;
+    border-radius: var(--raio);
+    background: #fef2f2;
     color: var(--erro);
     font-size: 0.9rem;
 }

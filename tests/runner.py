@@ -8,7 +8,7 @@ já isola `DATABASES`: cria e destrói `test_<dbname>` sem que o código de prod
 
 O que se troca é um valor só — o `filename` do handler `audit`, redirecionado para um arquivo
 dentro de um diretório temporário — e não o mecanismo. Formatador, filtro, handler
-(`WatchedFileHandler`) e os cinco receptores de `accounts/auditoria.py` continuam sendo os
+(`WatchedFileHandler`) e os seis receptores de `accounts/auditoria.py` continuam sendo os
 mesmos objetos sob teste e em produção; a escrita é real, em arquivo real, o que é o que permite
 a um teste futuro varrer a trilha em busca de campo proibido (AC-10) — um `NullHandler` não
 permitiria.
@@ -28,11 +28,11 @@ TASK-014/T-10, revisado por T-13 — o mesmo executor passou a desligar o limita
 (`config/limites.py`) para a suíte inteira, pela mesma razão e pelo mesmo precedente do bloco
 acima: o contador de cada caminho vive no Redis do ambiente, não volta com o rollback do
 `TestCase` e não é tocado por `DATABASES` nem por `LOGGING`. O desligamento esvazia o
-DICIONÁRIO INTEIRO — hoje as quatro chaves de `RATE_LIMIT_POR_CAMINHO`, `/o/token/`,
-`/o/authorize/`, `/accounts/login/` e `/o/device-authorization/` (TASK-019/T-14, a última a
-entrar) —, e não apenas as que existiam quando o T-10 foi escrito: o contador de login tem as
-mesmas três propriedades que já condenavam os de `/o/`, e
-a folga dele é pior. Medido: cinco execuções consecutivas da suíte em menos de sessenta
+DICIONÁRIO INTEIRO — hoje os cinco caminhos de `RATE_LIMIT_POR_CAMINHO`, `/o/token/`,
+`/o/authorize/`, `/accounts/login/`, `/o/device-authorization/` (TASK-019/T-14) e
+`/o/logout/` (TASK-027, o último a entrar) —, e não apenas as que existiam quando o T-10
+foi escrito: o contador de login tem as mesmas três propriedades que já condenavam os de
+`/o/`, e a folga dele é pior. Medido: cinco execuções consecutivas da suíte em menos de sessenta
 segundos já somavam ao contador do `runserver` da jornada de construção com só `/o/` ligado,
 porque o `REMOTE_ADDR` default do test client (`127.0.0.1`) é a MESMA chave que ele usa —
 120 requisições em 24 execuções davam cinco de sobra antes do teto de `/o/authorize/`. Com o
@@ -84,7 +84,7 @@ próprio ambiente escrevendo na mesma chave enquanto a suíte roda. Com o dicion
 nenhum teste que não se importe com limitação PODE ser afetado — por construção, e não por
 disciplina de quem escreve teste depois —, e a suíte volta a poder passar em qualquer ordem
 e em qualquer frequência. `RATE_LIMIT_POR_CAMINHO={}` não abre ramo dormente: é o caminho que
-toda requisição fora dos quatro caminhos limitados já percorre em produção
+toda requisição fora dos cinco caminhos limitados já percorre em produção
 (`config/limites.py`, `.get(request.path)` devolvendo `None`); o middleware continua na
 cadeia e continua executando.
 
@@ -96,7 +96,7 @@ resolvido. O contador do limitador de taxa é o único ponto com este defeito (o
 
 O valor de produção é guardado num atributo de módulo, não perdido: `T-17`, ampliado por
 `TASK-019/T-14`, o lê de volta por `tests.runner.RATE_LIMIT_DE_PRODUCAO` para provar que o
-caminho até o middleware continua existindo hoje para os quatro caminhos declarados em
+caminho até o middleware continua existindo hoje para os cinco caminhos declarados em
 `RATE_LIMIT_POR_CAMINHO` (`config/settings.py`). Os casos que testam o limitador com um teto
 próprio (`T-07`, `T-09`, `T-14`) o reativam por `override_settings`, sempre com `REMOTE_ADDR`
 forjado, apagando as próprias chaves ao fim.
@@ -192,7 +192,7 @@ from django.conf import settings
 from django.test.runner import DiscoverRunner
 from django.test.signals import setting_changed
 
-# Guarda o teto de produção (hoje quatro chaves — ver docstring do módulo) enquanto a suíte
+# Guarda o teto de produção (hoje cinco caminhos — ver docstring do módulo) enquanto a suíte
 # roda com o limitador desligado. Atributo de módulo, e não de instância: é o que permite a
 # `tests/test_limite_oauth.py` lê-lo de fora, sem precisar segurar uma referência ao runner em
 # execução.
@@ -235,7 +235,7 @@ class RunnerComTrilhaIsolada(DiscoverRunner):
         # Um diretório por execução, não um arquivo fixo: duas suítes concorrentes na mesma
         # máquina — jornada de construção e clonar-e-rodar, cada uma no seu próprio processo —
         # não disputam o mesmo caminho nem se misturam.
-        self._diretorio_trilha_de_teste = tempfile.mkdtemp(prefix="nova_api-trilha-teste-")
+        self._diretorio_trilha_de_teste = tempfile.mkdtemp(prefix="idp-trilha-teste-")
 
         # copy.deepcopy, e não um dict novo com update raso: `LOGGING` tem dicionário dentro de
         # dicionário (handlers -> audit -> filename), e uma cópia rasa compartilharia o
@@ -253,8 +253,9 @@ class RunnerComTrilhaIsolada(DiscoverRunner):
 
         # TASK-014/T-10, revisado por T-13 e por TASK-019/T-14 — guarda o teto de produção e
         # desliga o limitador para a suíte inteira, ESVAZIANDO O DICIONÁRIO INTEIRO (hoje
-        # quatro chaves: as duas de `/o/` do T-10 original, `/accounts/login/` que o T-13
-        # acrescentou e `/o/device-authorization/` que o T-14 acrescentou depois — nunca só as
+        # cinco caminhos: as duas de `/o/` do T-10 original, `/accounts/login/` que o T-13
+        # acrescentou, `/o/device-authorization/` que o T-14 acrescentou depois e `/o/logout/` do
+        # TASK-027 — nunca só as
         # que existiam quando cada um foi escrito). A razão completa está no docstring do
         # módulo; aqui, só a mecânica: `global`, e não um atributo de instância, porque o valor
         # guardado precisa ser legível de fora do runner (T-17, em
@@ -345,7 +346,7 @@ class RunnerComTrilhaIsolada(DiscoverRunner):
         logging.config.dictConfig(settings.LOGGING)
 
         # TASK-014/T-10, revisado por T-13 e por TASK-019/T-14 — repõe o teto de produção (hoje
-        # quatro chaves), com a mesma disciplina do dictConfig acima: nenhuma configuração fica
+        # cinco caminhos), com a mesma disciplina do dictConfig acima: nenhuma configuração fica
         # trocada além da duração da suíte, nem para quem chame `run_tests()` de dentro de um
         # processo que continua vivo.
         settings.RATE_LIMIT_POR_CAMINHO = RATE_LIMIT_DE_PRODUCAO

@@ -6,6 +6,7 @@ usuário. Login e logout continuam sendo as views prontas do django.contrib.auth
 
 import logging
 
+from django.conf import settings
 from django.core.cache import cache
 from django.db import connection
 from django.http import JsonResponse
@@ -22,9 +23,10 @@ def home(request):
 
     Sem login_required de propósito: com ele, o redirect do logout cairia em
     /accounts/login/?next=/ em vez da própria home. Quem está logado aparece pelo
-    `user` do context processor.
+    `user` do context processor. SPA_URL vai só a esta view, pelo contexto: um context
+    processor a levaria a toda tela, inclusive à de login.
     """
-    return render(request, "home.html")
+    return render(request, "home.html", {"spa_url": settings.SPA_URL})
 
 
 def health(request):
