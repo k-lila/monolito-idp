@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block title %}IdP — criar conta{% endblock %}
+
+{% block content %}
+    <div class="cartao">
+        <h1>Criar conta</h1>
+
+        {{ form.non_field_errors }}
+
+        <form method="post">
+            {% csrf_token %}
+            {% comment %}
+            O `next` conferido pela view, e não o do pedido: com ele o cadastro devolve ao
+            /o/authorize/ interrompido. A versão dos termos é a vigente, e não a do POST
+            anterior, para que o aceite seguinte valha depois de os termos mudarem.
+            {% endcomment %}
+            <input type="hidden" name="next" value="{{ next }}">
+            <input type="hidden" name="termos_versao" value="{{ termos_versao_vigente }}">
+
+            <div class="campo">
+                <label for="{{ form.email.id_for_label }}">E-mail</label>
+                {{ form.email.errors }}
+                {{ form.email }}
+            </div>
+
+            <div class="campo">
+                <label for="{{ form.first_name.id_for_label }}">Nome</label>
+                {{ form.first_name.errors }}
+                {{ form.first_name }}
+            </div>
+
+            <div class="campo">
+                <label for="{{ form.last_name.id_for_label }}">Sobrenome</label>
+                {{ form.last_name.errors }}
+                {{ form.last_name }}
+            </div>
+
+            <div class="campo">
+                <label for="{{ form.nickname.id_for_label }}">Apelido</label>
+                {{ form.nickname.errors }}
+                {{ form.nickname }}
+            </div>
+
+            <div class="campo">
+                <label for="{{ form.password1.id_for_label }}">Senha</label>
+                {{ form.password1.errors }}
+                {{ form.password1 }}
+            </div>
+
+            <div class="campo">
+                <label for="{{ form.password2.id_for_label }}">Confirme a senha</label>
+                {{ form.password2.errors }}
+                {{ form.password2 }}
+            </div>
+
+            {% include "registration/requisitos_de_senha.html" %}
+
+            <div class="campo">
+                {{ form.termos_versao.errors }}
+                {{ form.aceite.errors }}
+                <label>
+                    {{ form.aceite }}
+                    Li e aceito os <a href="{{ spa_url }}/termos">termos de uso</a> e a
+                    <a href="{{ spa_url }}/privacidade">política de privacidade</a>, versão
+                    {{ termos_versao_vigente }}.
+                </label>
+            </div>
+
+            <div class="acoes">
+                <button type="submit" class="primario">Criar conta</button>
+            </div>
+        </form>
+
+    </div>
+{% endblock %}

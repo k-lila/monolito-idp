@@ -62,6 +62,13 @@ refeita fora daqui: o certificado da autoridade certificadora (CA) local, a linh
 navegador que visitou, e o issuer cacheado em cada relying party (RP) que já integrou. O custo
 completo está no fim deste documento, em "Produção — o que ainda não existe".
 
+**Fora de `.localhost`, o boot exige os valores de produção.** Com `PUBLIC_HOST` fora de
+`localhost` e de nomes sob `.localhost`, o `BASE_URL` é público, e o boot recusa `SPA_URL` em
+loopback e `EMAIL_BACKEND` que não entrega (console, dummy, locmem ou filebased). O ensaio sob
+nome público é um desses casos: o `.env` dele recebe a origem pública da SPA e o backend de
+SMTP antes do `up`, ou o `app` sai na leitura das settings, e o log do contêiner nomeia a
+variável.
+
 **A forma do issuer de produção está congelada pela ADR (Architecture Decision Record) 0025:
 `https://<PUBLIC_HOST>/o`.** O nome não entra no repositório: vive só no `.env` do clone de
 produção e no painel da Vercel, e é escolhido pelas regras da mesma ADR. A partir do primeiro
@@ -105,7 +112,19 @@ container o `docker-compose.yml` sobrescreve a variável para `/var/log/idp/audi
 volume nomeado `auditlog`. **Se o seu `.env` é anterior a esta variável, acrescente a linha à
 mão**: sem ela nada sobe, e a mensagem nomeia a variável
 (`docs/adr/0013-registrar-a-trilha-de-auditoria-dos-quatro-sinais-em-arquivo-duravel.md`). O
-mesmo vale, e pela mesma razão, para `PUBLIC_HOST` e `REDIS_PASSWORD`.
+mesmo vale, e pela mesma razão, para `PUBLIC_HOST` e `REDIS_PASSWORD`, e para as nove que a ADR
+0031 acrescentou: `EMAIL_BACKEND`, `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`,
+`EMAIL_HOST_PASSWORD`, `EMAIL_USE_TLS`, `EMAIL_TIMEOUT`, `DEFAULT_FROM_EMAIL` e `SPA_CLIENT_ID`.
+Sem elas nem a suíte roda.
+
+As oito de e-mail já saem do exemplo com os valores de desenvolvimento: o backend de console,
+que escreve a mensagem inteira no stdout e não abre conexão nenhuma, e por isso deixa host,
+porta e credenciais sem uso. `SPA_CLIENT_ID` sai com um marcador, `trocar-pelo-client-id-da-spa`,
+que deixa o IdP subir: ausente ou vazia, a variável derruba o boot. Depois do passo 5, troque-o
+pelo `client_id` da Application registrada para a aplicação de página única (SPA, de
+_Single-Page Application_). Até lá, e com qualquer valor errado, toda chamada à interface de
+programação (API, de _Application Programming Interface_) de conta recebe 403
+`aplicacao_nao_autorizada`, sem outro sinal.
 
 **Como você sabe que deu certo.**
 
@@ -207,8 +226,9 @@ container descartável some depois. A senha é digitada, nunca escrita em arquiv
 `.env`, remova-as.
 
 **Como você sabe que deu certo.** `https://$PUBLIC_HOST/admin/` aceita esse e-mail e abre a
-tela de administração. O e-mail é o identificador de login e é único: repetir o mesmo falha, e
-isso é o modelo funcionando.
+tela de administração. O e-mail é o identificador de login, é gravado em minúsculas e é único
+sem distinção de caixa: repetir o mesmo, em qualquer caixa, falha, e isso é o modelo
+funcionando.
 
 ### 5. Registrar uma Application
 
@@ -228,7 +248,9 @@ navegador mostra erro de conexão. Tanto faz. O que importa é que ele foi levad
 `code` na query string, e é da barra de endereços que o `code` é lido.
 
 O contrato completo de uma `Application`, com `post_logout_redirect_uris` e
-`skip_authorization`, está em `docs/integracao-rp.md`.
+`skip_authorization`, está em `docs/integracao-rp.md`. Se a Application é a da SPA, o `client_id`
+dela vai para `SPA_CLIENT_ID` no `.env`, que o IdP só lê no boot: `docker compose up -d app`
+recria o container com o valor novo, e `restart` não relê o `env_file`.
 
 **Como você sabe que deu certo.** Depois de salvar, a Application aparece na listagem com o
 `client_id` preenchido — anote-o. Deixar `algorithm` em branco não acusa nada, nem aqui nem
@@ -248,7 +270,9 @@ curl -s --cacert ./ca-local.crt https://$PUBLIC_HOST/o/.well-known/openid-config
 cache; e
 `id_token_signing_alg_values_supported` igual a `["RS256","HS256"]`. Os endpoints — authorize,
 token, userinfo, end_session e jwks — ficam listados com chave ou sem, e por isso é o `alg` que
-denuncia a chave ausente.
+denuncia a chave ausente. Desde a ADR 0031, o documento traz também `conta` em
+`scopes_supported`, `email_verified`, `nickname` e `updated_at` em `claims_supported` e `create`
+em `prompt_values_supported`.
 
 ### 7. Fechar o fluxo PKCE à mão
 
@@ -294,8 +318,9 @@ curl -s --cacert ./ca-local.crt -X POST https://$PUBLIC_HOST/o/token/ \
 ```
 
 **Como você sabe que deu certo.** A resposta traz `access_token`, `refresh_token` e — o que
-interessa aqui — `id_token`. As claims de identidade são `sub`, `name` e `email`, exatamente o
-`claims_supported` da descoberta.
+interessa aqui — `id_token`. As claims de identidade são `sub`, `name`, `nickname`,
+`updated_at`, `email` e `email_verified`, exatamente o `claims_supported` da descoberta. O `sub` é
+o UUID (_Universally Unique Identifier_) da conta, e não a chave primária.
 
 ## A jornada de construção
 
@@ -375,7 +400,8 @@ esse, **não** é o mesmo: aqui é `http://localhost:8000`, sem proxy e sem cert
 `https`.
 
 Os passos 3b e o `chown` do passo 3 não têm equivalente aqui: não há proxy nem volume. A
-trilha de auditoria vai para `logs/audit.log`, no diretório de trabalho.
+trilha de auditoria vai para `logs/audit.log`, no diretório de trabalho, e os e-mails saem no
+terminal do `runserver` ("Ver os e-mails em desenvolvimento", abaixo).
 
 ## Tarefas do dia a dia
 
@@ -444,6 +470,28 @@ docker compose logs --no-color --no-log-prefix app | jq -R 'fromjson? | select(.
 Não há coleta externa: o log operacional some com o container. A trilha de auditoria, essa não —
 vive no volume nomeado `auditlog`, em `/var/log/idp/audit.log`.
 
+### Ver os e-mails em desenvolvimento
+
+Com o `EMAIL_BACKEND` do exemplo, `django.core.mail.backends.console.EmailBackend`, nada sai da
+máquina: cada mensagem é escrita inteira, com cabeçalhos, destinatário e link, no stdout do
+processo. Na jornada de construção, é o terminal do `runserver`; na de container, o log do `app`:
+
+```bash
+docker compose logs -f app
+```
+
+A mensagem sai em texto plano, e não em JSON, e por isso o filtro de `jq` de "Ler o log" a
+descarta. Ela aparece depois da resposta, porque o envio parte do commit e corre numa thread.
+O link de confirmação e o de redefinição saem sobre `BASE_URL`: na jornada de construção,
+`http://localhost:8000`.
+
+Os gatilhos são o cadastro, o "reenviar" da SPA, o "esqueci a senha", a troca de e-mail, a troca
+de senha, a redefinição e a exclusão. Acima de cinco envios a um mesmo endereço por hora, os
+quatro primeiros gatilhos deixam de enviar, e o log operacional traz uma linha `envio_suprimido`.
+Os avisos de segurança, de senha trocada, de troca de e-mail, de desativação e de exclusão, têm
+contador próprio: acima de vinte por hora a um mesmo endereço, deixam de sair, e a linha é
+`aviso_suprimido`. As duas contagens vivem no Redis e expiram sozinhas.
+
 ### Desbloquear uma conta ou uma origem
 
 Cinco tentativas falhas de entrar bloqueiam a conta, e cinco de uma mesma origem bloqueiam a
@@ -460,12 +508,60 @@ docker compose exec app python manage.py axes_reset_ip 203.0.113.10
 
 `axes_list_attempts` mostra o que está registrado — origem, identificador tentado e número de
 falhas —, e `axes_reset` sem argumento apaga tudo de todo mundo, evidência de ataque inclusive.
-O e-mail vai como foi digitado na tentativa, sem normalizar caixa.
+O e-mail vai em minúsculas: desde a ADR 0031 o login o entrega assim ao `axes`, e
+`axes_reset_username` compara por igualdade. Linhas anteriores à 0031 podem trazer outra caixa,
+e aparecem em `axes_list_attempts` como foram digitadas.
 
-Os tetos de requisição por origem não têm comando: `/accounts/login/`, `/o/token/`,
-`/o/authorize/`, `/o/device-authorization/` e `/o/logout/`. A janela dos cinco expira em
-sessenta segundos, e comando nenhum acima alcança o 429 em JSON que o teto da própria tela de
-login devolve.
+A própria pessoa também encerra o bloqueio da conta: concluir a redefinição de senha apaga as
+tentativas do endereço. O bloqueio da origem segue até o prazo. Conta da equipe não recebe link
+de redefinição: a senha dela muda por `manage.py changepassword`, e o bloqueio cai pelos
+comandos acima.
+
+Os tetos de requisição por origem não têm comando: `/accounts/login/`, `/accounts/registrar/`,
+`/accounts/password_reset/`, `/accounts/password_change/`, `/accounts/email/`,
+`/accounts/excluir/`, `/o/token/`, `/o/authorize/`, `/o/device-authorization/`, `/o/logout/` e
+os quatro de `/api/conta/`. A janela de todos expira em sessenta segundos, e
+comando nenhum acima alcança o 429 em JSON que eles devolvem.
+
+## Implantar o autoatendimento de conta (ADR 0031)
+
+Procedimento de quem opera, uma vez em cada ambiente cujo banco já tem contas, e nesta ordem. No
+clone de produção, todo comando do compose leva os dois `-f`. A implantação do IdP vem antes da
+da SPA: implantada antes, a SPA pediria o scope `conta` e receberia `invalid_scope`, e o "Criar
+conta" receberia 400.
+
+1. **Antes de tudo, conferir a colisão de caixa.** A migração 0002 põe os e-mails em minúsculas
+   e para, sem estado parcial, se duas contas só se distinguem pela caixa; a mensagem traz os
+   `id` das contas, nunca os e-mails. Com o banco ainda na versão anterior:
+
+   ```bash
+   docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT lower(email), count(*) FROM accounts_user GROUP BY 1 HAVING count(*) > 1;"'
+   ```
+
+   Zero linhas é o esperado. Cada linha é um endereço com mais de uma conta, e a colisão se
+   resolve no admin, trocando o e-mail de uma delas, antes de seguir.
+2. **O `.env` recebe as nove variáveis antes do merge**, e não depois: sem elas, o boot e a
+   suíte do clone caem na primeira leitura das settings. Em produção, o backend é
+   `django.core.mail.backends.smtp.EmailBackend`, com os dados da conta SMTP (_Simple Mail
+   Transfer Protocol_), `SPA_CLIENT_ID` é o `client_id` da Application de produção da SPA, e
+   `SPA_URL` é a origem pública da SPA, igual à entrada de `CORS_ALLOWED_ORIGINS`. Com
+   `BASE_URL` público, o boot recusa `SPA_URL` em loopback e backend que não entrega, nomeando a
+   variável: o `app` sai na leitura das settings, e o log do contêiner diz qual.
+3. **A única volta atrás é para a frente, com imagem nova.** A migração 0004 sorteia o UUID de
+   cada conta e é irreversível. Nunca suba a imagem anterior sobre o esquema novo, nem restaure
+   um dump anterior à implantação: as duas coisas criam uma terceira identidade para cada conta,
+   e as RPs passam a ver pessoas novas.
+4. **`migrate accounts <anterior>` não volta e deixa o banco pior.** Ele desaplica a 0006 e a
+   0005, cada uma na própria transação, e só então falha na 0004. O banco fica sem a unicidade
+   do `sub` e sem a restrição `Lower(email)`, e `sub` e `updated_at` voltam a aceitar nulo. A
+   saída é rodar `migrate` de novo, que reaplica as duas.
+5. **Depois de implantar, conferir a descoberta**, como no passo 6 da primeira jornada: `conta`
+   em `scopes_supported`; `email_verified`, `nickname` e `updated_at` em `claims_supported`;
+   `create` em `prompt_values_supported`. Só então a SPA implanta.
+
+A sessão da SPA aberta antes da implantação traz o `sub` antigo no `id_token` e mostra erro até
+o reload. A trilha de auditoria passa a ter duas populações de `sub`: o `id` interno antes da
+implantação e o UUID depois; a correlação entre as duas passa pelo admin.
 
 ## Produção — o que ainda não existe
 
@@ -500,9 +596,9 @@ Quatro itens desta lista saíram dela com o proxy: `BASE_URL`, `BEHIND_TLS_PROXY
   0027. Errar o número devolve à trilha e ao limitador de taxa um endereço que não é o do
   cliente.
 - **Os segredos.** Ficam no `.env` do clone de produção, com backup cifrado fora da máquina e um
-  diretório ancestral do clone fechado para "outros" (ADR 0027). O arquivo guarda `SECRET_KEY` e
-  a chave privada RSA em texto claro, e qualquer processo do usuário de desenvolvimento o lê: é
-  risco aceito, na negativa "Mesmo privilégio" da mesma ADR.
+  diretório ancestral do clone fechado para "outros" (ADR 0027). O arquivo guarda `SECRET_KEY`, a
+  chave privada RSA e a senha do SMTP em texto claro, e qualquer processo do usuário de
+  desenvolvimento o lê: é risco aceito, na negativa "Mesmo privilégio" da mesma ADR.
 
 ### Decisões que o repositório ainda não tomou
 
@@ -510,10 +606,10 @@ Quatro itens desta lista saíram dela com o proxy: `BASE_URL`, `BEHIND_TLS_PROXY
   ela sai do boot e vira passo próprio.
 - **Rotação da chave RSA.** Existe uma chave, sem conjunto de rotação: a primeira troca
   invalida todo token vivo. O toolkit oferece o conjunto por `OIDC_RSA_PRIVATE_KEYS_INACTIVE`.
-  Ligá-lo põe mais de uma chave no JWKS, que é contrato com a aplicação de página única (SPA,
-  de _Single-Page Application_), e é tarefa própria, com ADR nos dois projetos, ainda não
-  decidida.
-- **Coleta de log.** Só stdout: o log operacional some com o container.
+  Ligá-lo põe mais de uma chave no JWKS, que é contrato com a SPA, e é tarefa própria, com ADR
+  nos dois projetos, ainda não decidida.
+- **Coleta de log.** Só stdout: o log operacional some com o container, e com ele a única
+  notícia de um e-mail que não saiu.
 - **Retenção da trilha de auditoria.** O arquivo é durável e cresce indefinidamente; poda e
   retenção não estão decididas.
 - **Provisionamento não supervisionado.** A conta administrativa passou a exigir terminal

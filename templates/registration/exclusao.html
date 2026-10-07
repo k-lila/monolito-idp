@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}IdP — excluir a conta{% endblock %}
+
+{% block content %}
+    <div class="cartao">
+        <h1>Excluir a conta</h1>
+
+        {% if recusada %}
+            {% comment %}
+            Sem formulário: a conta da equipe sai pelo admin, por outra pessoa da equipe.
+            {% endcomment %}
+            <p>Contas da equipe de administração não podem ser excluídas por esta página. Fale
+                com quem administra.</p>
+            <p><a class="botao" href="{{ spa_url }}/app/conta">Voltar</a></p>
+        {% else %}
+            {% if form.pode_apagar %}
+                <p>Desativar mantém os dados da conta, e quem administra pode reativá-la. Apagar
+                    remove a conta de vez. Nos dois casos, a sessão termina e as aplicações perdem
+                    o acesso.</p>
+            {% else %}
+                <p>Esta conta é dona de uma aplicação cadastrada e só pode ser desativada por
+                    aqui: apagá-la levaria junto a aplicação. Fale com quem administra.</p>
+                <p>Desativar mantém os dados da conta, e quem administra pode reativá-la. A sessão
+                    termina e as aplicações perdem o acesso.</p>
+            {% endif %}
+
+            {{ form.non_field_errors }}
+
+            <form method="post">
+                {% csrf_token %}
+                <div class="campo">
+                    {{ form.modo.errors }}
+                    {{ form.modo }}
+                </div>
+
+                <div class="campo">
+                    {{ form.confirmo.errors }}
+                    <label>
+                        {{ form.confirmo }}
+                        Entendo que esta ação não se desfaz por aqui.
+                    </label>
+                </div>
+
+                <div class="campo">
+                    <label for="{{ form.senha.id_for_label }}">Senha atual</label>
+                    {{ form.senha.errors }}
+                    {{ form.senha }}
+                </div>
+
+                <div class="acoes">
+                    <a class="botao" href="{{ spa_url }}/app/conta">Cancelar</a>
+                    <button type="submit" class="primario">Excluir</button>
+                </div>
+            </form>
+        {% endif %}
+    </div>
+{% endblock %}

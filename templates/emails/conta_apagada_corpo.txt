@@ -1,0 +1,6 @@
+{% autoescape off %}Olá,
+
+A conta que usava este endereço foi apagada em {{ quando|date:"d/m/Y \à\s H:i" }} (horário de Brasília). Não é possível recuperá-la.
+
+Se não foi você, fale com quem administra o sistema.
+{% endautoescape %}

@@ -1,4 +1,4 @@
-"""TASK-027/T-02, T-04 a T-16 e T-18 — o logout iniciado pela relying party (RP) em `/o/logout/`.
+"""TASK-027/T-02, T-04 a T-16 e T-18, e TASK-028/T-43 (`RevogarTests`) — o logout iniciado pela relying party (RP) em `/o/logout/`.
 
 Demanda do quality-assurance. `accounts.logout_rp.LogoutPelaRPView` sombreia a rota do toolkit
 (ADR 0030) e decide o que o toolkit sozinho não decide (ADR 0029): revoga só na Application que
@@ -33,7 +33,7 @@ from oauth2_provider.models import (
     get_refresh_token_model,
 )
 
-from accounts import auditoria, logout_rp
+from accounts import auditoria, logout_rp, revogacao
 from accounts.logout_rp import LogoutPelaRPView
 from tests import runner
 from tests.oauth_helpers import REDIRECT_URI
@@ -132,7 +132,8 @@ class SaidaComHintVivoTests(_LogoutBase):
         linhas = linhas_da_trilha_desde(antes)
         self.assertEqual([l["event"] for l in linhas], ["tokens_revogados", "user_logged_out"], linhas)
         revogacao, saida = linhas
-        self.assertEqual(revogacao["sub"], str(self.a.pk))
+        self.assertEqual(revogacao["sub"], str(self.a.sub))
+        self.assertNotEqual(revogacao["sub"], str(self.a.pk))
         self.assertEqual(revogacao["client_id"], self.app1.client_id)
         self.assertEqual(revogacao["outcome"], "success")
         for chave in ("ip", "ip_src", "ip_edge"):
@@ -297,7 +298,8 @@ class ConfirmacaoTests(_LogoutBase):
         self.assertSessaoDe(client, viva=False)
         self.assertEqual(status_userinfo(tokens["access_token"]), 401)
         revogadas = self.eventos(linhas_da_trilha_desde(antes), "tokens_revogados")
-        self.assertEqual([l["sub"] for l in revogadas], [str(self.a.pk)])
+        self.assertEqual([l["sub"] for l in revogadas], [str(self.a.sub)])
+        self.assertNotIn(str(self.a.pk), [l["sub"] for l in revogadas])
 
     def test_t09_sem_client_id_e_sem_destino_so_encerra_a_sessao(self):
         client, tokens = emitir_tokens(self.a, self.app1)
@@ -333,8 +335,10 @@ class ConfirmacaoTests(_LogoutBase):
         self.assertSessaoDe(cliente_a, viva=False)
         linhas = linhas_da_trilha_desde(antes)
         self.assertEqual([l["event"] for l in linhas], ["tokens_revogados", "user_logged_out"], linhas)
-        self.assertEqual(linhas[0]["sub"], str(self.b.pk))
-        self.assertEqual(linhas[1]["sub"], str(self.a.pk))
+        self.assertEqual(linhas[0]["sub"], str(self.b.sub))
+        self.assertEqual(linhas[1]["sub"], str(self.a.sub))
+        self.assertNotEqual(linhas[0]["sub"], str(self.b.pk))
+        self.assertNotEqual(linhas[1]["sub"], str(self.a.pk))
         self.assertEqual(linhas[0]["request_id"], linhas[1]["request_id"])
 
 
@@ -650,7 +654,8 @@ class HintSemLinhaTests(_LogoutBase):
         self.assertEqual(status_userinfo(tokens["access_token"]), 401)
         linhas = linhas_da_trilha_desde(antes)
         self.assertEqual([l["event"] for l in linhas], ["tokens_revogados", "user_logged_out"], linhas)
-        self.assertEqual(linhas[0]["sub"], str(self.a.pk))
+        self.assertEqual(linhas[0]["sub"], str(self.a.sub))
+        self.assertNotEqual(linhas[0]["sub"], str(self.a.pk))
         self.assertEqual(linhas[0]["client_id"], self.app1.client_id)
         self.assertIsNone(linhas[1]["sub"])
         self.assertEqual(linhas[0]["request_id"], linhas[1]["request_id"])
@@ -702,7 +707,8 @@ class HintSemLinhaTests(_LogoutBase):
         self.assertEqual(status_userinfo(tokens_b["access_token"]), 200)
         self.assertEqual(status_refresh(self.app1, tokens_b["refresh_token"]), 200)
         revogadas = self.eventos(linhas_da_trilha_desde(antes), "tokens_revogados")
-        self.assertEqual([l["sub"] for l in revogadas], [str(self.a.pk)])
+        self.assertEqual([l["sub"] for l in revogadas], [str(self.a.sub)])
+        self.assertNotIn(str(self.a.pk), [l["sub"] for l in revogadas])
 
     def test_t14f_so_client_id_sem_sessao_com_destino_sai_sem_revogar(self):
         _, tokens = emitir_tokens(self.a, self.app1)
@@ -718,15 +724,17 @@ class HintSemLinhaTests(_LogoutBase):
 
 
 class RevogarTests(_LogoutBase):
-    """T-15. `accounts.logout_rp._revogar(dono, aplicacao)`."""
+    """T-15, ajustado por TASK-028/T-43. `accounts.revogacao._revogar(dono, aplicacao=None)`
+    devolve a lista das Applications em que havia token, sem repetição, e `revogar_tokens`
+    emite `tokens_revogados` uma vez por Application dessa lista."""
 
-    def test_a_sem_tokens_devolve_false(self):
-        self.assertFalse(logout_rp._revogar(self.a, self.app1))
+    def test_a_sem_tokens_devolve_lista_vazia(self):
+        self.assertEqual(revogacao._revogar(self.a, self.app1), [])
 
-    def test_b_revoga_os_tres_tipos_e_devolve_true(self):
+    def test_b_revoga_os_tres_tipos_e_devolve_a_application(self):
         emitir_tokens(self.a, self.app1)
 
-        self.assertTrue(logout_rp._revogar(self.a, self.app1))
+        self.assertEqual(revogacao._revogar(self.a, self.app1), [self.app1])
         self.assertEqual(self.vivos(self.a, self.app1), (0, 0, 0))
 
     def test_c_so_toca_o_par_dono_e_aplicacao(self):
@@ -734,7 +742,7 @@ class RevogarTests(_LogoutBase):
         emitir_tokens(self.a, self.app2)
         emitir_tokens(self.b, self.app1)
 
-        logout_rp._revogar(self.a, self.app1)
+        revogacao._revogar(self.a, self.app1)
 
         self.assertEqual(self.vivos(self.a, self.app1), (0, 0, 0))
         self.assertEqual(self.vivos(self.a, self.app2), (1, 1, 1))
@@ -746,8 +754,66 @@ class RevogarTests(_LogoutBase):
         AccessToken.objects.filter(user=self.a).delete()
         self.assertEqual(self.vivos(self.a, self.app1), (0, 0, 1))
 
-        self.assertTrue(logout_rp._revogar(self.a, self.app1))
+        self.assertEqual(revogacao._revogar(self.a, self.app1), [self.app1])
         self.assertEqual(self.vivos(self.a, self.app1), (0, 0, 0))
+
+    def test_e_sem_aplicacao_revoga_em_todas_e_devolve_cada_uma_uma_vez(self):
+        """Vermelho se `aplicacao=None` passar a filtrar, ou se a lista repetir a Application
+        (cada uma tem três tipos de token, e a deduplicação é o que a limita a uma emissão)."""
+        emitir_tokens(self.a, self.app1)
+        emitir_tokens(self.a, self.app2)
+        emitir_tokens(self.b, self.app1)
+
+        afetadas = revogacao._revogar(self.a)
+
+        self.assertCountEqual(afetadas, [self.app1, self.app2])
+        self.assertEqual(self.vivos(self.a, self.app1), (0, 0, 0))
+        self.assertEqual(self.vivos(self.a, self.app2), (0, 0, 0))
+        self.assertEqual(self.vivos(self.b, self.app1), (1, 1, 1))
+
+    def _emissoes(self, chamada):
+        emitidas = []
+
+        def receptor(sender, **kwargs):
+            emitidas.append(kwargs)
+
+        revogacao.tokens_revogados.connect(receptor, weak=False, dispatch_uid="t43")
+        try:
+            chamada()
+        finally:
+            revogacao.tokens_revogados.disconnect(dispatch_uid="t43")
+        return emitidas
+
+    def test_f_revogar_tokens_emite_uma_vez_por_application_afetada(self):
+        emitir_tokens(self.a, self.app1)
+        emitir_tokens(self.a, self.app2)
+        pedido = RequestFactory().get("/")
+
+        emitidas = self._emissoes(lambda: revogacao.revogar_tokens(pedido, self.a))
+
+        self.assertEqual(len(emitidas), 2, emitidas)
+        self.assertCountEqual([e["application"] for e in emitidas], [self.app1, self.app2])
+        for emissao in emitidas:
+            self.assertIs(emissao["request"], pedido)
+            self.assertEqual(emissao["user"], self.a)
+
+    def test_g_revogar_tokens_com_aplicacao_emite_so_para_ela(self):
+        emitir_tokens(self.a, self.app1)
+        emitir_tokens(self.a, self.app2)
+
+        emitidas = self._emissoes(
+            lambda: revogacao.revogar_tokens(RequestFactory().get("/"), self.a, self.app1)
+        )
+
+        self.assertEqual([e["application"] for e in emitidas], [self.app1])
+        self.assertEqual(self.vivos(self.a, self.app2), (1, 1, 1))
+
+    def test_h_revogar_tokens_sem_tokens_nao_emite(self):
+        emitidas = self._emissoes(
+            lambda: revogacao.revogar_tokens(RequestFactory().get("/"), self.a)
+        )
+
+        self.assertEqual(emitidas, [])
 
 
 class AplicacaoDoHintSemLinhaTests(_LogoutBase):

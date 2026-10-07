@@ -69,8 +69,13 @@ class AuthorizationCodePkceFlowTests(TestCase):
         # única jornada nem de OAUTH2_PROVIDER["OIDC_ISS_ENDPOINT"] (T-03).
         self.assertEqual(payload["iss"], f"{settings.BASE_URL.rstrip('/')}/o")
 
-        # (iv) email_verified ausente do id_token: sem fluxo de verificação nesta fase.
-        self.assertNotIn("email_verified", payload)
+        # TASK-028/T-07: o `sub` é o UUID da conta, e nunca a chave primária (ADR 0031).
+        self.assertEqual(payload["sub"], str(self.user.sub))
+        self.assertNotEqual(payload["sub"], str(self.user.pk))
+
+        # (iv) email_verified PRESENTE e falso: a conta nasce sem endereço verificado.
+        self.assertIn("email_verified", payload)
+        self.assertIs(payload["email_verified"], False)
 
         # (ii) userinfo com o mesmo access_token: igualdade, não só presença.
         userinfo_response = self.client.get(
@@ -81,9 +86,11 @@ class AuthorizationCodePkceFlowTests(TestCase):
 
         for claim in ("sub", "name", "email"):
             self.assertEqual(userinfo[claim], payload[claim])
+        self.assertEqual(userinfo["sub"], str(self.user.sub))
 
-        # (iv) email_verified também ausente do userinfo.
-        self.assertNotIn("email_verified", userinfo)
+        # (iv) email_verified também presente e falso no userinfo.
+        self.assertIn("email_verified", userinfo)
+        self.assertIs(userinfo["email_verified"], False)
 
         # (v) ACOPLAMENTO: claims de identidade do id_token (descontadas as
         # automáticas do oauthlib) têm de bater exatamente com claims_supported
@@ -94,6 +101,9 @@ class AuthorizationCodePkceFlowTests(TestCase):
         discovery_response = self.client.get("/o/.well-known/openid-configuration")
         claims_supported = set(discovery_response.json()["claims_supported"])
         self.assertEqual(identity_claims, claims_supported)
+        for claim in ("email_verified", "nickname", "updated_at"):
+            self.assertIn(claim, claims_supported)
+        self.assertIn("conta", discovery_response.json()["scopes_supported"])
 
     def test_iii_iv_scope_openid_apenas_sub(self):
         code, verifier, _ = authorize_and_get_code(

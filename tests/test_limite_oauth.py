@@ -7,7 +7,7 @@ Demanda do quality-assurance (TASK-014, bloco B; T-14 em TASK-019). Nível integ
 T-09 e T-14: o teto é um middleware sobre o cache real e sobre a posição dele na cadeia, e a
 costura entre `LimiteDeTaxaMiddleware`, `ObservabilidadeMiddleware` e (em T-14) a gravação do
 `DeviceGrant` só se prova pela resposta HTTP, pelo log e pela linha no banco de verdade.
-T-11/T-17 é unitário — uma única decisão: o dicionário de produção, com as CINCO chaves
+T-11/T-17 é unitário — uma única decisão: o dicionário de produção, com as NOVE chaves
 declaradas hoje, alcança o middleware.
 
 REGRA DO BLOCO: todo teste aqui passa `REMOTE_ADDR` explícito e forjado (`10.x.y.z`). O
@@ -278,12 +278,20 @@ ORIGEM_T17_LOGIN = "10.50.0.5"
 ORIGEM_T11_DEVICE = "10.50.0.7"
 ORIGEM_T11_LOGOUT = "10.50.0.8"
 ORIGEM_T17_LOGOUT_TETO = "10.50.0.9"
+ORIGENS_T36 = {
+    "/api/conta/": "10.50.0.10",
+    "/api/conta/confirmacao/": "10.50.0.11",
+    "/api/conta/termos/": "10.50.0.12",
+    "/api/conta/confirmar/": "10.50.0.13",
+}
+ORIGEM_T36_TETO = "10.50.0.14"
+SPA_T36 = "http://localhost:5173"
 
 
 class OAuthRateLimitDeProducaoAlcancaOMiddlewareTests(TestCase):
-    """T-11, ampliado por T-17, por T-14 (TASK-019) e por TASK-027/T-17 — o preço do T-10/T-13. Prova que
-    `RATE_LIMIT_POR_CAMINHO` de produção, e não um dicionário qualquer, alcança de fato o
-    middleware para os CINCO caminhos declarados e faz o contador de cada um subir — sem
+    """T-11, ampliado por T-17, por T-14 (TASK-019), por TASK-027/T-17 e por TASK-028/T-36 — o preço do
+    T-10/T-13. Prova que `RATE_LIMIT_POR_CAMINHO` de produção, e não um dicionário qualquer,
+    alcança de fato o middleware para os NOVE caminhos declarados e faz o contador de cada um subir — sem
     asserir o teto numérico, porque isso reescreveria a política dentro do teste.
 
     A terceira chave (`/accounts/login/`) é o preço específico do T-13: com o dicionário
@@ -305,8 +313,10 @@ class OAuthRateLimitDeProducaoAlcancaOMiddlewareTests(TestCase):
         cache.delete(chave_do_contador("/accounts/login/", ORIGEM_T17_LOGIN))
         cache.delete(chave_do_contador("/o/device-authorization/", ORIGEM_T11_DEVICE))
         cache.delete(chave_do_contador("/o/logout/", ORIGEM_T11_LOGOUT))
+        for caminho, origem in ORIGENS_T36.items():
+            cache.delete(chave_do_contador(caminho, origem))
 
-    def test_contador_sobe_para_os_cinco_caminhos_com_o_dicionario_de_producao(self):
+    def test_contador_sobe_para_os_nove_caminhos_com_o_dicionario_de_producao(self):
         # `tests.runner.RunnerComTrilhaIsolada.setup_test_environment` (T-10/T-13) guardou o
         # valor de produção aqui antes de zerar `settings.RATE_LIMIT_POR_CAMINHO` para a suíte.
         self.assertIsNotNone(
@@ -329,6 +339,11 @@ class OAuthRateLimitDeProducaoAlcancaOMiddlewareTests(TestCase):
             # GET anônimo e sem parâmetro: a view responde 302 para a raiz, e o que se prova é
             # só que o contador do middleware subiu (TASK-027, a quinta chave).
             self.client.get("/o/logout/", REMOTE_ADDR=ORIGEM_T11_LOGOUT)
+            # TASK-028/T-36: os quatro caminhos da API de conta, cada um de uma origem própria.
+            # Sem Bearer, os três primeiros recebem 401; o que se prova é só o contador, que o
+            # middleware incrementa antes da view.
+            for caminho, origem in ORIGENS_T36.items():
+                self.client.get(caminho, REMOTE_ADDR=origem)
 
         self.assertEqual(cache.get(chave_do_contador("/o/token/", ORIGEM_T11_TOKEN)), 1)
         self.assertEqual(
@@ -341,6 +356,38 @@ class OAuthRateLimitDeProducaoAlcancaOMiddlewareTests(TestCase):
             cache.get(chave_do_contador("/o/device-authorization/", ORIGEM_T11_DEVICE)), 1
         )
         self.assertEqual(cache.get(chave_do_contador("/o/logout/", ORIGEM_T11_LOGOUT)), 1)
+        for caminho, origem in ORIGENS_T36.items():
+            with self.subTest(caminho=caminho):
+                self.assertEqual(cache.get(chave_do_contador(caminho, origem)), 1)
+
+
+@override_settings(CORS_ALLOWED_ORIGINS=[SPA_T36])
+class LimiteDaApiDeContaTests(TestCase):
+    """TASK-028/T-36 — o teto de `/api/conta/` é aplicado pelo middleware, e o 429 sai com os
+    cabeçalhos de CORS: sem eles o navegador da SPA esconderia o 429 atrás de um erro de CORS."""
+
+    def setUp(self):
+        cache.delete(chave_do_contador("/api/conta/", ORIGEM_T36_TETO))
+
+    def tearDown(self):
+        cache.delete(chave_do_contador("/api/conta/", ORIGEM_T36_TETO))
+
+    def test_a_segunda_requisicao_acima_do_teto_de_um_e_429_com_cors_e_retry_after(self):
+        with override_settings(RATE_LIMIT_POR_CAMINHO={"/api/conta/": 1}):
+            primeira = self.client.get(
+                "/api/conta/", HTTP_ORIGIN=SPA_T36, REMOTE_ADDR=ORIGEM_T36_TETO
+            )
+            segunda = self.client.get(
+                "/api/conta/", HTTP_ORIGIN=SPA_T36, REMOTE_ADDR=ORIGEM_T36_TETO
+            )
+
+        self.assertEqual(primeira.status_code, 401)
+        self.assertEqual(segunda.status_code, 429)
+        self.assertTrue(segunda["Retry-After"])
+        self.assertEqual(segunda["Access-Control-Allow-Origin"], SPA_T36)
+        expostos = segunda["Access-Control-Expose-Headers"]
+        self.assertIn("Retry-After", expostos)
+        self.assertIn("WWW-Authenticate", expostos)
 
 
 class LimiteDoLogoutPelaRPTests(TestCase):

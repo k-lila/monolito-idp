@@ -24,7 +24,7 @@ Declarada no `README.md` e em `docs/arquitetura.md`. Tudo aqui descansa sobre el
 | Entrada | loopback | túnel nomeado da Cloudflare; não há porta de entrada no host nem no roteador |
 | TLS (Transport Layer Security) do navegador | em `idp.localhost`, terminado no proxy, com certificado de uma autoridade certificadora (CA) local, que nenhum cliente de fora conhece | terminado na borda da Cloudflare, com o certificado Universal da zona do IdP |
 | TLS interno | o Caddy mantém `tls internal`; o Gunicorn fala texto claro na rede interna, alcançado só pelo proxy | idem |
-| Pessoas | conta criada no admin (ADR 0023), além de quem opera a máquina | idem |
+| Pessoas | conta criada no admin ou pelo cadastro público (ADR 0031), além de quem opera a máquina | idem |
 
 Pré-condição que vive fora do repositório, e que nada nele verifica: quem controla a conta da
 Cloudflare ou as credenciais do túnel controla a entrada.
@@ -60,8 +60,14 @@ defensáveis em geral.
 | Logout pela RP só com destino cadastrado, revogando só na `Application` que pede | saída forjada e revogação alheia (2.4) | `accounts/logout_rp.py`, ADRs 0029 e 0030 |
 | Assinatura assimétrica em RS256 (RSA, Rivest–Shamir–Adleman, com SHA-256) | segredo compartilhado para verificar: nenhuma RP integrada pode forjar um token em nome do IdP | `docs/adr/0004-assinar-tokens-com-rs256-e-custodiar-a-chave-privada-no-ambiente.md` |
 | Cookie sem estado de identidade | sessão irrevogável: o cookie carrega só o identificador; o estado vive no Postgres com cópia quente no Redis, e é revogável do lado do servidor — propriedade que um cookie assinado não teria | `SESSION_ENGINE = cached_db` em `config/settings.py` |
-| CORS (Cross-Origin Resource Sharing) por origem exata, e só sob `/o/` | cabeçalho fora da superfície de protocolo: com a origem da SPA na allowlist, `/admin/` e `/accounts/login/` continuam sem `Access-Control-Allow-Origin` | `CORS_ALLOWED_ORIGINS` no `.env`, uma origem por ambiente (ADR 0022); `CORS_URLS_REGEX` em `config/settings.py` |
-| Sem fluxo de recuperação de senha | fluxo de e-mail a sequestrar. É controle, não lacuna acidental: `config/urls.py` monta uma rota de autenticação por vez | `config/urls.py`, `tests/test_password_reset_urls.py` |
+| CORS (Cross-Origin Resource Sharing) por origem exata, e só sob `/o/` e `/api/conta/` | cabeçalho fora da superfície que a aplicação de página única (SPA, de _Single-Page Application_) chama por `fetch`: com a origem da SPA na allowlist, `/admin/` e as páginas de `/accounts/` continuam sem `Access-Control-Allow-Origin` | `CORS_ALLOWED_ORIGINS` no `.env`, uma origem por ambiente (ADR 0022); `CORS_URLS_REGEX` em `config/settings.py` (ADR 0031) |
+| A senha só em páginas do IdP; a senha atual conferida por `authenticate()` | senha digitada fora do IdP; falha de senha nas páginas de conta sem contagem do `axes` | `accounts/formularios.py`, ADR 0031 |
+| Recuperação de senha por link de uma hora e uso único, sem abrir sessão | link de redefinição reaproveitável ou que entra na conta por si | `PASSWORD_RESET_TIMEOUT`, `accounts/paginas.py` (2.6) |
+| Links dos e-mails sobre `BASE_URL` | link de phishing com o remetente do IdP, montado a partir de um `Host` forjado | `accounts/emails.py` (2.6) |
+| Teto de envios por destinatário; avisos de segurança fora dele | caixa de entrada alheia inundada pelo cadastro, pelo "reenviar" ou pelo "esqueci a senha"; aviso de troca suprimido por quem quer escondê-la | `accounts/envio.py`, ADR 0031 (2.6) |
+| Interface de programação (API, de _Application Programming Interface_) de conta só com Bearer no cabeçalho, scope `conta` e token da SPA | API chamada por outra RP, por token de conta inativa ou com o token numa URL | `accounts/api.py`, ADR 0031 (2.7) |
+| Troca de senha, redefinição e exclusão revogam os tokens em todas as Applications | token vivo depois de a pessoa trocar a senha ou sair da conta | `accounts/revogacao.py`, ADR 0031 |
+| Exclusão pela página recusada a conta da equipe; apagar recusado a conta dona de Application | o IdP sem quem o administre; a Application e os tokens de toda a RP apagados em cascata | `accounts/paginas.py`, ADR 0031 |
 | Trilha de auditoria de autenticação e de concessão de token | quem autenticou, quando, de que origem e qual RP recebeu token (2.5) | `accounts/auditoria.py`, ADR 0013 |
 
 ### 2.1 PKCE com S256
@@ -81,7 +87,7 @@ defensáveis em geral.
 - O admin recusa gravar `redirect_uri` em `http://`.
 - Uma `Application` já gravada assim recebe 400 em `/o/authorize/` em vez do código.
 - Com `BEHIND_TLS_PROXY=False`, na jornada de construção, `http` continua aceito: é o que deixa a
-  SPA (Single-Page Application) de desenvolvimento voltar a `http://localhost:5173/callback`.
+  SPA de desenvolvimento voltar a `http://localhost:5173/callback`.
 
 ### 2.4 `/o/logout/`
 
@@ -96,7 +102,8 @@ defensáveis em geral.
   - hint com carga que não é JSON;
   - hint com `aud` de `Application` sem algoritmo;
   - hint com `aud` contendo NUL;
-  - hint assinado por segredo de cliente HS256 com `jti` que não é UUID;
+  - hint assinado por segredo de cliente HS256 com `jti` que não é UUID (_Universally Unique
+    Identifier_);
   - `post_logout_redirect_uri` que não se decompõe como URL.
 - **A lista é fechada**: entrada nova que dê 500 é defeito (ADR 0029).
 
@@ -104,16 +111,50 @@ defensáveis em geral.
 
 - **Onde:** arquivo durável que sobrevive à recriação do container
   (`docs/adr/0013-registrar-a-trilha-de-auditoria-dos-quatro-sinais-em-arquivo-duravel.md`).
-- **Seis sinais:**
+- **Dezesseis sinais:**
   - autenticação;
   - falha de autenticação;
   - logout;
   - concessão de token;
   - bloqueio por tentativas em excesso, acrescentado pela limitação de taxa (ADR 0016);
-  - revogação de tokens no logout pela RP (ADR 0029).
-- **O que nunca entra:** e-mail e valor de token. A pessoa aparece pelo `sub`, e o identificador
-  de uma tentativa falha, por resumo SHA-256.
+  - revogação de tokens, no logout pela RP e nas páginas de conta (ADRs 0029 e 0031);
+  - os dez eventos de conta: criação, confirmação de e-mail, edição, troca de e-mail, troca de
+    senha, pedido de recuperação, redefinição, aceite dos termos, desativação e exclusão (ADR
+    0031).
+- **O que nunca entra:** e-mail e valor de token. A pessoa aparece pelo `sub`, o UUID da
+  conta desde a ADR 0031, e o identificador de uma tentativa falha, por resumo SHA-256 em
+  minúsculas.
 - **Não fecha a lacuna inteira:** o que continua sem registro está na seção 4.
+
+### 2.6 A recuperação de senha e os e-mails
+
+- **O link de redefinição** vale uma hora (`PASSWORD_RESET_TIMEOUT`) e morre no primeiro uso,
+  porque o token do Django deriva da senha. A página final não abre sessão: quem tem o link
+  troca a senha, mas entra pelo login.
+- **O pedido responde igual com e sem conta**, no status, no destino e no corpo. Só conta ativa,
+  com senha utilizável e fora da equipe, recebe o link; a equipe troca a senha por
+  `manage.py changepassword`.
+- **Os links saem de `BASE_URL`**, nunca de `request.get_host()` nem de `build_absolute_uri()`.
+- **Os tetos por destinatário** são dois, por hora, com contadores separados no Redis. O de cinco
+  envios vale no cadastro, no "reenviar", no "esqueci a senha" e na confirmação do endereço
+  novo, que qualquer um dispara contra um endereço alheio. O de vinte vale nos avisos de senha
+  trocada, de troca de e-mail, de desativação e de exclusão: sem teto, quem tem a sessão e a
+  senha de alguém lotaria a caixa dela, e com vinte, suprimir um aviso exige vinte trocas na
+  mesma hora, cada uma já avisada. Acima de cada teto o envio não sai, e a resposta não muda.
+- **O envio parte do commit**: operação desfeita não envia. Nenhum endereço vai ao log nem à
+  chave do Redis.
+
+### 2.7 A API de conta
+
+- **Só o cabeçalho `Authorization`.** O token em `?access_token=` ou no corpo é tratado como
+  ausente, para não parar em log de borda nem no `Referer`.
+- **Só a Application da SPA.** O toolkit não tem scope por Application, e `DEFAULT_SCOPES` é
+  `["__all__"]`: toda RP que peça `conta`, ou que omita `scope`, o recebe. A comparação com
+  `SPA_CLIENT_ID` no `dispatch` é o que restringe a API à SPA.
+- **Conta inativa recebe 403**, mesmo com token vivo.
+- **Sem CSRF, porque sem sessão.** A API lê a conta só do token, e o cookie de sessão sozinho
+  recebe 401. A isenção depende disso (4.14).
+- **Nenhuma senha** entra ou sai por ela.
 
 ---
 
@@ -137,8 +178,14 @@ defensáveis em geral.
 
 ### 3.2 Rotas próprias
 
-Em `config/urls.py`: `/`, `/health`, `/accounts/login/`, `/accounts/logout/`, `/admin/`, e tudo
-sob `/o/`.
+Em `config/urls.py`: `/`, `/health`, `/accounts/login/`, `/accounts/logout/`, `/admin/`, as
+páginas de conta sob `/accounts/`, a API de conta sob `/api/conta/` e tudo sob `/o/`. O inventário
+das páginas e da API está em `docs/arquitetura.md`, §II.4.
+
+- **As anônimas que disparam e-mail** são `/accounts/registrar/` e `/accounts/password_reset/`,
+  com teto por origem e, no envio, teto por destinatário. `/api/conta/confirmar/` é anônima e não
+  envia nada.
+- **O cadastro é público na prática:** nada impede abrir a página direto, sem o `prompt=create`.
 
 - **`/health`** é público e sem sessão, e revela o estado de banco e de cache — custo aceito nas
   ADRs 0009 e 0010 (`docs/adr/0009-isolar-a-view-de-health-da-sessao-e-do-usuario.md` e
@@ -189,18 +236,21 @@ Cada item é uma ausência conhecida, com o risco que ela deixa aberto.
 | Alerta de `BEHIND_TLS_PROXY` incoerente com o ambiente | a variável, configurada de forma incoerente, não emite sinal nenhum (4.4) | `git show 8caf117:docs/runbook.md`, §14 |
 | Conferência da senha do Redis repetida no `.env` | divergência manual na jornada de construção (4.5) | `docs/receita.md`, "Criar o `.env`" |
 | Conjunto de rotação da chave RSA | resposta a suspeita de vazamento da chave é disruptiva por construção (4.6) | ADR 0004 |
-| Dois eventos na trilha, e retenção decidida | criação de Application e revogação fora do logout pela RP sem registro; arquivo sem poda (4.7) | ADRs 0013 e 0029 |
+| Dois eventos na trilha, e retenção decidida | criação de Application e revogação fora do logout pela RP e das páginas de conta sem registro; arquivo sem poda (4.7) | ADRs 0013, 0029 e 0031 |
 | Logout pela RP: `id_token` vivo é credencial de revogação | quem tem o `id_token` vivo de alguém revoga os tokens do dono (4.8) | ADR 0029 |
 | Logout pela RP: hint sem registro | redireciona sem revogar (4.9) | ADR 0029 |
 | Logout pela RP: refresh em curso | par novo pode nascer vivo depois da saída (4.10) | ADR 0029 |
 | Logout pela RP: hint na query string | log de acesso com a URL completa passaria a gravar `id_token` (4.11) | — |
 | Coleta externa de log | recriar o container apaga o histórico do log operacional (4.12) | — |
 | Ponto único de resolução de dependências | a imagem pode assinar com código que nenhum teste exercitou (4.13) | `Dockerfile`, `requirements.txt` |
+| Autoatendimento de conta: lacunas aceitas | a redefinição sem teto, a revelação de conta, a troca de e-mail na hora e o que pode quem lê a caixa de entrada (4.14) | ADR 0031 |
+| `is_active` no `userinfo` e no refresh | a conta desativada pelo admin continua a receber claims e a renovar token (4.15) | ADR 0031 |
 
 ### 4.1 Teto de requisição em `/admin/login/`
 
 A limitação de taxa existe desde a ADR 0016, que a pôs nas três portas de autenticação, e hoje
-alcança também `/o/device-authorization/` e `/o/logout/`:
+alcança também `/o/device-authorization/`, `/o/logout/`, o cadastro, o pedido de recuperação e a
+API de conta:
 
 - **`django-axes`:** conta tentativa falha em `/accounts/login/` e em `/admin/login/`, por conta e
   por origem separadamente, bloqueando por quinze minutos contados da última tentativa;
@@ -208,12 +258,14 @@ alcança também `/o/device-authorization/` e `/o/logout/`:
 
 | Caminho | Teto por origem |
 | --- | --- |
-| `/accounts/login/` | 60 por minuto |
+| `/accounts/login/`, `/accounts/registrar/`, `/accounts/password_reset/` | 60 por minuto |
 | `/o/token/`, `/o/authorize/`, `/o/logout/` | 120 por minuto |
+| `/api/conta/`, `/api/conta/confirmacao/`, `/api/conta/termos/`, `/api/conta/confirmar/` | 120 por minuto, cada um |
 | `/o/device-authorization/` | 30 por minuto |
 
 Falta uma coisa: `/admin/login/` **não tem teto de requisição**. O dicionário
-`RATE_LIMIT_POR_CAMINHO` não o nomeia.
+`RATE_LIMIT_POR_CAMINHO` não o nomeia. A confirmação da redefinição também fica sem teto, pela
+razão da seção 4.14.
 
 ### 4.2 `DeviceGrant` acumula sem limpeza
 
@@ -229,8 +281,8 @@ Falta uma coisa: `/admin/login/` **não tem teto de requisição**. O dicionári
 
 ### 4.3 A política de senha só alcança a senha escolhida por tela ou por comando
 
-**Onde roda:** formulários do admin de adicionar conta e de alterar senha, `changepassword` e
-`createsuperuser` interativo.
+**Onde roda:** formulários do admin de adicionar conta e de alterar senha, as páginas de
+cadastro, de troca de senha e de redefinição, `changepassword` e `createsuperuser` interativo.
 
 **Onde é silenciosa:**
 
@@ -275,9 +327,12 @@ Numa conta dessas, o teto de cinco tentativas volta a supor um espaço de busca 
 | Evento sem registro | Por quê |
 | --- | --- |
 | Criação de Application | ausência de sinal; exigiria um `post_save` no modelo devolvido por `get_application_model()` |
-| Revogação de token fora do logout pela RP | ausência de sinal, e nem o `post_save` bastaria: `/o/revoke_token/`, o admin e o `cleartokens` apagam linhas sem emitir nada |
+| Revogação de token fora do logout pela RP e das páginas de conta | ausência de sinal, e nem o `post_save` bastaria: `/o/revoke_token/`, o admin e o `cleartokens` apagam linhas sem emitir nada |
 
-- Só a revogação de `/o/logout/` tem sinal, e é deste projeto (ADR 0029).
+- Só a revogação de `/o/logout/` e a das páginas de conta têm sinal, e o sinal é deste projeto
+  (ADRs 0029 e 0031).
+- A desativação e a troca de e-mail pelo admin não emitem evento de conta: os sinais de conta
+  são das páginas e da API.
 - Retenção e poda do arquivo não estão decididas: ele guarda dado pessoal, cresce
   indefinidamente e nada o monitora (ADR 0013).
 
@@ -327,6 +382,64 @@ Numa conta dessas, o teto de cinco tentativas volta a supor um espaço de busca 
 - Consequência: um rebuild meses depois pode assinar com código que nenhum teste deste repositório
   jamais exercitou, sob `docker compose up --wait` verde.
 
+### 4.14 Lacunas aceitas do autoatendimento de conta
+
+Aceitas na ADR 0031 e nas entradas da TASK-028 em `.claude/memory/decisions.md`, para a
+audiência pequena deste IdP:
+
+- **A confirmação da redefinição, `/accounts/reset/<uidb64>/<token>/`, fica sem teto de
+  requisição.** O caminho muda a cada link, e o limitador compara por igualdade. O que a protege
+  é o token de uso único e de uma hora.
+- **O cadastro revela quem tem conta**, pelo erro de e-mail em uso. A recuperação não revela
+  nada pela resposta, mas o tempo dela difere em cerca de 0,3 ms com e sem conta, como no
+  `PasswordResetView` do Django.
+- **A mensagem de conta desativada** confirma a desativação a quem acerta a senha, e o segundo
+  `check_password` que ela exige distingue, pelo tempo, conta desativada de conta inexistente.
+- **A troca de e-mail vale na hora.** Um erro de digitação muda o login para um endereço que a
+  pessoa não controla; o aviso ao endereço antigo sinaliza a troca, mas não a desfaz, e a saída
+  é o admin. A troca apaga as linhas do `axes` do endereço antigo, e o histórico de login dele se
+  perde.
+- **Quem lê a caixa de entrada troca a senha** e encerra o bloqueio da conta no `axes`: a
+  redefinição apaga o `AccessAttempt` do endereço, como o login bem-sucedido faz, pelo handler
+  deste projeto. O prazo de uma hora e o uso único reduzem a janela, e o aviso de senha trocada
+  chega à mesma caixa.
+- **Esse desbloqueio também reduz a contagem por origem.** A linha do `AccessAttempt` guarda o
+  endereço e a origem juntos, e a origem perde as falhas contra o endereço desbloqueado. Escapar
+  assim do bloqueio por origem exige redefinir a senha de cada conta atacada, isto é, controlar
+  cada caixa de entrada.
+- **O login de uma conta tira da contagem de cada origem as falhas contra ela,** pela mesma
+  razão. O handler próprio do `axes` (`accounts.tentativas.TentativasPorConta`) apaga no login
+  só as linhas da conta, e não as da origem, como faria o da biblioteca: quem ataca, ao entrar
+  na própria conta, perde só as falhas contra ela, e não as que acumulou contra a vítima. O
+  handler sobrescreve um método interno do `axes`, e uma subida que o renomeie desfaz isso sem
+  erro.
+- **O link de confirmação leva o resumo SHA-256 do e-mail, sem sal.** Por dicionário, quem lê a
+  URL confirma um endereço candidato, como na trilha. Um antivírus que abra o link confirma a
+  conta sem clique humano.
+- **Contas nunca confirmadas acumulam,** e quem cadastra o e-mail de outra pessoa ocupa o
+  endereço até a dona usar "esqueci a senha".
+- **O `uid` do link de redefinição é o base64 do `id` interno:** o número que o `sub` UUID
+  esconde das RPs chega à caixa da própria pessoa.
+- **O Bearer só no cabeçalho vale para a API de conta.** `/o/userinfo/` fica como o toolkit o
+  entrega, e aceita o token também na query string e no corpo.
+- **A isenção de CSRF da API depende de ela não aceitar sessão.** No dia em que a API ler
+  `request.user` ou a sessão, um site qualquer faz o navegador da pessoa editar a conta dela.
+- **Conta dona de Application só desativa pela página.** Apagá-la exige o admin, que decide o
+  destino da Application.
+- **O envio não tem fila durável,** e o SMTP (_Simple Mail Transfer Protocol_) é de conta
+  pessoal, com limite diário, que os tetos por destinatário não protegem. O cadastro com
+  endereços distintos dispara um e-mail por conta, e a 60 requisições por minuto uma origem só
+  cria cerca de trinta contas por minuto: uma cota de algumas centenas por dia se esgota em menos
+  de uma hora, e até o fim do dia nenhum link nem aviso sai.
+
+### 4.15 O toolkit não confere `is_active` no `userinfo` nem no refresh
+
+- A desativação pelo admin não revoga os tokens da conta.
+- `/o/userinfo/` continua a responder com as claims, e o grant de refresh continua a emitir par
+  novo, até o token expirar ou ser revogado.
+- Só a API de conta recusa, com `conta_inativa`. A desativação pela própria pessoa revoga os
+  tokens em todas as Applications.
+
 ---
 
 ## 5. Modelo de ameaças
@@ -340,7 +453,8 @@ Curto de propósito, e limitado ao que a premissa da seção 1 admite.
 | A borda da Cloudflare | tudo o que passa por ela, em texto claro | — | risco aceito, ADR 0027, "Um terceiro vê tudo" (5.3) |
 | Um processo do usuário de desenvolvimento | o `.env`, as credenciais do túnel e os volumes de produção | — | risco aceito, ADR 0027, "Mesmo privilégio" (5.4) |
 | RP registrada e maliciosa | o `id_token` de quem consentiu com ela; reter o `refresh_token` | forjar token; verificar o de outra RP | revogação manual (5.5) |
-| Pessoa usuária hostil, com conta | a própria conta | dados de outra conta; registrar Application | fechado (5.6) |
+| Pessoa usuária hostil, com conta | a própria conta; criar contas pelo cadastro | dados de outra conta; registrar Application; a API com token de outra RP | fechado (5.6) |
+| Quem lê a caixa de entrada da pessoa | trocar a senha pelo link e encerrar o bloqueio da conta | a sessão, que a redefinição não abre; conta `is_staff` ou `is_superuser`, que não recebe link | risco aceito, ADR 0031 (5.7) |
 
 ### 5.1 Observador da rede local
 
@@ -351,8 +465,9 @@ Curto de propósito, e limitado ao que a premissa da seção 1 admite.
 
 ### 5.2 Alguém com acesso ao host
 
-- Lê o `.env` e com ele obtém a `SECRET_KEY`, a chave privada RSA e as senhas do Postgres e do
-  Redis.
+- Lê o `.env` e com ele obtém a `SECRET_KEY`, a chave privada RSA e as senhas do Postgres, do
+  Redis e do SMTP. Com a `SECRET_KEY`, assina links de confirmação e de redefinição; a
+  redefinição de conta da equipe não abre o formulário.
 - No clone de produção, lê também as credenciais do túnel, com que recebe o tráfego do domínio do
   IdP.
 - A credencial do superusuário saiu desse conjunto com a ADR 0019: é digitada num prompt e não
@@ -385,7 +500,8 @@ Curto de propósito, e limitado ao que a premissa da seção 1 admite.
 - Não pode forjar token nem verificar o de outra RP: a assinatura é assimétrica e o `aud` a
   identifica.
 - Consegue reter indefinidamente o `refresh_token` que recebeu, que não expira por tempo e que a
-  desativação da conta não invalida.
+  desativação da conta pelo admin não invalida. A troca de senha, a redefinição e a exclusão
+  pela própria pessoa o revogam.
 - Procedimento de revogação: `git show 8caf117:docs/runbook.md`, "Revogar o acesso de uma
   pessoa".
 
@@ -395,6 +511,17 @@ Curto de propósito, e limitado ao que a premissa da seção 1 admite.
   `/admin/` exige `is_staff`.
 - Não registra Application: as rotas de gestão do toolkit não são montadas, e o registro é só do
   admin (seção 3).
+- Cria contas pelo cadastro, limitada pelo teto de 60 por minuto por origem e pelos de cinco
+  e-mails e de vinte avisos por destinatário por hora.
+- Não usa a API de conta por outra RP: o token de outra Application recebe 403.
+
+### 5.7 Quem lê a caixa de entrada da pessoa
+
+- Pede o link de redefinição, troca a senha e encerra o bloqueio da conta no `axes`.
+- Não alcança conta `is_staff` ou `is_superuser`, que não recebe link.
+- Não ganha sessão pela redefinição; entra pelo login com a senha nova.
+- A redefinição revoga os tokens da conta em todas as Applications, e o aviso de senha trocada
+  chega à mesma caixa.
 
 ---
 
@@ -437,8 +564,13 @@ Nenhum item tem ordem declarada; a ordem é decisão pendente, na seção 7.
 - **Posição do `CorsMiddleware`**, a conferir ao ligar a primeira aplicação de página única: a
   configuração incorreta é indetectável enquanto a allowlist estiver vazia (`docs/arquitetura.md`,
   §II.6).
-- **`email_verified` e revogação efetiva**, que são contrato com a RP e estão em
-  `docs/integracao-rp.md`.
+- **Revogação efetiva na desativação pelo admin**, que é contrato com a RP e está em
+  `docs/integracao-rp.md` e na seção 4.15.
+- **`EMAIL_BACKEND` de SMTP em produção.** Com o de console, nada sai do servidor, e o link de
+  confirmação ou de redefinição vai para o stdout. Já não acontece em silêncio: com `BASE_URL`
+  público, a guarda de boot de `config/settings.py` recusa o backend de console e os outros que
+  não entregam (dummy, locmem, filebased). O que resta é de quem opera: configurar o SMTP real,
+  cuja credencial errada a guarda não vê.
 
 ---
 
@@ -480,19 +612,26 @@ Nenhum item tem ordem declarada; a ordem é decisão pendente, na seção 7.
 | Só as listas de protocolo do toolkit sob `/o/`; gestão de `Application` só no admin | `config/urls.py` | ADR 0024, emenda à 0002 |
 | `redirect_uri` só em `https` com `BEHIND_TLS_PROXY` | `config/settings.py`, `ALLOWED_REDIRECT_URI_SCHEMES` | sem ADR; a condição é a da ADR 0006 |
 | Política de senha na criação e na troca | `config/settings.py`, `AUTH_PASSWORD_VALIDATORS` | sem ADR |
-| CORS por origem exata, só sob `/o/` | `config/settings.py`, `CORS_ALLOWED_ORIGINS` e `CORS_URLS_REGEX` | ADR 0022, a allowlist; sem ADR, o prefixo |
-| Claims emitidas, sem `email_verified` | `accounts/oauth_validators.py` | sem ADR |
+| CORS por origem exata, só sob `/o/` e `/api/conta/` | `config/settings.py`, `CORS_ALLOWED_ORIGINS`, `CORS_URLS_REGEX` e `CORS_EXPOSE_HEADERS` | ADR 0022, a allowlist; ADR 0031, o prefixo da API e os cabeçalhos expostos |
+| Claims emitidas, com `sub` UUID e `email_verified` | `accounts/oauth_validators.py` | ADR 0031 |
+| Recuperação de senha fora da equipe, links sobre `BASE_URL`, teto por destinatário | `accounts/paginas.py`, `accounts/emails.py`, `accounts/envio.py`, `config/settings.py` | ADR 0031 |
+| API de conta só com Bearer no cabeçalho, scope `conta` e token da SPA | `accounts/api.py`, `SPA_CLIENT_ID` | ADR 0031 |
+| Revogação em todas as Applications nas páginas de conta | `accounts/revogacao.py` | ADR 0031 |
 | Logout iniciado pela RP, ligado, com revogação restrita à `Application` e destino cadastrado | `config/settings.py`, as cinco chaves `OIDC_RP_INITIATED_LOGOUT_*`; `accounts/logout_rp.py`; `config/urls.py` | ADR 0029; o mecanismo, ADR 0030 |
 | Sessão revogável no servidor, cookie sem estado | `config/settings.py`, `SESSION_ENGINE` | ADR 0005 |
 | Endurecimento de transporte por `BEHIND_TLS_PROXY` | `config/settings.py` | ADR 0006 |
 | Isenção de `/health` no redirecionamento para HTTPS | `config/settings.py`, `SECURE_REDIRECT_EXEMPT` | ADR 0010 |
 | `/health` sem sessão e sem usuário | `config/views.py` | ADR 0009 |
-| Trilha de auditoria dos seis sinais, sem e-mail e sem token | `accounts/auditoria.py`, `config/settings.py`, `LOGGING` | ADR 0013, ampliada pela 0016 e pela 0029 |
+| Trilha de auditoria dos dezesseis sinais, sem e-mail e sem token | `accounts/auditoria.py`, `accounts/sinais.py`, `config/settings.py`, `LOGGING` | ADR 0013, ampliada pela 0016, pela 0029 e pela 0031 |
 | Origem do cliente resolvida num ponto único | `config/origem.py` | ADR 0015 |
 | Bloqueio por tentativa falha em `/accounts/login/` e `/admin/login/` | `config/settings.py`, bloco `AXES_*` | ADR 0016 |
 | Teto de requisição por origem em `/accounts/login/`, `/o/token/` e `/o/authorize/` | `config/settings.py`, `RATE_LIMIT_POR_CAMINHO`; o mecanismo, `config/limites.py` | ADR 0016 |
 | Teto de requisição por origem em `/o/logout/` | `config/settings.py`, `RATE_LIMIT_POR_CAMINHO`; o mecanismo, `config/limites.py` | ADR 0029 |
 | Teto de requisição por origem em `/o/device-authorization/` | `config/settings.py`, `RATE_LIMIT_POR_CAMINHO`; o mecanismo, `config/limites.py` | sem ADR; a rota, ADR 0024 |
+| Teto de requisição por origem no cadastro, no pedido de recuperação e nos quatro caminhos da API de conta | `config/settings.py`, `RATE_LIMIT_POR_CAMINHO`; o mecanismo, `config/limites.py` | ADR 0031 |
+| Teto de vinte avisos por destinatário, e de 60 por minuto por origem na troca de senha, na troca de e-mail e na exclusão | `accounts/envio.py`; `config/settings.py`, `TETO_DE_AVISOS_POR_DESTINATARIO` e `RATE_LIMIT_POR_CAMINHO` | ADR 0031 |
+| Zeramento do `axes` no login restrito à conta | `accounts/tentativas.py`, `TentativasPorConta`; `config/settings.py`, `AXES_HANDLER` | ADR 0031, emenda à 0016 |
+| Recusa no boot de `SPA_URL` em loopback e de backend que não entrega, com `BASE_URL` público | `config/settings.py` | ADR 0031 |
 | Terminação TLS no proxy, e só ele publicado em `127.0.0.1` | `docker-compose.yml`, `docker/Caddyfile` | ADR 0017, emenda à 0006; emendada pela 0027 |
 | Nenhuma porta em produção; entrada pelo túnel | `docker-compose.prod.yml` | ADR 0027 |
 | `CF-Connecting-IP` confiado só do /32 do conector | `docker/Caddyfile` | ADR 0027 |

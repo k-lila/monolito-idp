@@ -25,6 +25,7 @@ import os
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, TestCase, override_settings
+from oauth2_provider.models import get_access_token_model
 
 from accounts.auditoria import _resumo_do_identificador
 from config.observabilidade import FiltroRequestId, FormatadorJSON
@@ -92,11 +93,11 @@ class ResumoDoIdentificadorTests(SimpleTestCase):
             _resumo_do_identificador("pessoa@example.com"),
         )
 
-    def test_caixa_diferente_produz_resumo_diferente(self):
-        """`accounts.User.email` é `unique=True` sob Postgres, sensível a caixa;
-        normalizar aqui fundiria duas contas distintas numa mesma linha da
-        trilha (razão registrada no docstring da própria função)."""
-        self.assertNotEqual(
+    def test_caixa_diferente_produz_o_mesmo_resumo(self):
+        """TASK-028/T-08. O e-mail é gravado em minúsculas e o banco recusa duas contas
+        que só a caixa distingue (ADR 0031): duas caixas do mesmo endereço são a mesma
+        conta e dão o mesmo resumo."""
+        self.assertEqual(
             _resumo_do_identificador("A@x.com"),
             _resumo_do_identificador("a@x.com"),
         )
@@ -168,17 +169,26 @@ class QuatroSinaisPelosCaminhosHttpReaisTests(TestCase):
         self.assertIn("identifier_sha256", falha)
         self.assertNotIn("client_id", falha)
 
+        # O `sub` da trilha é o UUID da conta, o mesmo das claims, e nunca a chave primária
+        # (ADR 0031).
         login = por_evento["user_logged_in"]
-        self.assertEqual(login["sub"], str(self.user.pk))
+        self.assertEqual(login["sub"], str(self.user.sub))
+        self.assertNotEqual(login["sub"], str(self.user.pk))
         self.assertIsInstance(login["sub"], str)
         self.assertEqual(login["outcome"], "success")
 
         logout = por_evento["user_logged_out"]
-        self.assertEqual(logout["sub"], str(self.user.pk))
+        self.assertEqual(logout["sub"], str(self.user.sub))
+        self.assertNotEqual(logout["sub"], str(self.user.pk))
         self.assertEqual(logout["outcome"], "success")
 
         autorizado = por_evento["app_authorized"]
-        self.assertEqual(autorizado["sub"], str(self.user.pk))
+        # `app_authorized` lê `token.user`, e não `request.user`, que ali é anônimo.
+        dono_do_token = get_access_token_model().objects.get(
+            token=token_response.json()["access_token"]
+        ).user
+        self.assertEqual(autorizado["sub"], str(dono_do_token.sub))
+        self.assertNotEqual(autorizado["sub"], str(dono_do_token.pk))
         self.assertEqual(autorizado["client_id"], self.application.client_id)
         self.assertNotIn("identifier_sha256", autorizado)
 
@@ -464,22 +474,19 @@ class FalhaDeLoginNaoRevelaOEmailTests(TestCase):
     dicionário é o `AuthenticationForm` da view de login, não este teste; por isso a
     requisição é real, e não uma chamada direta a `registrar_falha_de_login`.
 
-    O e-mail é de caixa mista de propósito. `_resumo_do_identificador` resume o valor COMO
-    RECEBIDO, sem `lower`, porque `accounts.User.email` é sensível a caixa sob Postgres — e
-    é o resumo do valor digitado, não o de uma versão normalizada dele, que a linha tem de
-    trazer.
+    O e-mail é de caixa mista de propósito. `_resumo_do_identificador` resume o valor em
+    minúsculas (ADR 0031, TASK-028/T-08): o e-mail é gravado em minúsculas, e o resumo que a
+    linha traz é o do endereço normalizado, e não o do valor digitado.
     """
 
     def setUp(self):
-        # Domínio já em minúsculas: `BaseUserManager.normalize_email` baixa a caixa do
-        # domínio e preserva a da parte local, de modo que o valor digitado abaixo é
-        # exatamente o valor gravado — a conta existe como digitada, e a autenticação
-        # falha pela senha, que é o caminho que este caso quer.
+        # Caixa mista na digitação; a conta é gravada em minúsculas pelo manager, e a
+        # autenticação falha pela senha, que é o caminho que este caso quer.
         self.email = "T12.Pessoa@example.com"
         self.senha = "senha-forte-o-suficiente-t12"
         self.senha_errada = "senha-errada-t12"
         self.user = User.objects.create_user(email=self.email, password=self.senha)
-        self.assertEqual(self.user.email, self.email)
+        self.assertEqual(self.user.email, self.email.lower())
 
         self._loggers_operacionais = [
             logging.getLogger(nome)
@@ -514,12 +521,8 @@ class FalhaDeLoginNaoRevelaOEmailTests(TestCase):
         # O resumo esperado é calculado aqui, com a stdlib, sobre a variável do setUp —
         # nunca por `_resumo_do_identificador`, que é a própria função sob prova: usá-la
         # faria a asserção concordar consigo mesma.
-        esperado = hashlib.sha256(self.email.encode("utf-8")).hexdigest()
+        esperado = hashlib.sha256(self.email.lower().encode("utf-8")).hexdigest()
         self.assertEqual(falhas[0]["identifier_sha256"], esperado)
-        self.assertNotEqual(
-            falhas[0]["identifier_sha256"],
-            hashlib.sha256(self.email.lower().encode("utf-8")).hexdigest(),
-        )
 
         trilha_serializada = "\n".join(
             json.dumps(linha, ensure_ascii=False) for linha in linhas
@@ -533,6 +536,9 @@ class FalhaDeLoginNaoRevelaOEmailTests(TestCase):
             ("log operacional", operacional_serializado),
         ):
             self.assertNotIn(self.email, serializado, f"e-mail digitado vazou na {destino}")
+            self.assertNotIn(
+                self.email.lower(), serializado, f"e-mail em minúsculas vazou na {destino}"
+            )
             self.assertNotIn(self.senha_errada, serializado, f"senha vazou na {destino}")
 
 

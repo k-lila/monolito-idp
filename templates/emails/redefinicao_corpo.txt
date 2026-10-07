@@ -1,0 +1,8 @@
+{% autoescape off %}Olá,
+
+Recebemos um pedido para redefinir a senha da conta deste endereço. Para escolher uma senha nova, abra o link abaixo:
+
+{{ link }}
+
+O link vale por {{ prazo_horas }} hora{{ prazo_horas|pluralize }} e só pode ser usado uma vez. Se você não fez o pedido, ignore esta mensagem: a senha atual continua valendo.
+{% endautoescape %}

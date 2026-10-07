@@ -1,0 +1,6 @@
+{% autoescape off %}Olá,
+
+A sua conta foi desativada em {{ quando|date:"d/m/Y \à\s H:i" }} (horário de Brasília). Ela continua guardada, mas não entra mais em nenhuma aplicação.
+
+Para reativá-la, fale com quem administra o sistema.
+{% endautoescape %}

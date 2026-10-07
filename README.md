@@ -21,7 +21,8 @@ Tudo o que está decidido neste repositório descansa sobre uma premissa única:
   Universal da zona, em produção, e no proxy, com certificado de uma autoridade certificadora
   (CA) local, na jornada de container em `idp.localhost`. O Caddy mantém `tls internal` nos dois
   ambientes, e o Gunicorn continua falando texto claro na rede interna, alcançado só pelo proxy;
-- pessoas usuárias com conta criada no admin (ADR 0023), além de quem opera a máquina.
+- pessoas usuárias com conta criada no admin ou pelo cadastro público (ADR 0031), além de quem
+  opera a máquina.
 
 Isso não é provisório por descuido: é premissa de várias decisões registradas. O que o IdP
 protege hoje, o que não protege e o que muda com a exposição está em `docs/seguranca.md`.
@@ -80,14 +81,23 @@ echo "127.0.0.1 $(grep '^PUBLIC_HOST=' .env | cut -d= -f2)" | sudo tee -a /etc/h
 RSA e a única `SECRET_KEY` deste clone, e sobrescrevê-lo destrói as duas sem que nenhum `git
 reset` as devolva.
 
-O que falta ao seu arquivo são quatro linhas, acrescentadas **à mão e antes de subir**. Sem
-qualquer uma delas nada sobe, e a mensagem nomeia a variável:
+O que falta ao seu arquivo são até treze linhas, acrescentadas **à mão e antes de subir**. Sem
+qualquer uma delas nada sobe, nem a suíte roda, e a mensagem nomeia a variável:
 
 ```
 AUDIT_LOG_PATH=logs/audit.log
 PUBLIC_HOST=
 REDIS_PASSWORD=
 SPA_URL=http://localhost:5173
+SPA_CLIENT_ID=trocar-pelo-client-id-da-spa
+EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend
+EMAIL_HOST=localhost
+EMAIL_PORT=25
+EMAIL_HOST_USER=
+EMAIL_HOST_PASSWORD=
+EMAIL_USE_TLS=False
+EMAIL_TIMEOUT=10
+DEFAULT_FROM_EMAIL=IdP <nao-responda@localhost>
 ```
 
 `AUDIT_LOG_PATH` é o caminho da trilha de auditoria na jornada de construção; dentro do
@@ -108,6 +118,13 @@ hexadecimal, junto com a `REDIS_URL` da jornada de construção já coerente com
 linhas que ele imprime, copie só essas duas: as outras quatro trocariam a chave, a `SECRET_KEY`
 e a senha do Postgres que o seu `.env` já usa. A coerência entre as duas é do script; ela só
 volta a depender de você se uma delas for trocada à mão, e nenhum mecanismo a confere.
+
+As nove últimas linhas do bloco vieram com o autoatendimento de conta (ADR 0031), e os valores
+são os de desenvolvimento do `.env.example`: o backend de console escreve cada e-mail no stdout e
+não envia nada. `SPA_CLIENT_ID` recebe o `client_id` da Application da SPA; com o marcador, o IdP
+sobe, e a interface de programação (API, de _Application Programming Interface_) de conta
+recusa toda chamada com 403 `aplicacao_nao_autorizada`. Antes de implantar a versão com essas variáveis num banco que já tem contas, leia "Implantar o
+autoatendimento de conta (ADR 0031)", em `docs/receita.md`.
 
 Se o seu ambiente **já rodou** o stack alguma vez, uma correção de posse, uma vez só:
 
@@ -154,7 +171,9 @@ O clone de produção:
 - ganha um `.env` novo a partir do `.env.example`, nunca copiado do de desenvolvimento. Nele, as
   seis linhas impressas por `./scripts/gen_env_secrets.sh`, cada uma no lugar da linha do
   exemplo, mais `PUBLIC_HOST`, `CORS_ALLOWED_ORIGINS`, `SPA_URL` em `https://`,
-  `COMPOSE_PROJECT_NAME=nova_api_prod` e `TUNNEL_ID`;
+  `SPA_CLIENT_ID` com o `client_id` da Application de produção da SPA, as variáveis `EMAIL_*` e
+  `DEFAULT_FROM_EMAIL` com o backend SMTP (_Simple Mail Transfer Protocol_) e os dados da conta
+  de envio, `COMPOSE_PROJECT_NAME=nova_api_prod` e `TUNNEL_ID`;
 - roda todo comando com `docker compose -f docker-compose.yml -f docker-compose.prod.yml`,
   digitado, sem script, `COMPOSE_FILE` nem link.
 

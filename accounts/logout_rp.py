@@ -12,9 +12,9 @@ envolve o `super()`, e a subida do toolkit relê os quatro, as exceções enumer
 APIs privadas do validador de que o desempate depende, `_get_key_for_token` e
 `_get_client_by_audience`.
 
-Mora em `accounts` porque decide o que acontece com os tokens de uma pessoa e anuncia isso à
-trilha; `config` não afirma nada sobre identidade. O sinal mora com quem o emite, como
-`app_authorized` no toolkit.
+Mora em `accounts` porque decide o que acontece com os tokens de uma pessoa; `config` não
+afirma nada sobre identidade. A revogação e o sinal que a anuncia à trilha moram em
+`accounts/revogacao.py`, que também serve as páginas de conta (ADR 0031).
 """
 
 import json
@@ -22,7 +22,6 @@ import logging
 
 from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.db import DataError, transaction
-from django.dispatch import Signal
 from jwcrypto import jwt
 from jwcrypto.common import JWException
 from oauth2_provider.exceptions import (
@@ -31,21 +30,13 @@ from oauth2_provider.exceptions import (
     InvalidOIDCClientError,
     InvalidOIDCRedirectURIError,
 )
-from oauth2_provider.models import (
-    get_access_token_model,
-    get_application_model,
-    get_id_token_model,
-    get_refresh_token_model,
-)
+from oauth2_provider.models import get_application_model, get_id_token_model
 from oauth2_provider.settings import oauth2_settings
 from oauth2_provider.views.oidc import RPInitiatedLogoutView
 
-logger = logging.getLogger(__name__)
+from accounts.revogacao import revogar_tokens
 
-# Uma emissão por saída que revogou ao menos um token. Argumentos: `request`, `user` (o dono
-# dos tokens revogados) e `application`. O receptor é `accounts.auditoria.registrar_revogacao`,
-# e `event` na trilha recebe o nome deste sinal (ADR 0013).
-tokens_revogados = Signal()
+logger = logging.getLogger(__name__)
 
 # As exceções que uma entrada forjada faz o toolkit levantar sem capturar, e que sem esta
 # lista chegam ao navegador como 500:
@@ -119,38 +110,6 @@ def _aplicacao_do_hint_sem_linha(request, hint):
         return None
 
 
-def _revogar(dono, aplicacao):
-    """Revoga os tokens de `dono` em `aplicacao`, e só nela. Devolve se revogou algum.
-
-    Filtra por conta e Application, que é o recorte decidido na ADR 0029, e não a partir dos
-    access tokens, como o toolkit (`oauth2_provider/views/oidc.py:434-454`). Com isso também
-    pega o refresh órfão, sem access token. O toolkit já recusa esse refresh
-    (`oauth2_validators.py:1296-1298`) e o `cleartokens` o apaga (`models.py:1269-1272`), então
-    marcá-lo revogado só o encerra mais cedo, sem mudar o que ele pode fazer. A ordem segue as
-    ligações: `RefreshToken.revoke()` apaga o access token ligado, e apagar um id_token apaga em
-    cascata o access token que o referencia (`AccessToken.id_token`). Cada lista é lida depois
-    de a anterior ter sido revogada.
-
-    SILÊNCIO: um refresh validado antes desta saída e gravado depois dela nasce vivo. O toolkit
-    valida fora de trava e, ao gravar, não reconfere a revogação
-    (`oauth2_validators.py:997-1038`). Nada aqui alcança esse intervalo.
-    """
-    filtro = {"user": dono, "application": aplicacao}
-    with transaction.atomic():
-        refresh_tokens = list(
-            get_refresh_token_model().objects.filter(revoked__isnull=True, **filtro)
-        )
-        for token in refresh_tokens:
-            token.revoke()
-        id_tokens = list(get_id_token_model().objects.filter(**filtro))
-        for token in id_tokens:
-            token.revoke()
-        access_tokens = list(get_access_token_model().objects.filter(**filtro))
-        for token in access_tokens:
-            token.revoke()
-    return bool(refresh_tokens or id_tokens or access_tokens)
-
-
 class LogoutPelaRPView(RPInitiatedLogoutView):
     # Estado por requisição: `validate_logout_request_user` o regrava a cada pedido, e o
     # default de classe é só None, nunca objeto mutável compartilhado entre requisições.
@@ -209,13 +168,8 @@ class LogoutPelaRPView(RPInitiatedLogoutView):
         self, application=None, post_logout_redirect_uri=None, state=None, token_user=None
     ):
         dono = token_user or self.request.user
-        if application is not None and dono.is_authenticated and _revogar(dono, application):
-            tokens_revogados.send(
-                sender=type(self),
-                request=self.request,
-                user=dono,
-                application=application,
-            )
+        if application is not None and dono.is_authenticated:
+            revogar_tokens(self.request, dono, application)
         # O toolkit encerra a sessão e redireciona. A revogação dele não roda porque
         # OIDC_RP_INITIATED_LOGOUT_DELETE_TOKENS é falsa (`oauth2_provider/views/oidc.py:434`);
         # verdadeira, ela revogaria a conta inteira depois desta, sem erro nenhum.
