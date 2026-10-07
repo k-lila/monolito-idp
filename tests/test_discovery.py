@@ -89,6 +89,28 @@ class DiscoveryDocumentTests(TestCase):
 
         self.assertNotIn("registration_endpoint", response.json())
 
+    def test_prompt_values_supported_anuncia_create_none_e_login(self):
+        """TASK-028/T-60. `create` só entra em `prompt_values_supported` com
+        `OIDC_RP_INITIATED_REGISTRATION_ENABLED` ligada: desligada, o toolkit omite o valor sem
+        erro, e a SPA que pede `prompt=create` ficaria sem saber se o IdP o entende."""
+        response = self.client.get("/o/.well-known/openid-configuration")
+
+        suportados = response.json()["prompt_values_supported"]
+        for valor in ("create", "none", "login"):
+            self.assertIn(valor, suportados)
+
+    def test_scopes_supported_sao_exatamente_os_quatro_do_contrato(self):
+        """TASK-028/T-68. Igualdade como conjunto, e não `assertIn` de `conta`: falha também
+        se um scope for acrescentado ou removido de `OAUTH2_PROVIDER["SCOPES"]`. A descoberta é
+        cacheada pelas RPs, e um scope a mais ou a menos é mudança do contrato (§3 de
+        `docs/nucleo-idp.md`), que exige ADR nos dois projetos."""
+        response = self.client.get("/o/.well-known/openid-configuration")
+
+        self.assertEqual(
+            set(response.json()["scopes_supported"]),
+            {"openid", "profile", "email", "conta"},
+        )
+
 
 class OAuthAuthorizationServerMetadataDocumentTests(TestCase):
     """TASK-019/T-07 — GET /o/.well-known/oauth-authorization-server, a descoberta da

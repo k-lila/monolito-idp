@@ -3,10 +3,10 @@
 | Campo | Valor |
 | --- | --- |
 | Log operacional | um objeto JSON por linha em `stdout`, com identificador de requisição e linha de acesso própria |
-| Trilha de auditoria | seis sinais, em arquivo durável no volume nomeado `auditlog` |
+| Trilha de auditoria | dezesseis sinais, em arquivo durável no volume nomeado `auditlog` |
 | Métricas, traces, coleta, alertas | não existem |
-| Código | `config/observabilidade.py`, `accounts/auditoria.py`, `LOGGING` em `config/settings.py` |
-| Decisões | ADRs (Architecture Decision Records) 0012, 0013 e 0014; ampliadas pelas 0016, 0018, 0020 e 0029 |
+| Código | `config/observabilidade.py`, `accounts/auditoria.py`, `accounts/sinais.py`, `accounts/envio.py`, `LOGGING` em `config/settings.py` |
+| Decisões | ADRs (Architecture Decision Records) 0012, 0013 e 0014; ampliadas pelas 0016, 0018, 0020, 0029 e 0031 |
 
 Este documento é espelho e lacuna. Espelho: descreve o que o provedor de identidade (IdP, de
 _Identity Provider_) registra hoje, verificado contra o código em 2026-09-29. Lacuna: o que
@@ -30,7 +30,7 @@ seção 4 foram lidos naquela data e não foram reverificados.
 | `HEALTHCHECK` | `Dockerfile` | o container está saudável agora? | o histórico: o Docker guarda cinco entradas em `.State.Health.Log` |
 | Log operacional | `config/observabilidade.py`, ADRs 0012 e 0014 | o que aconteceu, quando, em que nível e em que requisição, desde o último `up` | nada anterior à última recriação do container |
 | Linha de acesso | `ObservabilidadeMiddleware`, logger `access` | que rota respondeu, com que status e em quanto tempo | o caminho tentado quando a rota não resolve (ver 1.3) |
-| Trilha de auditoria | `accounts/auditoria.py`, ADR 0013 | quem autenticou, de que origem, qual relying party (RP) recebeu token | criação de Application e revogação fora do logout (seção 3) |
+| Trilha de auditoria | `accounts/auditoria.py`, ADR 0013 | quem autenticou, de que origem, qual relying party (RP) recebeu token, o que a pessoa mudou na própria conta | criação de Application, revogação fora do logout e das páginas de conta, e o que o admin muda na conta (seção 3) |
 
 ### 1.2 O log operacional
 
@@ -77,9 +77,25 @@ de `/o/logout/` não entra no log (`docs/seguranca.md`, 4.11).
 Ler o log, com o `jq` que separa as linhas JSON das de texto plano do gunicorn, está em
 `docs/receita.md`, "Ler o log".
 
+**As linhas do envio de e-mail**, no logger `accounts.envio`, levam `tipo`, o nome da mensagem
+(`confirmacao`, `redefinicao`, `senha_trocada`, `troca_de_email`, `conta_desativada`,
+`conta_apagada`), e nunca o endereço:
+
+| `outcome` | Nível | Quando | Campos próprios |
+| --- | --- | --- | --- |
+| `envio_falhou` | `ERROR` | o SMTP (_Simple Mail Transfer Protocol_) recusou ou a rede falhou (`SMTPException` ou `OSError`) | `error_class`, sem a mensagem do erro, que pode trazer o endereço |
+| `envio_defeito` | `ERROR` | qualquer outra exceção no envio, defeito do código e não do SMTP | `error_class` e `pilha`, só com arquivo, linha e código de cada quadro, sem a mensagem nem a cadeia encadeada |
+| `envio_suprimido` | `WARNING` | o sexto envio a um mesmo destinatário na hora, barrado pelo teto | — |
+| `aviso_suprimido` | `WARNING` | o vigésimo primeiro aviso a um mesmo destinatário na hora, barrado pelo teto dos avisos | — |
+| `throttle_unavailable` | `WARNING` | o Redis dos tetos por destinatário inalcançável, em qualquer dos dois: o envio sai sem teto | — |
+
+A linha de falha sai da thread de envio, com o `request_id` da requisição que pediu o e-mail,
+capturado no momento do pedido. `envio_suprimido` e `aviso_suprimido` são decididos no pedido,
+e não no commit: a linha pode referir-se a uma operação que o banco depois desfez.
+
 ### 1.3 A trilha de auditoria
 
-Seis receptores de sinal, ligados em `AccountsConfig.ready()`, escrevem no logger `audit`. O
+Dezesseis receptores de sinal, ligados em `AccountsConfig.ready()`, escrevem no logger `audit`. O
 handler é um `WatchedFileHandler` em `AUDIT_LOG_PATH`: `logs/audit.log` na jornada de
 construção, `/var/log/idp/audit.log` no volume `auditlog` do container. O arquivo sobrevive
 a `docker compose down`.
@@ -91,7 +107,23 @@ a `docker compose down`.
 | `user_logged_out` | Django | a conta, ou `None` sem sessão | — | `success` | 0013 |
 | `app_authorized` | `django-oauth-toolkit`, em `/o/token/` | o dono do token, ou `None` em client credentials | `client_id` | `success` | 0013 |
 | `user_locked_out` | `django-axes` | `None` | `identifier_sha256` | `blocked` | 0016 |
-| `tokens_revogados` | este projeto, `accounts/logout_rp.py` | o dono dos tokens revogados | `client_id` | `success` | 0029 |
+| `tokens_revogados` | este projeto, `accounts/revogacao.py`, no logout pela RP e nas páginas de conta, uma linha por Application | o dono dos tokens revogados | `client_id` | `success` | 0029, 0031 |
+| `conta_criada` | este projeto, o cadastro | a conta | — | `success` | 0031 |
+| `email_confirmado` | este projeto, o link de confirmação, só na primeira vez | a conta | — | `success` | 0031 |
+| `conta_editada` | este projeto, o `PATCH` da interface de programação (API, de _Application Programming Interface_) de conta, só com mudança de valor | a conta | `campos`, os nomes alterados, sem os valores | `success` | 0031 |
+| `termos_aceitos` | este projeto, a API | a conta | `termos_versao` | `success` | 0031 |
+| `email_trocado` | este projeto, a página de troca de e-mail | a conta | — | `success` | 0031 |
+| `senha_trocada` | este projeto, a página de troca de senha | a conta | — | `success` | 0031 |
+| `recuperacao_pedida` | este projeto, o pedido que enfileirou um link | a conta | — | `success` | 0031 |
+| `senha_redefinida` | este projeto, a redefinição pelo link | a conta | — | `success` | 0031 |
+| `conta_desativada` | este projeto, a página de exclusão | a conta | — | `success` | 0031 |
+| `conta_apagada` | este projeto, a página de exclusão | o `sub` da conta que já não existe | — | `success` | 0031 |
+
+O `sub` é o UUID (_Universally Unique Identifier_) da conta, o mesmo da claim, desde a ADR 0031.
+As linhas anteriores trazem o `id` interno e ficam como estão: a trilha tem duas populações de
+`sub`, e a correlação entre elas passa pelo admin, onde a conta mostra os dois. Os sinais de
+conta são das páginas e da API: a troca de e-mail e a desativação pelo admin não emitem linha.
+Nenhum evento de conta traz endereço de e-mail, nem o antigo nem o novo.
 
 Toda linha traz também a origem, calculada num ponto só por `config/origem.py` (ADR 0015):
 
@@ -105,8 +137,9 @@ docstring de `_origem`, em `accounts/auditoria.py`.
 **O identificador na falha de autenticação.** O Django saneia `credentials` antes de enviar
 `user_login_failed`, mas a chave `username` escapa do saneamento, e aqui ela carrega o e-mail
 digitado. A trilha grava o resumo SHA-256 (Secure Hash Algorithm de 256 bits) desse valor, em
-hexadecimal completo e sem normalizar maiúsculas e minúsculas (ADR 0013). Truncar foi recusado:
-cria colisão e não compra privacidade.
+hexadecimal completo (ADR 0013), calculado em minúsculas desde a ADR 0031: duas caixas do mesmo
+endereço são a mesma conta e dão o mesmo resumo. As linhas anteriores trazem o resumo do valor
+como foi digitado. Truncar foi recusado: cria colisão e não compra privacidade.
 
 **Duas leituras que enganam:**
 
@@ -114,6 +147,10 @@ cria colisão e não compra privacidade.
   consentimento. Contar essas linhas não conta autorizações.
 - Na saída pela RP, `tokens_revogados` sai antes de `user_logged_out`, com o mesmo `request_id`,
   e os dois `sub` podem diferir.
+- Nas páginas de conta, `tokens_revogados` sai uma vez por Application em que havia token, antes
+  da linha do evento de conta e com o mesmo `request_id`. Sem token em lugar nenhum, não sai.
+- `recuperacao_pedida` só sai quando o link foi enfileirado: sem conta, ou com o envio suprimido
+  pelo teto, não há linha.
 
 ### 1.4 A regra de desenho
 
@@ -143,6 +180,13 @@ o produz.
 | Resposta emitida acima do `ObservabilidadeMiddleware` | sai sem `request_id` e sem linha de acesso; hoje só o `CorsMiddleware` está acima, e a preflight `OPTIONS` não aparece no log | `MIDDLEWARE`, comentário do índice 1 |
 | Confiança do `docker/Caddyfile` que falha em produção | toda linha da trilha sai com o mesmo `ip` e `ip_edge` igual a `peer`, cada uma com a forma de uma linha correta | `docker/Caddyfile`, opções globais |
 | Receptor de auditoria que levanta | o login não é negado; o erro vai para o log operacional, e a linha da trilha não existe | `accounts/auditoria.py`, `except Exception` de cada receptor |
+| O worker morre durante o envio de um e-mail | a thread não é fila durável: a mensagem se perde sem linha nenhuma, e a pessoa já viu a resposta de sucesso | `accounts/envio.py`, docstring do módulo |
+| O SMTP recusa ou a rede falha | só a linha `envio_falhou` no log operacional; a resposta à pessoa não muda | `accounts/envio.py`, `_enviar` |
+| Backend de console em produção | nada sai do servidor, e a mensagem inteira, com endereço e link, vai para o stdout | `config/settings.py`, bloco de e-mail; `.env.example` |
+| `_password`, atributo privado do Django, renomeado numa subida | o carimbo `senha_alterada_em` para, ou passa a marcar o re-hash do login | `accounts/models.py`, `save()` |
+| Escrita na conta por `QuerySet.update()` | as regras do `save()` não valem: o e-mail novo herda a verificação do antigo, e `updated_at` não move | `accounts/models.py`, docstring de `User` |
+| `SPA_CLIENT_ID` com valor errado | o boot passa, e toda chamada à API de conta recebe 403 `aplicacao_nao_autorizada`; a linha de acesso mostra o 403, sem dizer por quê | `config/settings.py`, `SPA_CLIENT_ID` |
+| `CORS_EXPOSE_HEADERS` ausente | a aplicação de página única (SPA, de _Single-Page Application_) lê o status e não o desafio: o 401 de token vencido e o 403 de scope faltando ficam iguais, e o 429 não diz quanto esperar | `config/settings.py`, `CORS_EXPOSE_HEADERS` |
 
 ---
 
@@ -152,7 +196,9 @@ o produz.
 | --- | --- | --- |
 | Coleta e retenção do log operacional | recriar o container apaga o histórico; a busca é `grep` ou `jq` | não decidida (`docs/seguranca.md`, 4.12) |
 | Retenção e poda da trilha | o arquivo guarda dado pessoal, cresce indefinidamente, e nada o monitora | não decidida (`docs/seguranca.md`, 4.7) |
-| Dois eventos na trilha | criação de Application e revogação fora do logout pela RP não têm sinal | não decidida (`docs/seguranca.md`, 4.7) |
+| Dois eventos na trilha | criação de Application e revogação fora do logout pela RP e das páginas de conta não têm sinal | não decidida (`docs/seguranca.md`, 4.7) |
+| A conta mudada pelo admin | a troca de e-mail, a desativação e a reativação pelo admin não emitem evento de conta | sem decisão própria; os sinais de conta são das páginas e da API (ADR 0031) |
+| O envio de e-mail | quantos e-mails saíram, quantos falharam e quantos o teto suprimiu; o log só registra falha e supressão, e só enquanto o container vive | não decidida |
 | Métricas | latência e taxa por rota, falhas de autenticação por hora, 5xx, disponibilidade em série temporal, crescimento das tabelas de grant e de token | não iniciada |
 | Tracing | para onde foi o tempo dentro de um pedido | adiada (4.1) |
 | Alertas | que condição acorda alguém | não decidida; hoje não há quem acordar |
@@ -276,7 +322,7 @@ final. Ela:
 | Métricas: biblioteca, modo multiprocesso, exposição de `/metrics` | nova; acrescenta rota pública, dependência e gancho de gunicorn, e recusa o backend de cache por causa da 0005 | `docs/seguranca.md` (3.2 e 4), `docs/arquitetura.md`, `docs/testes.md`, `.env.example` |
 | Arranjo de coleta | nova | `docs/arquitetura.md` (II.2), `docs/receita.md`, `docker-compose.prod.yml` |
 | Retenção e poda da trilha | nova, ou emenda à 0013; decide o que se guarda sobre pessoas e por quanto tempo | `docs/seguranca.md` (4.7) |
-| Evento novo na trilha | amplia a 0013 sem tocar o esquema, como a 0016 e a 0029 | `docs/seguranca.md` (2.5 e 4.7), `docs/testes.md` |
+| Evento novo na trilha | amplia a 0013 sem tocar o esquema, como a 0016 e a 0029; a 0031 é o precedente de evento com campo próprio | `docs/seguranca.md` (2.5 e 4.7), `docs/testes.md` |
 | Campo novo ou formato novo no log | emenda à 0012 | `docs/receita.md`, "Ler o log" |
 
 Toda variável de ambiente nova entra no `.env.example`: o `config/settings.py` não tem default

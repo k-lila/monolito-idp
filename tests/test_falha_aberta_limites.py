@@ -22,7 +22,7 @@ de `config/settings.py` chama de caro.
 O caminho usado para exercitar o middleware é `/accounts/login/`, com `RATE_LIMIT_POR_CAMINHO`
 reduzido a essa única entrada por `override_settings` — o mesmo precedente do T-07 e do T-14:
 não há razão para envolver `/o/` neste caso, e uma chave só simplifica a leitura do teto (0,
-para provocar `_contagem_na_janela` na primeira requisição, já que o ponto do caso é o `except`
+para provocar `contagem_na_janela` na primeira requisição, já que o ponto do caso é o `except`
 da falha de conexão, não a contagem em si)."""
 
 import socket
@@ -58,7 +58,7 @@ class FalhaAbertaDoLimiteDeLoginTests(TestCase):
     requisição segue apesar deles, com o silêncio registrado em log."""
 
     def tearDown(self):
-        # A exceção interrompe `_contagem_na_janela` antes de qualquer `cache.add` chegar a
+        # A exceção interrompe `contagem_na_janela` antes de qualquer `cache.add` chegar a
         # completar contra o Redis quebrado, e os dois casos abaixo nunca chegam a escrever
         # a chave no Redis real do ambiente (`CACHES` está sob `override_settings` durante a
         # única requisição de cada caso). A limpeza aqui é só disciplina do bloco — nunca

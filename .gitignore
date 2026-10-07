@@ -6,6 +6,9 @@
 # _Identity Provider_), e são segredo da classe da OIDC_RSA_PRIVATE_KEY. A regra barra o
 # diretório inteiro, e não só o JSON, para que um arquivo de outro nome também fique fora.
 cloudflared/
+# Raiz da CA local do Caddy, exportada do proxy para o navegador confiar em https://idp.localhost.
+# Não é segredo, mas é de cada máquina: o proxy gera a sua, e a de outro clone não vale aqui.
+ca-local.crt
 
 # Python
 __pycache__/

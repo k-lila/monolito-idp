@@ -1,5 +1,6 @@
 """O teto de requisições de `/o/token/`, de `/o/authorize/`, de `/o/device-authorization/`, de
-`/o/logout/` e de `/accounts/login/`.
+`/o/logout/`, de `/accounts/login/`, do cadastro, do pedido de recuperação de senha e dos quatro
+caminhos da API de conta.
 
 Mecanismo, e nada além dele: conta requisições por origem e por caminho numa janela fixa e
 recusa o que passa do teto. Não conhece pessoa nem conta. Na tela de login este teto convive
@@ -9,7 +10,8 @@ quanto tempo, por conta ou por origem — é toda do axes, que age no caminho de
 tentativa. As escolhas, os números e o que elas custam estão na ADR (Architecture Decision
 Record) `docs/adr/0016-limitar-a-taxa-na-superficie-de-autenticacao.md`; o teto de
 `/o/device-authorization/` veio depois, sem ADR, e a razão dele está ao lado do número, em
-`config/settings.py`; o de `/o/logout/` veio com a ADR 0029, e a razão também está lá.
+`config/settings.py`; o de `/o/logout/` veio com a ADR 0029 e os do cadastro, da recuperação e
+da API de conta com a ADR 0031, e a razão de cada um também está lá.
 
 A origem vem de `config/origem.py`, que é a única leitura de origem do sistema (ADR 0015):
 o valor contado aqui e o valor gravado no campo `ip` da trilha de auditoria são o mesmo.
@@ -35,8 +37,8 @@ logger = logging.getLogger(__name__)
 def chave_do_contador(caminho, origem):
     """A chave em cache do contador de um caminho e uma origem.
 
-    Uma chave por caminho e por origem: os tetos dos cinco caminhos limitados são separados, e
-    o excesso de um não recusa os outros.
+    Uma chave por caminho e por origem: os tetos dos caminhos limitados são separados, e o
+    excesso de um não recusa os outros.
 
     Pública de propósito, e não `_privada`: é por ela que a suíte apaga o contador que ela
     mesma encheu, sem `cache.clear()` — que o `RedisCache` implementa como `FLUSHDB` e
@@ -46,8 +48,11 @@ def chave_do_contador(caminho, origem):
     return f"throttle:{caminho}:{origem}"
 
 
-def _contagem_na_janela(chave, janela):
-    """Quantas requisições esta chave já somou na janela em curso, contando esta.
+def contagem_na_janela(chave, janela):
+    """Quantos eventos esta chave já somou na janela em curso, contando este.
+
+    Pública porque tem um segundo cliente: o teto de envios por destinatário de
+    `accounts/envio.py` conta pela mesma janela fixa, sob outra chave.
 
     Janela fixa, montada sobre duas operações do RedisCache do Django: `add` é
     `SET ... EX ... NX` (cria com prazo, e não sobrescreve a janela em curso) e `incr` é o
@@ -77,7 +82,7 @@ class LimiteDeTaxaMiddleware:
 
     As duas settings são lidas a cada requisição, e nunca no import: é o que faz
     `override_settings` valer na suíte. Caminho ausente do dicionário é o caminho de toda
-    requisição fora dos cinco limitados, de modo que `RATE_LIMIT_POR_CAMINHO={}` desliga o
+    requisição fora dos limitados, de modo que `RATE_LIMIT_POR_CAMINHO={}` desliga o
     limitador pela mesma trilha que já se percorre, sem ramo especial.
 
     A posição dele no `MIDDLEWARE` é fixada em `config/settings.py`, com as razões.
@@ -96,7 +101,7 @@ class LimiteDeTaxaMiddleware:
         chave = chave_do_contador(request.path, origem)
 
         try:
-            contagem = _contagem_na_janela(chave, janela)
+            contagem = contagem_na_janela(chave, janela)
         except (ErroDeConexaoRedis, TempoEsgotadoRedis):
             # FALHA ABERTA, e é escolha: com o Redis inalcançável a requisição segue sem
             # teto nenhum enquanto durar a queda. O que se troca é disponibilidade por

@@ -27,11 +27,13 @@
                 e-mail. Os widgets saem do form: input escrito à mão não autentica.
                 {% endcomment %}
                 <label for="{{ form.username.id_for_label }}">E-mail</label>
+                {{ form.username.errors }}
                 {{ form.username }}
             </div>
 
             <div class="campo">
                 <label for="{{ form.password.id_for_label }}">Senha</label>
+                {{ form.password.errors }}
                 {{ form.password }}
             </div>
 
@@ -39,5 +41,12 @@
                 <button type="submit" class="primario">Entrar</button>
             </div>
         </form>
+
+        {% comment %}
+        "Criar conta" leva o `next`, para o cadastro devolver ao /o/authorize/ interrompido.
+        "Esqueci a senha" não: o link chega por e-mail, e a recuperação termina na SPA.
+        {% endcomment %}
+        <p><a href="{% url 'password_reset' %}">Esqueci a senha</a></p>
+        <p><a href="{% url 'registrar' %}?next={{ next|urlencode }}">Criar conta</a></p>
     </div>
 {% endblock %}

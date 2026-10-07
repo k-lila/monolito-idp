@@ -1,6 +1,6 @@
 """TASK-019/T-10, T-11 — o Cross-Origin Resource Sharing (CORS) do `django-cors-headers`
-(`CorsMiddleware`, primeiro em `MIDDLEWARE`) sob `CORS_URLS_REGEX = r"^/o/"`
-(`config/settings.py`).
+(`CorsMiddleware`, primeiro em `MIDDLEWARE`) sob `CORS_URLS_REGEX = r"^/(?:o|api/conta)/"`
+(`config/settings.py`). A API de conta (`/api/conta/`) é coberta por `tests/test_api_conta_cors.py`.
 
 Demanda do quality-assurance (TASK-019/Fase 7). Nível integração: o que está sob prova é a
 COSTURA entre o regex e o prefixo real das rotas — `CorsMiddleware.add_response_headers`

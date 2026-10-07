@@ -15,6 +15,7 @@
 | `tests/test_*.py` | os testes, num pacote só, na raiz do repositório |
 | `tests/oauth_helpers.py` | infraestrutura que os testes de fluxo reusam (seção 6) |
 | `tests/logout_helpers.py` | infraestrutura que os do logout pela relying party (RP) reusam (seção 7) |
+| `tests/api_conta_helpers.py`, `tests/paginas_helpers.py`, `tests/envio_helpers.py` | infraestrutura que os da interface de programação (API, de _Application Programming Interface_) de conta, das páginas de conta e do envio de e-mail reusam (seção 7.1) |
 | `tests/runner.py` | o executor: um `DiscoverRunner` do Django subclassado, sobre `unittest` da biblioteca padrão (seção 5) |
 
 **Por que o pacote é da raiz, e não de dentro de `accounts/`:** a suíte quase toda exercita
@@ -66,12 +67,13 @@ Preservar isso foi parte do que se decidiu em
 
 ---
 
-## 3. Os dois níveis, e o critério que os separa
+## 3. Os níveis, e o critério que os separa
 
 | Nível | Classe base | O que atravessa |
 | --- | --- | --- |
 | Sem banco | `SimpleTestCase` | nada além da função sob prova |
 | Com banco e cliente de teste | `TestCase` | o URLConf, o middleware, a view, o template e o banco de teste |
+| Com banco, fora da transação do caso | `TransactionTestCase` | o mesmo, mais o commit de verdade e o DDL (Data Definition Language) do Postgres (seção 3.3) |
 
 **O critério:** o nível sem banco vale quando a decisão cabe inteira numa função isolável; nos
 demais, o que pode quebrar é a costura, e só a resposta HTTP a revela.
@@ -103,6 +105,11 @@ montado antes de o primeiro caso rodar.
 | `ResumoDoIdentificadorTests`, em `tests/test_auditoria.py` | não há portador nenhum a falsificar: `_resumo_do_identificador` é função pura, entra uma string e sai um hexadecimal |
 | `RotaDoLogoutTests`, em `tests/test_logout_rp.py` | confere a resolução de `/o/logout/` contra o URLConf, sem requisição |
 | `ConstantesDeProducaoDoLogoutTests`, em `tests/test_logout_rp.py` | lê as cinco chaves `OIDC_RP_INITIATED_LOGOUT_*` do dicionário que o executor guardou antes de neutralizar `OAUTH2_PROVIDER` |
+| `tests/test_api_conta_settings.py` e `tests/test_email_settings.py`, inteiros | a carga de `config/settings.py` por `runpy`, como em `tests/test_spa_url.py`, com `read_env` neutralizado para o `.env` do clone não repor a variável que o caso tirou |
+| `tests/test_envio_settings.py`, inteiro | lê os valores que o executor guardou antes de neutralizar o teto por destinatário e o envio em thread |
+| `tests/test_confirmacao.py`, inteiro | o token sai de `signing.dumps` sobre um objeto com `sub` e `email`, sem conta gravada |
+| `tests/test_emails.py`, inteiro | as funções de aviso leem só o endereço e a hora, com `timezone.now` fixado |
+| `tests/test_em_portugues.py`, inteiro | uma view de teste herda do mixin e de `TemplateView`, sem URLConf e sem banco |
 | `TrilhaIsoladaDuranteASuiteTests`, em `tests/test_auditoria.py` | **a exceção ao critério, e deliberada:** confere o handler `audit` **real**, já redirecionado pelo executor, e a escrita que faz é em arquivo de verdade. Nada disso pede banco, e falsificar o handler destruiria justamente o que se quer provar |
 
 #### 3.1.1 `tests/test_origem.py`
@@ -131,14 +138,25 @@ montado antes de o primeiro caso rodar.
 Todo o resto: os arquivos ausentes da tabela 3.1, inteiros, e as demais classes dos que aparecem
 nela. Só `tests/test_oauth_validators.py` não deixa nada para cá.
 
+### 3.3 Com banco, fora da transação do caso
+
+O `TestCase` envolve cada caso numa transação que nunca faz commit. Três provas precisam do
+commit, ou de não estar dentro de transação nenhuma, e usam `TransactionTestCase`:
+
+| Onde | Por quê |
+| --- | --- |
+| `tests/test_conta_migracao.py`, inteiro | a migração faz DDL. Cada caso cria um schema Postgres próprio, aponta o `search_path` para ele e migra do zero ali, de `accounts.0001` até a folha do grafo; o `public`, onde vive o banco de teste, não é tocado, e o `finally` apaga o schema. A volta pelo grafo só é tentada para provar que a 0004 a recusa |
+| `DepoisDoCommitRealTests`, em `tests/test_envio.py` | o envio parte de `transaction.on_commit`, e só o commit do banco o dispara sem `captureOnCommitCallbacks` |
+| `tests/test_pagina_sinais_e_transacao.py`, inteiro | prova que cada sinal da trilha sai com `connection.in_atomic_block` falso; dentro do `TestCase` ele seria sempre verdadeiro |
+
 ---
 
 ## 4. O que cada arquivo garante
 
 | Assunto | Arquivo | Nível |
 | --- | --- | --- |
-| Claims emitidas pelo validador, por combinação de scope | `tests/test_oauth_validators.py` | sem banco |
-| Os dois documentos de descoberta, o do OpenID Connect (OIDC) e o da Request for Comments (RFC) 8414: `issuer`, o valor exato de cada endpoint, `end_session_endpoint` inclusive, só no do OIDC, o que não deve aparecer; e o `alg` da chave publicada em `/o/.well-known/jwks.json` | `tests/test_discovery.py` | com banco |
+| Claims emitidas pelo validador, por combinação de scope: o `sub` UUID (_Universally Unique Identifier_), e não a chave primária; `name`, `nickname` e `updated_at` com `profile`; `email` e `email_verified` com `email` | `tests/test_oauth_validators.py` | sem banco |
+| Os dois documentos de descoberta, o do OpenID Connect (OIDC) e o da Request for Comments (RFC) 8414: `issuer`, o valor exato de cada endpoint, `end_session_endpoint` inclusive, só no do OIDC, o que não deve aparecer; `create` em `prompt_values_supported`; e o `alg` da chave publicada em `/o/.well-known/jwks.json` | `tests/test_discovery.py` | com banco |
 | JWKS (JSON Web Key Set) publicado: uma chave RSA (Rivest–Shamir–Adleman) com `kid` | `tests/test_jwks.py` | com banco |
 | Authorization Code + PKCE fechado de ponta a ponta | `tests/test_authorization_code_flow.py` | com banco |
 | Guardas de `/o/authorize/`: PKCE obrigatório, `redirect_uri`, método `plain` | `tests/test_authorize_guards.py` | com banco |
@@ -146,27 +164,54 @@ nela. Só `tests/test_oauth_validators.py` não deixa nada para cá.
 | Anônimo interrompido em `/o/authorize/` e resgatado pelo login | `tests/test_login_authorize_bridge.py` | com banco |
 | Tela de login: renderização, sucesso e falha de credencial | `tests/test_login_view.py` | com banco |
 | Logout local por POST, a recusa do GET, e o logout local que encerra a sessão sem revogar token nem gravar `tokens_revogados` (`LogoutLocalNaoRevogaTokensTests`) | `tests/test_logout_view.py` | com banco |
-| Ausência das rotas de recuperação de senha | `tests/test_password_reset_urls.py` | com banco |
+| As rotas de recuperação de senha, uma a uma, com template próprio e em português; `password_change_done` e o resto do que `django.contrib.auth.urls` publicaria, ausentes | `tests/test_password_reset_urls.py` | com banco |
 | Comentário de template vazando para o corpo da página: login, home, consentimento, e a confirmação e o erro do logout pela RP | `tests/test_template_comment_leak.py` | com banco |
 | Prontidão de banco e de cache, e a isenção de HTTPS | `tests/test_health.py` | misto |
 | Esquema da linha de log, correlação por `request_id` e a linha de acesso: campos, o `/health` fora dela, e a de `/o/logout/` com `route` igual a `logout_rp` e sem a query | `tests/test_observabilidade.py` | misto |
-| Trilha de auditoria: os cinco eventos — `user_logged_in`, `user_login_failed`, `user_logged_out` e `app_authorized`, da ADR 0013, e `user_locked_out`, da ADR 0016 —, a tripla `ip`, `ip_src` e `ip_edge` presente em cada um deles, a ausência de segredo, o `id_token_hint` válido e o forjado do logout pela RP inclusive, e o isolamento sob a suíte; o sexto evento, `tokens_revogados`, é provado em `tests/test_logout_rp.py` | `tests/test_auditoria.py` | misto |
+| Trilha de auditoria: os cinco eventos — `user_logged_in`, `user_login_failed`, `user_logged_out` e `app_authorized`, da ADR 0013, e `user_locked_out`, da ADR 0016 —, com o `sub` UUID e o resumo do identificador em minúsculas; a tripla `ip`, `ip_src` e `ip_edge` presente em cada um deles, a ausência de segredo, o `id_token_hint` válido e o forjado do logout pela RP inclusive, e o isolamento sob a suíte. O sexto evento, `tokens_revogados`, é provado em `tests/test_logout_rp.py`, e os dez de conta, nos arquivos das páginas e da API | `tests/test_auditoria.py` | misto |
 | Endereço de origem do cliente: a tabela inteira de `origem_da_requisicao`, o par de `origem_e_procedencia` — endereço e rótulo de procedência — nos quatro desfechos, com e sem proxy declarado, e a tripla de `origem_completa`, com `ip_edge` nos três valores contra uma tabela de rotas de fixture, mais `_alcance_do_endereco` | `tests/test_origem.py` | sem banco |
 | Limite do login: o bloqueio do `django-axes` por conta, por origem e o prazo; o teto de requisição da mesma porta; o que o 429 não diz e o que distingue os dois 429; e a linha `user_locked_out` na trilha, com a origem igual à que o axes contou | `tests/test_limite_login.py` | com banco |
-| Limite de `/o/token/`, `/o/authorize/`, `/o/device-authorization/` e `/o/logout/`: o teto, o corpo do 429, a linha de log; em `/o/device-authorization/`, uma linha de `DeviceGrant` por POST abaixo do teto e nenhuma a mais no POST recusado com 429 (`LimiteDeDeviceAuthorizationTests`); em `/o/logout/`, o 429 acima do teto (`LimiteDoLogoutPelaRPTests`); e o dicionário de produção alcançando os cinco caminhos, `/accounts/login/` inclusive | `tests/test_limite_oauth.py` | com banco |
+| Limite de `/o/token/`, `/o/authorize/`, `/o/device-authorization/`, `/o/logout/` e da API de conta: o teto, o corpo do 429, a linha de log; em `/o/device-authorization/`, uma linha de `DeviceGrant` por POST abaixo do teto e nenhuma a mais no POST recusado com 429 (`LimiteDeDeviceAuthorizationTests`); em `/o/logout/`, o 429 acima do teto (`LimiteDoLogoutPelaRPTests`); em `/api/conta/`, o 429 com `Retry-After` e com os cabeçalhos de CORS (`LimiteDaApiDeContaTests`); e o dicionário de produção alcançando nove caminhos, `/accounts/login/` e os quatro da API inclusive | `tests/test_limite_oauth.py` | com banco |
 | Falha aberta do limitador: com o Redis inalcançável, a requisição segue e uma linha `WARNING` registra o silêncio | `tests/test_falha_aberta_limites.py` | com banco |
 | As cinco chaves do endurecimento de transporte e `ALLOWED_REDIRECT_URI_SCHEMES` seguindo `BEHIND_TLS_PROXY` — as duas que o executor neutraliza, lidas do valor que ele guardou —; e o cache do toolkit alcançado pela neutralização | `tests/test_endurecimento_transporte.py` | sem banco |
 | Admin de `Application`: esquema de `redirect_uris` recusado e aceito sob `["https"]` e sob o valor neutro da suíte, com o efeito em `/o/authorize/`; as quatro views de gestão; e o 500 do "View on site", dívida aceita pela ADR 0024 | `tests/test_admin_oauth2_application.py` | com banco |
 | As sete rotas de gestão do `django-oauth-toolkit` (DOT) e a de registro dinâmico de cliente respondendo 404 sob `/o/`, para as quatro identidades | `tests/test_gestao_dot_ausente.py` | com banco |
-| Política de senha nas quatro superfícies em que uma senha é escolhida: adicionar conta e trocar senha no admin, `changepassword` e `createsuperuser` interativo | `tests/test_politica_de_senha.py` | com banco |
+| Política de senha nas quatro superfícies de quem opera: adicionar conta e trocar senha no admin, `changepassword` e `createsuperuser` interativo. A das páginas de conta está nos arquivos delas | `tests/test_politica_de_senha.py` | com banco |
 | Login com senha legada fraca: entra, e a senha continua a mesma | `tests/test_login_senha_legada.py` | com banco |
-| Cross-Origin Resource Sharing (CORS) restrito a `/o/`: ausente fora do prefixo, com a origem exata dentro dele, preflight e 401 incluídos | `tests/test_cors.py` | com banco |
+| Cross-Origin Resource Sharing (CORS) sob `/o/`: ausente em `/accounts/login/` e em `/admin/`, com a origem exata dentro do prefixo, preflight e 401 incluídos | `tests/test_cors.py` | com banco |
 | Endereço do conector do túnel: o `trusted_proxies static` do `docker/Caddyfile` e o `ipv4_address` do `docker-compose.prod.yml`, uma ocorrência de cada e iguais, sem fixar o valor; e o mesmo endereço dentro da `subnet` da rede `borda` e fora do seu `ip_range`, com o `ip_range` contido na `subnet`, para que o `proxy` nunca o tome por atribuição dinâmica | `tests/test_borda_do_tunel.py` | sem banco |
 | Saída do gerador de segredos `scripts/gen_env_secrets.sh`, por subprocess (TASK-025/T-01): seis linhas na ordem, tamanho hexadecimal de cada senha, URLs derivadas das senhas da própria saída e do ambiente, `--so-chave-rsa` com uma linha só e sem senha nem URL (AC-05), e argumento inválido com saída 2 e stdout vazio; as linhas proibidas são conferidas pelo nome no início, não por substring do base64 | `tests/test_gen_env_secrets.py` | sem banco |
 | A chave de `--so-chave-rsa`, desescapada como `env.str(..., multiline=True)` a desfaz, publicada no JWKS (JSON Web Key Set): uma chave RSA, `RS256`, `kid` presente, 3072 bits e `n` igual ao módulo da chave gerada (TASK-025/T-02) | `tests/test_gen_env_secrets_jwks.py` | com banco |
-| `SPA_URL` na carga das settings, por `runpy`: a ausência derruba a carga nomeando a variável; as recusas (esquema, credenciais, caminho, barra final, query, fragmento, barra invertida, espaço em branco, porta vazia ou ilegível, `http://` fora de loopback sob `BEHIND_TLS_PROXY`) nomeiam a variável e o motivo sem repetir o valor; e os aceitos, `https://` sob proxy, loopback em `http://` com e sem proxy, e porta explícita | `tests/test_spa_url.py` | sem banco |
+| `SPA_URL` na carga das settings, por `runpy`: a ausência derruba a carga nomeando a variável; as recusas (esquema, credenciais, caminho, barra final, query, fragmento, barra invertida, espaço em branco, porta vazia ou ilegível, `http://` fora de loopback sob `BEHIND_TLS_PROXY`) nomeiam a variável e o motivo sem repetir o valor; e os aceitos, `https://` sob proxy, loopback em `http://` com e sem proxy, e porta explícita. A guarda de boot em `GuardaDeProducaoTests` (TASK-028/T-70): com `BASE_URL` público, recusa `SPA_URL` em loopback (`localhost`, `127.0.0.1`, `[::1]`) e os quatro backends de e-mail que não entregam (console, dummy, locmem, filebased), com mensagens que nomeiam a variável sem repetir o valor; `idp.localhost`, `localhost:8000` e `127.0.0.1:8000` não a ativam; `carregar()` fixa `BASE_URL=http://localhost:8000` e aceita sobrescritas | `tests/test_spa_url.py` | sem banco |
 | Home com e sem sessão: o link "Ir para a aplicação" com `href` igual a `SPA_URL`, sem `target` e sem query, mais os textos de sessão que já existiam; e a tela de login sem o link e sem o valor de `SPA_URL` | `tests/test_home.py` | com banco |
-| Logout iniciado pela RP em `/o/logout/` (TASK-027): a rota sombreada resolvendo para a subclasse; as cinco chaves de produção; a saída com hint vivo, que revoga só na `Application` do hint, encerra a sessão e grava `tokens_revogados` antes de `user_logged_out`, com o mesmo `request_id`; o destino não cadastrado, sem a barra ou em `http`; a confirmação, o CSRF, o cancelar e o hint de outra conta; os hints forjados e as entradas que davam 500, agora 400, com a lista fechada da ADR 0029 em `EntradaForjadaAmpliadaTests` (NUL em `client_id` e em `aud`, destino que não se decompõe como URL, `jti` que não é UUID num hint HS256), e o savepoint de cada trecho que consulta com entrada do pedido em `SavepointDaEntradaForjadaTests`; o hint vencido; o hint autêntico sem linha; e as funções `_revogar` e `_aplicacao_do_hint_sem_linha` isoladas | `tests/test_logout_rp.py` | misto |
+| Logout iniciado pela RP em `/o/logout/` (TASK-027): a rota sombreada resolvendo para a subclasse; as cinco chaves de produção; a saída com hint vivo, que revoga só na `Application` do hint, encerra a sessão e grava `tokens_revogados` antes de `user_logged_out`, com o mesmo `request_id`; o destino não cadastrado, sem a barra ou em `http`; a confirmação, o CSRF, o cancelar e o hint de outra conta; os hints forjados e as entradas que davam 500, agora 400, com a lista fechada da ADR 0029 em `EntradaForjadaAmpliadaTests` (NUL em `client_id` e em `aud`, destino que não se decompõe como URL, `jti` que não é UUID num hint HS256), e o savepoint de cada trecho que consulta com entrada do pedido em `SavepointDaEntradaForjadaTests`; o hint vencido; o hint autêntico sem linha; e as funções `_aplicacao_do_hint_sem_linha` e `accounts.revogacao._revogar` isoladas, esta também sem Application, com `revogar_tokens` emitindo uma vez por Application afetada (TASK-028/T-43) | `tests/test_logout_rp.py` | misto |
+| O modelo da conta: a restrição `Lower(email)` no banco, por `update` e `bulk_create`; o manager e o `save()` em minúsculas, com `sub` UUID versão 4; o carimbo `senha_alterada_em` por `set_password`, `changepassword` e admin, e nunca no re-hash nem no login; as regras de `updated_at` e da verificação, inclusive com `update_fields` | `tests/test_conta_modelo.py` | com banco |
+| As migrações de 0002 até a folha do grafo: a colisão de caixa para a migração sem estado parcial, e resolvida migra tudo; a 0004 é irreversível, e um `migrate` seguinte volta à folha | `tests/test_conta_migracao.py` | com banco, `TransactionTestCase` |
+| O admin de conta: o grupo "Estado da conta" somente leitura; o carimbo de desativação e de reativação; a troca de e-mail que zera a verificação sem enviar e-mail e esquece o `axes` do endereço antigo; a troca só de caixa, que não zera nem esquece; a conta que só a caixa distingue, recusada | `tests/test_admin_conta.py` | com banco |
+| O login com o formulário próprio: a caixa diferente entra; a conta desativada com a senha certa vê a mensagem dela, e com a errada, a genérica; a bloqueada vê o bloqueio; cinco caixas do mesmo endereço contam na mesma conta | `tests/test_login_conta.py` | com banco |
+| O login do admin: a caixa diferente entra, as caixas contam na mesma conta, e quem não é staff não entra | `tests/test_login_admin_conta.py` | com banco |
+| Os links "Criar conta", com o `next` conferido e codificado, e "Esqueci a senha", sem `next`; o POST vazio em português | `tests/test_login_links.py` | com banco |
+| O mixin `EmPortugues`, com a resposta renderizada dentro do `override` | `tests/test_em_portugues.py` | sem banco |
+| As oito variáveis de e-mail obrigatórias na carga das settings | `tests/test_email_settings.py` | sem banco |
+| `SPA_CLIENT_ID` ausente ou vazia derrubando a carga sem repetir o valor, e `TERMOS_VERSAO_VIGENTE` literal | `tests/test_api_conta_settings.py` | sem banco |
+| O executor neutralizando os dois tetos por destinatário, o das confirmações e o dos avisos (TASK-028/T-76), e o envio em thread, e os literais de produção que ele guardou | `tests/test_envio_settings.py` | sem banco |
+| O envio: só depois do commit, e nada no rollback; a falha do SMTP (_Simple Mail Transfer Protocol_) e o defeito no envio, no log, sem o endereço nem na pilha; a thread não daemon, com o `request_id` da chamada; o teto de cinco por destinatário, o aviso de segurança fora dele, a chave com o resumo em minúsculas e a falha aberta com o Redis fora. O teto próprio dos avisos em `TetoPorDestinatarioTests` (TASK-028/T-75): a chave separada (`throttle:aviso:`), as confirmações que não suprimem aviso, o 21º aviso suprimido com `aviso_suprimido` sem o endereço, o teto `None` que não cria chave, e o Redis fora, que deixa sair com `throttle_unavailable` | `tests/test_envio.py` | com banco |
+| O token de confirmação: prazo de sete dias, `sub` e resumo do e-mail sem o endereço, o salt próprio, e a recusa do adulterado | `tests/test_confirmacao.py` | sem banco |
+| As mensagens de aviso: hora no fuso de Brasília, assunto em português, remetente, e nenhum endereço nem link no texto | `tests/test_emails.py` | sem banco |
+| A API de conta: o corpo do `GET`, as datas em ISO 8601; as recusas na ordem do `dispatch` (sem credencial, só cookie de sessão, token vencido, sem o scope, de outra Application, de conta inativa, sem dono, fora do cabeçalho); o `PATCH`, com `null` gravando texto vazio e a trilha só com os nomes dos campos; o 400 de corpo inválido; o reenvio e o aceite dos termos | `tests/test_api_conta.py` | com banco |
+| O link de confirmação: a primeira vez confirma e registra, a segunda não; o token vazio, adulterado, vencido, de e-mail trocado, de conta inativa ou apagada leva a `invalido`; o `FOR UPDATE` da leitura | `tests/test_api_conta_confirmar.py` | com banco |
+| O CORS da API de conta: a origem exata nos quatro caminhos, nenhuma para outra origem, a preflight sem consulta e sem credenciais, e o 401 legível pela aplicação de página única (SPA, de _Single-Page Application_), com `CORS_EXPOSE_HEADERS` | `tests/test_api_conta_cors.py` | com banco |
+| O cadastro: o desvio de `prompt=create` com `next` absoluto, a conta criada sem privilégio e não verificada, as boas-vindas, o teto esgotado e as recusas | `tests/test_pagina_cadastro.py` | com banco |
+| O `next` do cadastro, que não vira redirecionamento aberto no GET nem no POST | `tests/test_pagina_cadastro_next.py` | com banco |
+| O pedido de recuperação, com a mesma resposta para conta ativa, outra caixa, inexistente, inativa e sem senha utilizável; e a conta da equipe (`is_staff`, `is_superuser`), que não recebe e-mail nem gera trilha, com resposta idêntica à do endereço sem conta (TASK-028/T-72) | `tests/test_pagina_recuperacao.py` | com banco |
+| A redefinição pelo link: os efeitos (senha, verificação, revogação, sessões, desbloqueio do `axes` com o histórico preservado, aviso), o uso único, o prazo de uma hora e o link sobre `BASE_URL`; o link de conta da equipe, inclusive a promovida depois da emissão, que dá "Link inválido" sem mudar a senha (TASK-028/T-73); e os dois tetos do aviso (TASK-028/T-76) | `tests/test_pagina_redefinicao.py` | com banco |
+| A troca de senha: a senha atual por `authenticate()`, o destino fixo, a sessão que fica e as que caem, a revogação e o aviso; e os dois tetos do aviso (TASK-028/T-76) | `tests/test_pagina_troca_de_senha.py` | com banco |
+| A troca de e-mail: as recusas, o destino fixo, o `sub` e as sessões que ficam, a confirmação ao novo e o aviso ao antigo, o `axes` do antigo apagado e os links anteriores invalidados; e os dois tetos do aviso ao antigo (TASK-028/T-76) | `tests/test_pagina_troca_de_email.py` | com banco |
+| A exclusão: a recusa a conta da equipe; desativar e apagar, com revogação, aviso, trilha e `axes`; a conta dona de Application, que só desativa; os dois tetos do aviso na desativação (TASK-028/T-76) e, em `ApagarTests`, no modo "apagar": com o teto das confirmações esgotado, a conta é apagada e o aviso "conta apagada" sai; com o dos avisos esgotado, a conta é apagada e nenhum e-mail sai (TASK-028/T-77) | `tests/test_pagina_exclusao.py` | com banco |
+| Os sinais de conta e `tokens_revogados` emitidos fora de bloco atômico, e o rollback da troca de e-mail sem rastro | `tests/test_pagina_sinais_e_transacao.py` | com banco, `TransactionTestCase` |
+| CSRF (Cross-Site Request Forgery) nas seis páginas com formulário, o Bearer que não abre página de sessão, o idioma, o "Cancelar" e o `no-store` | `tests/test_paginas_csrf_bearer_idioma.py` | com banco |
+| O teto do cadastro e do pedido de recuperação, e a ausência dele no link de redefinição; e o de `/accounts/password_change/`, `/accounts/email/` e `/accounts/excluir/`, que vale 60, com a 61ª requisição devolvendo 429 (TASK-028/T-74) | `tests/test_limite_paginas_de_conta.py` | com banco |
+| `esquecer_tentativas` nas três tabelas do `axes` e `desbloquear` só em `AccessAttempt`, sem distinção de caixa. O handler do `axes` em `HandlerDoAxesTests` (TASK-028/T-71): `get_implementation()` é `TentativasPorConta`; o login em A pela origem X mantém as falhas de X contra V, e o login de V zera as dela; a mutação para o handler da biblioteca apaga as de V, e o caso falha de propósito se o `axes` mudar; `desbloquear` devolve a contagem | `tests/test_tentativas.py` | com banco |
 | Nenhum recurso de terceiro nas páginas do IdP, por leitura estática: nem `@import` nem `url(` em `static/css/idp.css`; nem `<script>`, nem `href` ou `src` com endereço absoluto (`http://`, `https://` ou `//`) em qualquer tag de `templates/**/*.html`, e um `<link>` só, o da folha de estilo local | `tests/test_sem_recurso_de_terceiro.py` | sem banco |
 
 ### 4.1 O que o nome do arquivo não explica sozinho
@@ -177,9 +222,11 @@ Cada item: a guarda, e a razão de ela existir.
 
 - `name` sai **presente e vazia** quando a pessoa não tem nome cadastrado. A asserção é de
   presença da chave, porque um `dict.get("name")` com valor default esconderia a ausência.
-- Nos cinco arranjos de scope, `email_verified` nunca sai. O scope `email` isolado herdaria essa
-  claim do mapa da classe base do toolkit se `get_additional_claims` alguma vez passasse a
-  devolvê-la.
+- Nos cinco arranjos de scope, o conjunto de claims é conferido por igualdade: cada uma sai com o
+  scope que a libera e só com ele, e `given_name` e `family_name` nunca saem.
+- O `sub` é comparado com o UUID da conta e, à parte, declarado diferente da chave primária.
+- Um caso à parte traz `email_verified` verdadeiro e `nickname` preenchido: o arranjo padrão só
+  prova `False` e `""`, que um valor fixo também devolveria.
 
 **Fluxo completo** — `tests/test_authorization_code_flow.py`
 
@@ -241,11 +288,11 @@ Além de fechar o ciclo até o `id_token`, amarra três coisas que se afastam co
 
 - As duas classes fixam `CORS_ALLOWED_ORIGINS` por `override_settings`, com o mesmo literal do
   `.env`, para que o que esteja sob prova seja só `CORS_URLS_REGEX`.
-- Fora de `/o/`, a asserção é só a ausência de `Access-Control-Allow-Origin`, e nunca a de `Vary`,
-  cabeçalho que outras camadas também escrevem e cuja presença nada diria sobre CORS.
+- Fora de `/o/` e de `/api/conta/`, a asserção é só a ausência de `Access-Control-Allow-Origin`, e
+  nunca a de `Vary`, cabeçalho que outras camadas também escrevem e cuja presença nada diria sobre
+  CORS. A API de conta tem arquivo próprio, `tests/test_api_conta_cors.py`.
 - Dentro de `/o/`, o 401 de `/o/userinfo/` também leva a origem exata: sem ela, o navegador da
-  aplicação de página única (SPA, de _Single-Page Application_) esconderia o 401 atrás de um
-  erro de CORS.
+  SPA esconderia o 401 atrás de um erro de CORS.
 
 **Prontidão** — `tests/test_health.py`
 
@@ -358,7 +405,7 @@ só aparece na tela renderizada.
 
 `TEST_RUNNER`, em `config/settings.py`, aponta para `tests.runner.RunnerComTrilhaIsolada`. As
 settings são únicas, sem separação entre desenvolvimento e produção, de modo que não há um
-segundo `LOGGING` nem um segundo conjunto de chaves a declarar: o executor troca quatro valores
+segundo `LOGGING` nem um segundo conjunto de chaves a declarar: o executor troca sete valores
 durante a suíte e os repõe no teardown.
 
 | Valor | Durante a suíte | Produção guardada em | Sem a troca | Religar num caso |
@@ -367,6 +414,9 @@ durante a suíte e os repõe no teardown.
 | `settings.RATE_LIMIT_POR_CAMINHO` | `{}` | `tests.runner.RATE_LIMIT_DE_PRODUCAO` | execuções seguidas somariam ao contador do ambiente até um caso que não fala de limitação falhar com 429 | `override_settings`, com `REMOTE_ADDR` forjado |
 | `settings.SECURE_SSL_REDIRECT` | zerado | `tests.runner.SECURE_SSL_REDIRECT_DE_PRODUCAO` | na jornada de container, toda requisição a rota não isenta receberia 301 antes de a view rodar | `override_settings(SECURE_SSL_REDIRECT=True)` vale por cima do zeramento |
 | `settings.OAUTH2_PROVIDER` | cópia com `"ALLOWED_REDIRECT_URI_SCHEMES": ["http", "https"]` | `tests.runner.OAUTH2_PROVIDER_DE_PRODUCAO` | na jornada de container, o 302 de `/o/authorize/` viraria 400 em todo teste de fluxo | `override_settings` sobre `OAUTH2_PROVIDER` |
+| `settings.TETO_DE_ENVIOS_POR_DESTINATARIO` | `None`, sem teto | `tests.runner.TETO_DE_ENVIOS_DE_PRODUCAO` | o contador de cada destinatário vive no Redis, não volta com o rollback, e o sexto envio a um endereço de fixture seria suprimido em silêncio | `override_settings`, apagando as chaves por `accounts.envio.chave_do_envio` |
+| `settings.TETO_DE_AVISOS_POR_DESTINATARIO` | `None`, sem teto | `tests.runner.TETO_DE_AVISOS_DE_PRODUCAO` | pela mesma razão do teto das confirmações, o 21º aviso de segurança a um endereço de fixture seria suprimido em silêncio | `override_settings`, apagando as chaves por `accounts.envio.chave_do_aviso` |
+| `settings.ENVIO_DE_EMAIL_EM_SEGUNDO_PLANO` | `False`, envio síncrono | `tests.runner.ENVIO_EM_SEGUNDO_PLANO_DE_PRODUCAO` | a mensagem sairia numa thread, e `mail.outbox` estaria vazio quando o callback de commit retorna | `override_settings(ENVIO_DE_EMAIL_EM_SEGUNDO_PLANO=True)` e `join` da thread |
 
 ### 5.1 A trilha
 
@@ -385,7 +435,8 @@ durante a suíte e os repõe no teardown.
 ### 5.2 O limitador
 
 - Mesma razão e mesma disciplina de reposição da trilha.
-- **Esvazia o dicionário inteiro**, e não apenas as entradas de `/o/`:
+- **Esvazia o dicionário inteiro**, hoje os catorze caminhos de `RATE_LIMIT_POR_CAMINHO`, e não
+  apenas as entradas de `/o/`:
   - o contador de cada caminho limitado vive no Redis do ambiente e não volta com o rollback do
     `TestCase`;
   - o `REMOTE_ADDR` default do cliente de teste — `127.0.0.1` — é a mesma chave que o `runserver`
@@ -428,6 +479,20 @@ durante a suíte e os repõe no teardown.
   destino de logout em `http` para `Application` pública, e por isso as fixtures do logout usam
   `https`.
 
+### 5.5 O envio de e-mail
+
+- **Os dois tetos por destinatário somem**, o das confirmações e o dos avisos, pela razão do
+  limitador: o contador vive no Redis e não volta com o rollback do `TestCase`. Quem religa um
+  deles apaga as próprias chaves por `accounts.envio.chave_do_envio` ou
+  `accounts.envio.chave_do_aviso`, nunca por `cache.clear()`.
+- **O envio fica síncrono.** O backend de e-mail é o `locmem`, que o próprio Django põe na suíte,
+  e a mensagem está em `mail.outbox` quando o callback de commit retorna. Num `TestCase`, o commit
+  não acontece, e os casos rodam os callbacks por `captureOnCommitCallbacks(execute=True)`.
+- **O caminho da thread** é provado por `override_settings(ENVIO_DE_EMAIL_EM_SEGUNDO_PLANO=True)`,
+  com `join`, em `EmSegundoPlanoTests`.
+- **`tests/test_envio_settings.py`** lê de volta os três valores guardados e confere os literais de
+  produção.
+
 ---
 
 ## 6. `tests/oauth_helpers.py`
@@ -469,6 +534,28 @@ TASK-027 estendeu. Constrói sobre `tests/oauth_helpers.py`, sem duplicá-lo.
 | `tamanho_da_trilha()` e `linhas_da_trilha_desde(tamanho)` | as linhas que a trilha ganhou desde um ponto, lidas do arquivo para onde o executor a redireciona |
 | `partes_do_token`, `b64`, `claims_de_hint`, `assinar`, `chave_do_idp`, `gerar_chave_rsa` | a montagem de hints: partir um `id_token` real, assinar claims com a chave do IdP ou com outra |
 | `adulterar_assinatura(id_token)` | troca um caractere do meio da assinatura — nunca o último: o final da assinatura em base64 carrega bits de preenchimento, e trocá-lo pode deixar a assinatura válida |
+
+`claims_de_hint` sorteia um `sub` UUID quando o caso não passa um: o `sub` das claims nunca é a
+chave primária (ADR 0031).
+
+### 7.1 Os helpers da conta
+
+Os três nasceram com a TASK-028 (ADR 0031) e não dependem um do outro.
+
+| Módulo | Peça | O que entrega |
+| --- | --- | --- |
+| `tests/api_conta_helpers.py` | `ApiDeContaTestCase` | uma conta, a Application da SPA e outra, e `SPA_CLIENT_ID` apontada para a da SPA por `override_settings`; `corpo_json` envia um corpo cru ou serializado com o Bearer |
+| | `criar_token(usuario, aplicacao, scope, expira_em)` e `bearer(token)` | o `AccessToken` direto no banco, sem o fluxo de autorização, e o cabeçalho `Authorization` do cliente de teste |
+| | `texto_da_trilha_desde`, `linhas_do_evento` e `fotografia(usuario)` | a trilha crua desde um ponto, e todas as colunas da conta, para provar que um 400 não gravou |
+| `tests/paginas_helpers.py` | `PaginasDeContaTestCase` | uma conta, o `dono` das duas Applications, `tokens_nas_duas`, `outra_sessao`, `postar` com os callbacks de commit executados, `esgotar_teto`, `esgotar_teto_de_avisos` e `trilha`. `esgotar_teto_de_avisos` zera o teto dos avisos, outro contador que o de `esgotar_teto`, e apaga as chaves no fim (TASK-028/T-76) |
+| | `semear_axes`, `contagem_axes` e `vivos` | as três tabelas do `axes` de um endereço, e os tokens vivos da conta |
+| | `dados_de_cadastro`, `link_do_email` e `caminho_do_link` | o corpo válido do cadastro e o link de uma mensagem, pronto para o cliente de teste |
+| `tests/envio_helpers.py` | `capturar_envio` e `campos` | as linhas de `accounts.envio` pelo `FormatadorJSON` e pelo `FiltroRequestId` de produção |
+| | `BackendQueLevanta` e `BackendQueBloqueia` | backends de e-mail falsos, importáveis por `override_settings(EMAIL_BACKEND=...)`, com o estado em atributo de classe |
+
+As Applications de `PaginasDeContaTestCase` têm outra pessoa como dona: a conta dona de
+Application não pode ser apagada pela página, e os casos de apagamento precisam de tokens sem essa
+trava.
 
 ---
 
@@ -539,6 +626,8 @@ relatório de ferramenta — vale como inventário, não como percentual.
 | O build da imagem | nada verifica que o `Dockerfile` constrói, nem que a imagem sobe | — |
 | Segredo que a suíte não conhece | dado sensível de um caminho que a suíte não exercita, ou de um campo que alguém acrescente amanhã (10.3) | — |
 | O que o container instala | o conjunto de pacotes do container (10.4) | — |
+| O SMTP de verdade | nenhum caso fala com um servidor de e-mail: a suíte envia pelo backend `locmem`, e a falha do SMTP é simulada por backend falso | `tests/test_envio.py`, para o que o log registra |
+| A morte do worker durante o envio | a perda da mensagem na thread, que não é fila durável | — |
 
 ### 10.1 O `BASE_URL` de uma implantação
 

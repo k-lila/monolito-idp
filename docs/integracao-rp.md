@@ -4,8 +4,10 @@
 
 Este documento é o contrato entre este provedor de identidade (IdP, Identity Provider) e quem
 implementa uma relying party (RP) — a aplicação que delega a autenticação a ele.
-Cobre coordenadas, registro do cliente, o fluxo, as claims emitidas, a verificação do token e
-os tempos de vida.
+Cobre coordenadas, registro do cliente, o fluxo, as claims emitidas, a verificação do token, os
+tempos de vida e, para a aplicação de página única (SPA, de _Single-Page Application_), a
+interface de programação (API, de _Application Programming Interface_) de conta e as páginas de
+conta do IdP.
 
 Não cobre operação. Subir o stack e as tarefas do lado do IdP são assunto de `README.md` e de
 `docs/receita.md`. Há uma exceção, e ela está na seção 10: a raiz da autoridade certificadora
@@ -16,9 +18,10 @@ O resumo do que toda RP recebe, e das invariantes que o IdP preserva, está em
 `docs/nucleo-idp.md`. Este documento é o detalhe.
 
 **Aviso de estabilidade.** O par `(iss, sub)` — a chave de identidade que a OpenID Connect
-(OIDC) Core §5.7 manda a RP guardar — é reciclado se o banco do IdP for recriado, e com ele a
-conta que a RP associou a uma pessoa. Em desenvolvimento isso acontece a cada `docker compose
-down -v`; em produção, só com a perda do volume `pgdata`.
+(OIDC) Core §5.7 manda a RP guardar — se perde se o banco do IdP for recriado: as contas
+recriadas recebem um `sub` novo, sorteado, e a RP passa a vê-las como pessoas novas. Em
+desenvolvimento isso acontece a cada `docker compose down -v`; em produção, só com a perda do
+volume `pgdata`. A implantação da ADR 0031 troca uma vez o `sub` de toda conta (seção 6).
 
 ## 2. Coordenadas
 
@@ -81,8 +84,7 @@ administra o IdP. A integração é uma troca de valores literais.
   conferir que aponta para o IdP certo; a fonte continua sendo o documento de descoberta (seção
   2).
 - **`SPA_URL` não é configuração de RP.** É o destino do botão da home do IdP, que hoje leva à
-  aplicação de página única (SPA, de _Single-Page Application_) do sistema. Uma RP nova não
-  precisa dela.
+  SPA do sistema. Uma RP nova não precisa dela.
 
 ## 4. Registrar a Application
 
@@ -124,6 +126,10 @@ falha só aparece na troca: a resposta de `/o/token/` vem sem `id_token`, e sem 
 
 Do registro sai o `client_id`, que é o que a RP guarda. Não há `client_secret`.
 
+**O campo `user` da Application fica vazio ou aponta para uma conta da equipe.** A conta comum
+dona de uma Application não pode ser apagada pela página de exclusão, só desativada: apagá-la
+levaria em cascata a Application e os tokens de toda a RP (ADR 0031).
+
 **`skip_authorization` separa primeira parte de terceiro.** Marcado, o servidor emite o código
 sem mostrar a tela de consentimento, inclusive na primeira autorização. É o que a `Application`
 da SPA recebe: ela volta a `/o/authorize/` a cada recarga da página, e uma pergunta
@@ -142,11 +148,12 @@ desmarcado, sempre — nada no IdP impede marcá-lo, e a regra vive em
 | `response_type` | `code` |
 | `client_id` | o do registro |
 | `redirect_uri` | uma das registradas, literal |
-| `scope` | `openid`, mais `profile` e `email` conforme a seção 6 |
+| `scope` | `openid`, mais `profile` e `email` conforme a seção 6; `conta` só a SPA pede (seção 5.6) |
 | `state` | valor imprevisível gerado pela RP a cada tentativa |
 | `code_challenge` | o desafio PKCE (Proof Key for Code Exchange) |
 | `code_challenge_method` | `S256` |
 | `nonce` | opcional; volta no `id_token` |
+| `prompt` | opcional; `create` leva ao cadastro (seção 5.5) |
 
 `scope` sem `openid` produz uma autorização OAuth2 comum, sem `id_token`.
 
@@ -237,28 +244,125 @@ O que uma SPA precisa, e é o caso da SPA deste sistema, se reúne aqui:
 
 - **Cliente público, com PKCE.** Não há segredo que o navegador possa guardar; o
   `code_verifier` é a única prova de posse.
-- **CORS por origem exata.** A troca em `/o/token/` e a consulta a `/o/userinfo/` partem do
-  navegador por `fetch` e só passam se a origem da RP estiver em `CORS_ALLOWED_ORIGINS`. O CORS
-  vale só sob `/o/`: o login e o admin nunca são chamados por `fetch`.
+- **CORS por origem exata.** A troca em `/o/token/`, a consulta a `/o/userinfo/` e as chamadas
+  à API de conta partem do navegador por `fetch` e só passam se a origem da RP estiver em
+  `CORS_ALLOWED_ORIGINS`. O CORS vale só sob `/o/` e `/api/conta/`: o login, as páginas de conta
+  e o admin nunca são chamados por `fetch`. `WWW-Authenticate` e `Retry-After` são expostos ao
+  `fetch` (`CORS_EXPOSE_HEADERS`), úteis a qualquer RP: por eles se distingue token vencido de
+  scope faltando e se sabe quanto esperar depois de um 429. A SPA deste sistema não lê nenhum
+  dos dois.
 - **A sessão do IdP é o que dispensa a senha na volta.** Uma RP que guarda tokens só em memória
   volta a `/o/authorize/` a cada recarga, e o cookie de sessão do IdP, com `SameSite=Lax`, é o
   que a faz voltar sem senha. Com `skip_authorization`, a volta não mostra tela nenhuma.
 - **O `refresh_token` rotaciona.** Quem o usar tem de guardar o novo a cada renovação (seção
   9). A SPA o ignora, e passar a usá-lo é decisão com ADR nos dois projetos.
 
+### 5.5 Cadastro pelo protocolo
+
+O "Criar conta" de uma RP é o pedido da seção 5.1 com `prompt=create` (OpenID Connect Prompt
+Create 1.0), e a descoberta anuncia `create` em `prompt_values_supported`. Sem sessão, o IdP
+valida o pedido e leva a pessoa a `/accounts/registrar/`, com um `next` absoluto para o mesmo
+`/o/authorize/` sem `create`. Criada a conta, a sessão do IdP abre e o pedido segue como um
+login comum. Com sessão, `create` não muda nada. Pedido inválido termina no erro do próprio
+`/o/authorize/`, antes do cadastro.
+
+A conta nasce ativa, com `email_verified` falso e o aceite da versão vigente dos termos, e o
+IdP envia o e-mail de boas-vindas com o link de confirmação. A página é pública na prática:
+nada impede abri-la direto, e então ela volta à raiz da SPA.
+
+### 5.6 A API de conta
+
+Só a SPA a usa. Os caminhos são fixos, com barra final, e não constam da descoberta:
+
+| Método e caminho | O que faz | Resposta |
+| --- | --- | --- |
+| `GET /api/conta/` | lê a conta | 200 com o corpo abaixo |
+| `PATCH /api/conta/` | altera `first_name`, `last_name` e `nickname`; o resto do corpo é ignorado, e `null` limpa o campo | 200 com o mesmo corpo do `GET` |
+| `POST /api/conta/confirmacao/` | reenvia o link de confirmação, se o e-mail ainda não está confirmado | 204, com ou sem envio |
+| `POST /api/conta/termos/` | grava o aceite de `{"versao": "<vigente>"}` | 204 |
+| `GET /api/conta/confirmar/?t=` | o link do e-mail, sem autenticação | 302 a `{SPA_URL}/?email=confirmado` ou `?email=invalido` |
+
+O corpo do `GET` traz `sub`, `email`, `email_verified`, `first_name`, `last_name`, `nickname`,
+`date_joined`, `updated_at`, `senha_alterada_em` (`null` nas contas anteriores ao campo),
+`termos_versao` (`""` se a pessoa nunca aceitou) e `termos_versao_vigente`. As datas saem em ISO
+8601, em UTC, com o deslocamento.
+
+**Quem a API aceita.** Um `access_token` só no cabeçalho `Authorization: Bearer`; o token em
+`?access_token=` ou no corpo é tratado como ausente. O token precisa do scope `conta` e de ter
+sido emitido para a Application da SPA, cujo `client_id` o IdP lê de `SPA_CLIENT_ID`. O cookie
+de sessão do IdP não vale nada aqui: a API não aceita sessão, e é por isso que dispensa o token
+CSRF.
+
+**As recusas.**
+
+- 401 sem corpo, ao token ausente, vencido ou inválido, e 403 sem corpo, ao token sem o scope
+  `conta`. Os dois levam o desafio `WWW-Authenticate: Bearer`, com `error` conforme o caso e com o
+  parâmetro `resource_metadata` da RFC 9728. Esse parâmetro aponta para
+  `/o/.well-known/oauth-protected-resource` no host do pedido, cujo `resource` é esse host
+  seguido de `/o` (igual ao issuer quando o pedido chega pelo nome dele), e não a API: a SPA o
+  ignora, e um cliente estrito da RFC 9728 o recusaria.
+- 403 com `{"codigo": "aplicacao_nao_autorizada"}`, ao token de outra Application, e com
+  `{"codigo": "conta_inativa"}`, ao token de conta desativada. Sem desafio.
+- 400 na forma `{"erros": {"<campo>": [{"codigo": "...", "mensagem": "..."}]}}`. O corpo que não
+  é objeto JSON dá `geral` com `json_invalido`; valor que não é texto dá `invalid`, e texto
+  acima de 150 caracteres, `max_length`; a versão dos termos ausente dá `required`, e diferente
+  da vigente, `termos_desatualizados`. A `mensagem` sai em inglês, e a RP exibe pelo `codigo`.
+- 429 pelo teto por origem, com `Retry-After`.
+
+A falta de aceite dos termos não bloqueia nada no IdP; o bloqueio é da SPA. A versão vigente é
+uma só, e a API recusa toda outra: implantado o IdP com a versão nova, a SPA antiga recebe
+`termos_desatualizados`, e implantada a SPA antes, ela envia uma versão que o IdP ainda não
+conhece. Por isso, trocar a versão exige decisão nos dois projetos e uma janela em que o IdP
+aceita as duas.
+
+### 5.7 As páginas de conta e a volta à SPA
+
+Tudo o que recebe senha é página do IdP, em português. Cadastro, recuperação e redefinição são
+anônimas; troca de senha, troca de e-mail e exclusão exigem a sessão do IdP, e o cadastro a
+abre. A SPA leva a pessoa até elas por navegação, nunca por `fetch`:
+
+| Página | Caminho | Ao concluir |
+| --- | --- | --- |
+| cadastro | `/accounts/registrar/` | o `next` conferido, ou `{SPA_URL}/` |
+| recuperação de senha | `/accounts/password_reset/` | o link do e-mail, que vale uma hora e uma vez, leva a `/accounts/reset/<uidb64>/<token>/`; a página final tem link para `{SPA_URL}/`, sem abrir sessão |
+| troca de senha | `/accounts/password_change/` | `{SPA_URL}/app/conta?aviso=senha-trocada` |
+| troca de e-mail | `/accounts/email/` | `{SPA_URL}/app/conta?aviso=email-trocado` |
+| exclusão | `/accounts/excluir/` | `{SPA_URL}/?conta=desativada` ou `{SPA_URL}/?conta=apagada`, sem sessão |
+
+O "Cancelar" das três últimas leva a `{SPA_URL}/app/conta`, e o cadastro tem links para
+`{SPA_URL}/termos` e `{SPA_URL}/privacidade`. Essas são as rotas da SPA que o IdP conhece, e
+mudar uma delas do lado da SPA quebra a volta sem erro no IdP. Das páginas de conta, só o
+cadastro lê `next`.
+
+**O que cada uma muda além da conta.**
+
+- A troca de senha mantém a sessão do IdP em que foi feita e derruba as outras. A redefinição
+  derruba todas, e também confirma o e-mail: quem abriu o link leu a caixa.
+- Troca de senha, redefinição e exclusão revogam os tokens da conta em **todas** as
+  Applications. A RP descobre isso na próxima chamada, pelo 401.
+- A troca de e-mail vale na hora e mantém o `sub` e as sessões. `email_verified` volta a falso,
+  o link de confirmação vai ao endereço novo, e um aviso vai ao antigo.
+- A exclusão oferece desativar ou apagar, e recusa conta da equipe. Conta dona de Application só
+  desativa (seção 4).
+
 ## 6. O que o `id_token` afirma
 
-Três claims de identidade, e nenhuma além delas:
+Seis claims de identidade, e nenhuma além delas:
 
 | Claim | Origem | Scope que a libera |
 | --- | --- | --- |
-| `sub` | a chave primária da conta no IdP | `openid` |
+| `sub` | o UUID (_Universally Unique Identifier_) versão 4 da conta, em texto minúsculo com hífens | `openid` |
 | `name` | `get_full_name()` da conta | `profile` |
-| `email` | o e-mail da conta, que é o identificador de login | `email` |
+| `nickname` | o apelido da conta, presente mesmo vazio | `profile` |
+| `updated_at` | a última mudança de nome, apelido, e-mail ou verificação, em segundos desde 1970 | `profile` |
+| `email` | o e-mail da conta, em minúsculas, que é o identificador de login | `email` |
+| `email_verified` | `true` se o endereço atual foi confirmado | `email` |
 
-O mapa é estrito: com `openid` sozinho chega apenas `sub`; `profile` acrescenta `name` sem
-acrescentar `email`, e `email` acrescenta `email` sem acrescentar `name`. Os cinco casos estão
-fixados em `tests/test_oauth_validators.py`.
+O mapa é estrito: com `openid` sozinho chega apenas `sub`; `profile` acrescenta `name`,
+`nickname` e `updated_at` sem acrescentar `email`, e `email` acrescenta `email` e
+`email_verified` sem acrescentar os de `profile`. `given_name` e `family_name` não saem. Os cinco
+arranjos estão fixados em `tests/test_oauth_validators.py`. O scope `conta` não libera claim
+nenhuma.
 
 Junto delas vêm as claims de protocolo que a verificação exige — `iss`, `aud`, `exp`, `iat` — e
 as que o `oauthlib` acrescenta conforme o pedido, entre elas `nonce`, `auth_time`, `at_hash` e
@@ -268,8 +372,14 @@ as que o `oauthlib` acrescenta conforme o pedido, entre elas `nonce`, `auth_time
 sem sobrenome preenchidos produz `"name": ""`. A chave existe; o valor é a string vazia. Não é
 defeito, e a RP não deve tratar isso como resposta malformada.
 
-**`sub` é a chave primária da conta**, e a chave de identidade que a RP guarda é o par
+**`sub` é o UUID da conta, e não a chave primária**, que fica interna (ADR 0031). Ele não muda
+com o e-mail e não revela a sequência do banco. A chave de identidade que a RP guarda é o par
 `(iss, sub)`, conforme a OIDC Core §5.7 — nunca o `email`, que é mutável, nem o `sub` sozinho.
+
+**A transição do `sub`.** A implantação da ADR 0031 troca o `sub` de toda conta, da chave
+primária para o UUID, sem volta. A sessão da RP aberta antes dela traz o `sub` antigo no
+`id_token`, e o `/o/userinfo/` já responde com o novo: a SPA mostra erro até o reload. Quem
+guardou o `sub` antigo perde a correlação; ela passa pelo admin do IdP.
 
 `GET /o/userinfo/`, com o `access_token` no cabeçalho `Authorization: Bearer`, devolve as
 mesmas claims sob os mesmos scopes.
@@ -279,20 +389,24 @@ mesmas claims sob os mesmos scopes.
 A seção que mais importa para quem integra: cada linha abaixo é uma garantia que a RP **não**
 recebe e, portanto, precisa obter de outro lugar ou dispensar por escrito.
 
-- **Não há `email_verified`.** A claim não aparece no `id_token` nem em `/o/userinfo/`, sob
-  scope nenhum, porque não existe fluxo de verificação de e-mail nesta fase. A RP não pode
-  presumir que o endereço recebido pertence a quem se autenticou.
-- **Nada além de `name` e `email`.** Não há grupos, papéis, telefone, foto nem atributo
-  organizacional. O `claims_supported` da descoberta é exatamente `sub`, `name`, `email`, e o
-  acoplamento entre ele e o que o servidor emite está verificado em
-  `tests/test_authorization_code_flow.py`.
+- **`email_verified` falso não diz que o endereço é alheio, e verdadeiro vale só para o
+  endereço atual.** As contas anteriores à ADR 0031 nascem com ela falsa, a troca de e-mail a
+  zera, e só o link de confirmação ou a redefinição de senha a liga. Um antivírus que abra o
+  link confirma a conta sem clique humano. Com ela falsa, a RP não pode presumir que o endereço
+  recebido pertence a quem se autenticou.
+- **Nada além das seis claims da seção 6.** Não há grupos, papéis, telefone, foto nem atributo
+  organizacional. O `claims_supported` da descoberta é exatamente `sub`, `name`, `nickname`,
+  `updated_at`, `email` e `email_verified`, e o acoplamento entre ele e o que o servidor emite
+  está verificado em `tests/test_authorization_code_flow.py`.
 - **O `access_token` não é inspecionável pela RP.** Ele é uma string opaca, não um JWT (JSON
   Web Token), e a introspecção não está utilizável: `/o/introspect/` exige um scope que este
   IdP não declara e responde 403, conforme
   `docs/adr/0002-usar-django-oauth-toolkit-como-servidor-de-autorizacao.md`. Quem precisar do
   estado corrente chama `/o/userinfo/`, uma requisição ao IdP por consulta.
-- **Não há garantia de revogação por desativação de conta:** `access_token` e `refresh_token`
-  já emitidos seguem válidos até vencer ou até alguém os revogar do lado do IdP.
+- **Não há garantia de revogação por desativação de conta pelo admin:** `access_token` e
+  `refresh_token` já emitidos seguem válidos até vencer, e nem `/o/userinfo/` nem a renovação
+  conferem se a conta está ativa. Só a API de conta recusa, com `conta_inativa`. A desativação
+  pela própria pessoa, na página de exclusão, revoga os tokens em todas as Applications.
 
 ## 8. Verificar o token
 
@@ -335,7 +449,8 @@ expira por tempo, e é rotacionado a cada uso (`ROTATE_REFRESH_TOKEN` default `T
 período de graça) — a RP tem de guardar o `refresh_token` novo que vem em cada renovação, sob
 pena de perder o acesso ao descartá-lo.
 
-Revogar tokens já emitidos, fora do "Sair" da seção 5.3, é operação do lado do IdP.
+Fora do "Sair" da seção 5.3, os tokens já emitidos são revogados pelo IdP: pela troca de
+senha, pela redefinição e pela exclusão feitas pela pessoa (seção 5.7), e por quem opera.
 
 ## 10. Ambiente
 
@@ -349,8 +464,15 @@ exposto está em `docs/seguranca.md`.
 `/o/userinfo/` partem do servidor da RP e não passam pelo CORS.
 
 **RP no navegador exige entrada em `CORS_ALLOWED_ORIGINS`**, que sai vazia no `.env.example`.
-Enquanto a origem da RP não estiver lá, o `fetch` a `/o/token/` ou a `/o/userinfo/` recebe erro
-de CORS (seção 5.4).
+Enquanto a origem da RP não estiver lá, o `fetch` a `/o/token/`, a `/o/userinfo/` ou à API de
+conta recebe erro de CORS (seção 5.4).
+
+**A SPA implanta depois do IdP.** O scope `conta`, o `create` e a API de conta entram com o IdP
+(ADR 0031). Implantada antes, a SPA pediria `conta` e receberia `invalid_scope`, e o "Criar
+conta" receberia 400. Antes de implantar a SPA, confira na descoberta `conta` em
+`scopes_supported` e `create` em `prompt_values_supported`. O IdP de cada ambiente também
+precisa de `SPA_CLIENT_ID` igual ao `client_id` da Application da SPA: errado, nada falha no
+boot, e toda chamada à API recebe 403 `aplicacao_nao_autorizada`.
 
 ### 10.1 O certificado da jornada de container
 

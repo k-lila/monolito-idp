@@ -1,0 +1,8 @@
+{% autoescape off %}Olá,
+
+Este endereço de e-mail foi informado numa conta. Para confirmar que ele é seu, abra o link abaixo:
+
+{{ link }}
+
+O link vale por {{ prazo_dias }} dias. Se você não reconhece este pedido, ignore esta mensagem.
+{% endautoescape %}

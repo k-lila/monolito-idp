@@ -33,14 +33,19 @@ OIDC_RSA_PRIVATE_KEY = env.str("OIDC_RSA_PRIVATE_KEY", multiline=True)
 BEHIND_TLS_PROXY = env.bool("BEHIND_TLS_PROXY")
 LOG_LEVEL = env.str("LOG_LEVEL")
 CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS")
-# O django-cors-headers só age sob `/o/`: `/admin/` e `/accounts/login/` nunca são chamados
-# por `fetch` de outra origem, e ali uma origem da allowlist não recebe cabeçalho nenhum. O
-# acoplamento é com o prefixo `o/` de config/urls.py, e é silencioso: mudar o prefixo sem
-# mudar esta linha tira o CORS de /o/token/ e de /o/userinfo/ sem erro. Descoberta, JWKS e
-# metadados das RFCs 8414 e 9728 não dependem desta linha nem do middleware: a view do DOT
-# põe `Access-Control-Allow-Origin: *` à mão. Literal no código, e não no `.env`, pela razão
-# escrita em RATE_LIMIT_POR_CAMINHO.
-CORS_URLS_REGEX = r"^/o/"
+# O django-cors-headers só age sob `/o/` e sob `/api/conta/`, os dois prefixos que a SPA chama
+# por `fetch` (ADR 0031). `/admin/` e as páginas de `/accounts/` são navegação, e ali uma origem
+# da allowlist não recebe cabeçalho nenhum. O acoplamento é com os prefixos `o/` e `api/conta/`
+# de config/urls.py, e é silencioso: mudar um prefixo sem mudar esta linha tira o CORS de
+# /o/token/, de /o/userinfo/ ou da API de conta sem erro, e a SPA vê só um erro de CORS sem
+# pista. Descoberta, JWKS e metadados das RFCs 8414 e 9728 não dependem desta linha nem do
+# middleware: a view do DOT põe `Access-Control-Allow-Origin: *` à mão. Literal no código, e não
+# no `.env`, pela razão escrita em RATE_LIMIT_POR_CAMINHO.
+CORS_URLS_REGEX = r"^/(?:o|api/conta)/"
+# Fora da lista que o navegador expõe por conta própria, e o default da biblioteca é vazio. Sem
+# esta linha, o `fetch` da SPA lê o status e não lê o cabeçalho: o 401 de token vencido e o 403
+# de scope faltando ficam indistinguíveis, e o 429 não diz quanto esperar. Nada falha no IdP.
+CORS_EXPOSE_HEADERS = ["WWW-Authenticate", "Retry-After"]
 
 # Origem da SPA, destino do botão "Ir para a aplicação" da home. A raiz não
 # redireciona para ela: é o destino de LOGIN_REDIRECT_URL e de LOGOUT_REDIRECT_URL, e é dela
@@ -60,9 +65,8 @@ CORS_URLS_REGEX = r"^/o/"
 #
 # A isenção de loopback existe porque http://localhost é origem potencialmente confiável
 # (W3C Secure Contexts) e porque o container de desenvolvimento força BEHIND_TLS_PROXY "True"
-# no docker-compose.yml, com a SPA servida pelo Vite em http://localhost:5173. O preço é um
-# silêncio: `http://localhost` num `.env` de produção passa, e o botão leva à máquina de quem
-# clica.
+# no docker-compose.yml, com a SPA servida pelo Vite em http://localhost:5173. Com `BASE_URL`
+# público, loopback é recusado pela guarda de produção, abaixo.
 _HOSTS_DE_LOOPBACK = {"localhost", "127.0.0.1", "::1"}
 
 
@@ -114,6 +118,21 @@ def _validar_spa_url(valor, behind_tls_proxy):
 
 SPA_URL = _validar_spa_url(env.str("SPA_URL"), BEHIND_TLS_PROXY)
 
+# O `client_id` da Application da SPA, a única cujo token a API de conta aceita (ADR 0031). Sem
+# default, porque há uma Application por ambiente: ausente, derruba o boot nomeando a si mesma,
+# como SPA_URL. Vazia derruba também, porque compararia com nada. A mensagem não repete o valor.
+#
+# O SILÊNCIO desta linha é o valor errado: o boot passa, e toda chamada à API recebe 403
+# `aplicacao_nao_autorizada`, inclusive as da SPA de verdade. Só o corpo do 403 aponta para cá.
+SPA_CLIENT_ID = env.str("SPA_CLIENT_ID")
+if not SPA_CLIENT_ID:
+    raise ImproperlyConfigured("SPA_CLIENT_ID não pode ser vazia: é o client_id da SPA.")
+
+# A versão vigente dos termos de uso, que a SPA mostra e a API de conta exige no aceite. Literal,
+# e não variável de ambiente, pela razão escrita em RATE_LIMIT_POR_CAMINHO. A falta de aceite não
+# bloqueia nada no IdP.
+TERMOS_VERSAO_VIGENTE = "1"
+
 # Sem default, deliberadamente: um default faria a trilha de auditoria gravar dentro da
 # camada de escrita do container e desaparecer no primeiro `docker compose down` —
 # pareceria funcionar, seria confiada, e sumiria. Ausente, esta linha derruba o processo na
@@ -121,6 +140,76 @@ SPA_URL = _validar_spa_url(env.str("SPA_URL"), BEHIND_TLS_PROXY)
 # é relativo ao diretório de trabalho do processo; no container o compose o sobrescreve
 # por um absoluto, dentro do volume nomeado `auditlog`.
 AUDIT_LOG_PATH = env.str("AUDIT_LOG_PATH")
+
+# Envio de e-mail (ADR 0031). Sem default, pelo precedente de AUDIT_LOG_PATH: ausente, cada uma
+# derruba o boot e a suíte nomeando a si mesma. Os nomes são os das settings do Django que elas
+# preenchem. Em desenvolvimento o backend é o de console. Em produção ele não sairia do servidor,
+# a pessoa não receberia nada, e a mensagem inteira, com o endereço e o link de confirmação ou de
+# redefinição, iria para o stdout: com `BASE_URL` público, a guarda de produção, abaixo, o recusa
+# no boot.
+EMAIL_BACKEND = env.str("EMAIL_BACKEND")
+EMAIL_HOST = env.str("EMAIL_HOST")
+EMAIL_PORT = env.int("EMAIL_PORT")
+EMAIL_HOST_USER = env.str("EMAIL_HOST_USER")
+EMAIL_HOST_PASSWORD = env.str("EMAIL_HOST_PASSWORD")
+EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS")
+# Em segundos. Sem ele, o default do Django é esperar o SMTP indefinidamente, e a thread de
+# envio ficaria presa para sempre num servidor que aceita a conexão e não responde.
+EMAIL_TIMEOUT = env.int("EMAIL_TIMEOUT")
+DEFAULT_FROM_EMAIL = env.str("DEFAULT_FROM_EMAIL")
+
+# A guarda de produção recusa no boot dois valores que estão certos em desenvolvimento e falham
+# em silêncio em produção. Cada recusa nomeia a variável e não repete o valor (ADR 0031).
+#
+# O sinal é o host de `BASE_URL`, e não `DEBUG`, que a ADR 0008 deixa falso em todo ambiente.
+# Nomes sob `.localhost` contam como locais: o container de desenvolvimento serve
+# `https://idp.localhost`, e a RFC 6761 reserva o nome para loopback.
+#
+# Alcança produção, o ensaio sob subdomínio público e qualquer clone com `PUBLIC_HOST` fora de
+# `.localhost`, que passam a exigir os valores de produção. Não vê `SPA_URL` pública e errada,
+# credencial SMTP errada nem `SPA_CLIENT_ID` errado.
+_BACKENDS_QUE_NAO_ENTREGAM = {
+    "django.core.mail.backends.console.EmailBackend",
+    "django.core.mail.backends.dummy.EmailBackend",
+    "django.core.mail.backends.locmem.EmailBackend",
+    "django.core.mail.backends.filebased.EmailBackend",
+}
+
+
+def _e_local(host):
+    return host in _HOSTS_DE_LOOPBACK or host.endswith(".localhost")
+
+
+if not _e_local(urlsplit(BASE_URL).hostname or ""):
+    if urlsplit(SPA_URL).hostname in _HOSTS_DE_LOOPBACK:
+        raise ImproperlyConfigured(
+            "SPA_URL aponta para loopback, e BASE_URL é público: em produção, SPA_URL é a "
+            "origem pública da SPA."
+        )
+    if EMAIL_BACKEND in _BACKENDS_QUE_NAO_ENTREGAM:
+        raise ImproperlyConfigured(
+            "EMAIL_BACKEND não entrega e-mail, e BASE_URL é público: em produção, use "
+            "django.core.mail.backends.smtp.EmailBackend."
+        )
+
+# Dois tetos por destinatário por hora, com contadores separados (ADR 0031). Cinco nos gatilhos
+# que qualquer um dispara contra um endereço alheio: cadastro, "reenviar", "esqueci a senha" e
+# confirmação do endereço novo. Vinte nos avisos de segurança, uma ordem de grandeza acima de
+# quem troca a senha uma ou duas vezes numa hora: alto para que suprimir um aviso exija vinte
+# trocas, cada uma já avisada, e finito para que quem tem a sessão e a senha de alguém não lote
+# a caixa dela. A janela é a mesma, e `None` desliga cada teto: é o que a suíte faz, porque o
+# contador vive no Redis e não volta com o rollback. Literais, e não variáveis de ambiente, pela
+# razão escrita em RATE_LIMIT_POR_CAMINHO.
+TETO_DE_ENVIOS_POR_DESTINATARIO = 5
+TETO_DE_AVISOS_POR_DESTINATARIO = 20
+JANELA_DO_TETO_DE_ENVIOS_SEGUNDOS = 3600
+# Verdadeiro: o envio corre numa thread, e o SMTP lento não segura a resposta. A suíte o
+# desliga para que a mensagem esteja em `mail.outbox` quando o callback de commit retorna.
+ENVIO_DE_EMAIL_EM_SEGUNDO_PLANO = True
+# O fuso em que os horários aparecem nos e-mails. TIME_ZONE continua UTC, e é o que vale em
+# todo o resto, inclusive no log e na trilha. Os textos de `templates/emails/` o nomeiam como
+# "horário de Brasília": trocar o fuso exige trocar o texto.
+FUSO_DOS_EMAILS = "America/Sao_Paulo"
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -145,7 +234,8 @@ INSTALLED_APPS = [
 
 AUTH_USER_MODEL = "accounts.User"
 
-# A PK do User é o `sub` de todo id_token: 64 bits, fixado antes da migração inicial.
+# A PK do User é interna: o `sub` das claims e da trilha é o UUID da conta (ADR 0031). 64 bits,
+# fixado antes da migração inicial, e é a ela que apontam as chaves estrangeiras.
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 MIDDLEWARE = [
@@ -303,9 +393,15 @@ AUTHENTICATION_BACKENDS = [
 # não o default 3: três erros trancam quem digitou com a tecla de maiúsculas presa, e cinco
 # mantêm o espaço de busca inviável.
 AXES_FAILURE_LIMIT = 5
-# Quinze minutos, e nunca o default None, que é bloqueio sem prazo. Este projeto não tem rota
-# de recuperação de senha (`tests/test_password_reset_urls.py` prova a ausência), e um
-# bloqueio sem prazo transferiria a quem opera todo engano de quem usa.
+# Quinze minutos, e nunca o default None, que é bloqueio sem prazo. Um bloqueio sem prazo
+# transferiria a quem opera todo engano de quem usa.
+#
+# A redefinição de senha encerra o bloqueio da conta antes do prazo: apaga o `AccessAttempt` do
+# endereço por `accounts.tentativas.desbloquear`, a mesma função que o login bem-sucedido chama
+# pelo handler deste projeto (AXES_HANDLER), e preserva `AccessFailureLog` e `AccessLog` (ADR
+# 0031). A linha do `AccessAttempt` guarda o endereço e a origem juntos, e por isso a contagem
+# da origem perde as falhas contra este endereço: o bloqueio por origem segue até o prazo só se
+# as falhas contra outros endereços bastarem para ele.
 #
 # O prazo conta da ÚLTIMA tentativa, e não do bloqueio: o axes soma as falhas da janela e
 # atualiza o registro a cada nova falha, inclusive as que chegam com a conta já bloqueada
@@ -334,14 +430,19 @@ AXES_LOCKOUT_PARAMETERS = [["username"], ["ip_address"]]
 # erro e sem log, restando só a contagem por origem. Renomear o campo do formulário produz o
 # mesmo silêncio.
 AXES_USERNAME_FORM_FIELD = "username"
-# Login bem-sucedido zera o contador da conta: erros espaçados ao longo de semanas não somam
-# contra quem nunca esteve sob ataque.
+# O login bem-sucedido zera as falhas da própria conta, de toda origem, pelo handler abaixo:
+# erros espaçados ao longo de semanas não somam contra quem nunca esteve sob ataque. As falhas
+# da origem contra outras contas ficam até o prazo. Sem esta linha, o handler nunca é chamado.
 AXES_RESET_ON_SUCCESS = True
-# Contador no banco, que é o default, e a escolha é deliberada: o rollback do `TestCase` o
-# limpa entre casos, e a independência de ordem da suíte deixa de depender da disciplina de
-# quem escreve teste. O handler de cache seria mais rápido e alcançaria, na limpeza, o cache
-# que guarda a sessão (ADR 0005).
-AXES_HANDLER = "axes.handlers.database.AxesDatabaseHandler"
+# Contador no banco, como no handler da biblioteca, e a escolha é deliberada: o rollback do
+# `TestCase` o limpa entre casos, e a independência de ordem da suíte deixa de depender da
+# disciplina de quem escreve teste. O handler de cache seria mais rápido e alcançaria, na
+# limpeza, o cache que guarda a sessão (ADR 0005). O próprio só muda o zeramento do login, e a
+# razão está em `accounts/tentativas.py` (ADR 0031).
+#
+# O SILÊNCIO desta linha é voltar ao handler da biblioteca: nenhum teste de fluxo cai, só o do
+# zeramento, e o login de quem ataca volta a apagar as falhas da origem contra a vítima.
+AXES_HANDLER = "accounts.tentativas.TentativasPorConta"
 # Contrato por string, resolvido em runtime pelo axes: é o que faz a origem que ele conta ser
 # a mesma que a trilha grava (ADR 0015).
 #
@@ -398,6 +499,24 @@ AXES_VERBOSE = False
 # uma requisição, duas com a confirmação. O teto limita o custo por origem, e não a revogação
 # por quem tem o `id_token` de alguém: essa é a posse de uma credencial, que teto nenhum limita.
 #
+# Cento e vinte em cada um dos quatro caminhos da API de conta, como em `/o/` (ADR 0031). Cada um
+# tem chave própria, porque o limitador compara `request.path` por igualdade. Três exigem Bearer
+# e custam uma consulta ao token antes de recusar; `/api/conta/confirmar/` é anônimo e custa a
+# verificação de uma assinatura e, com ela válida, uma consulta à conta. O uso legítimo é de
+# poucas chamadas por tela da SPA.
+#
+# Sessenta em `/accounts/registrar/` e em `/accounts/password_reset/`, como no login, pela mesma
+# conta de duas requisições por tentativa (ADR 0031). Os dois são anônimos e disparam e-mail; o
+# teto por destinatário de `accounts/envio.py` limita quantos chegam a um endereço, e este, o
+# custo que uma origem impõe. A confirmação da redefinição, `/accounts/reset/<uidb64>/<token>/`,
+# fica SEM teto: o caminho muda a cada link, e este dicionário compara por igualdade. O que a
+# protege é o token de uso único e de uma hora (PASSWORD_RESET_TIMEOUT).
+#
+# Sessenta em `/accounts/password_change/`, `/accounts/email/` e `/accounts/excluir/`, como no
+# login: cada POST confere a senha por `authenticate()`, com o custo do Argon2, e, quando acerta,
+# dispara um aviso. O teto por destinatário limita quantos avisos chegam à caixa; este, o custo
+# que uma origem impõe.
+#
 # Literais no código versionado, NUNCA variáveis de ambiente: não são segredo, não variam por
 # ambiente, e uma variável nova sem default derrubaria o boot e a suíte de todo ambiente já
 # montado — o `.env` é untracked e não tem cópia, como `AUDIT_LOG_PATH` mostrou. Política vive
@@ -408,6 +527,15 @@ RATE_LIMIT_POR_CAMINHO = {
     "/accounts/login/": 60,
     "/o/device-authorization/": 30,
     "/o/logout/": 120,
+    "/api/conta/": 120,
+    "/api/conta/confirmacao/": 120,
+    "/api/conta/termos/": 120,
+    "/api/conta/confirmar/": 120,
+    "/accounts/registrar/": 60,
+    "/accounts/password_reset/": 60,
+    "/accounts/password_change/": 60,
+    "/accounts/email/": 60,
+    "/accounts/excluir/": 60,
 }
 RATE_LIMIT_JANELA_SEGUNDOS = 60
 
@@ -455,12 +583,23 @@ OAUTH2_PROVIDER = {
     # Na jornada de construção vale falsa, e a SPA de desenvolvimento volta a
     # http://localhost:5173/. O runner da suíte não a neutraliza: o valor dela segue a jornada.
     "OIDC_RP_INITIATED_LOGOUT_STRICT_REDIRECT_URIS": BEHIND_TLS_PROXY,
+    # O cadastro pelo protocolo (OpenID Connect Prompt Create 1.0, ADR 0031). Ligada, publica
+    # `create` em `prompt_values_supported` e desvia ao cadastro a pessoa sem sessão, com um
+    # `next` absoluto para o mesmo /o/authorize/ sem `create`; desligada, `prompt=create`
+    # recebe 400. É contrato com a RP: o "Criar conta" da SPA depende dela.
+    "OIDC_RP_INITIATED_REGISTRATION_ENABLED": True,
+    # Nome de rota, resolvido só quando uma pessoa sem sessão pede `create`: um nome que não
+    # resolve não derruba o boot, e só esse pedido recebe 500 (ImproperlyConfigured).
+    "OIDC_RP_INITIATED_REGISTRATION_URL": "registrar",
     # Descrições em português: são renderizadas cruas na tela de consentimento e lidas pela
     # pessoa usuária. LANGUAGE_CODE governa a i18n do Django, não o conteúdo destas strings.
     "SCOPES": {
         "openid": "Confirmar sua identidade",
         "profile": "Ver seu nome e seus dados de perfil",
         "email": "Ver seu endereço de e-mail",
+        # Exigido só pela API de conta. O toolkit não tem scope por Application: toda
+        # Application que o peça, ou que omita `scope`, o recebe.
+        "conta": "Ler e editar os dados da sua conta",
     },
     "OIDC_RSA_PRIVATE_KEY": OIDC_RSA_PRIVATE_KEY,
     # Coerente com o prefixo `o/` do include: é a claim `iss` de todo id_token emitido e
@@ -636,3 +775,7 @@ STORAGES = {
 LOGIN_URL = "login"
 LOGIN_REDIRECT_URL = "home"
 LOGOUT_REDIRECT_URL = "home"
+
+# Uma hora, e não os três dias do default do Django: quem lê a caixa de entrada troca a senha, e
+# o prazo curto reduz a janela. O texto do e-mail de redefinição lê este valor (ADR 0031).
+PASSWORD_RESET_TIMEOUT = 3600

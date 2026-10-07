@@ -30,11 +30,15 @@ SENTINELA = "sentinela-x9k2q7"
 HOST = f"{SENTINELA}.exemplo.test"
 
 
-def carregar(spa_url, behind_tls_proxy, debug=None):
+def carregar(spa_url, behind_tls_proxy, debug=None, **outras):
     """Executa `config/settings.py` do zero e devolve o seu namespace.
 
-    `spa_url=None` remove a variável do ambiente do processo, para o caso de ausência."""
-    ambiente = {"BEHIND_TLS_PROXY": behind_tls_proxy}
+    `spa_url=None` remove a variável do ambiente do processo, para o caso de ausência.
+    `BASE_URL` é fixado em loopback: o `.env` do clone pode trazer um host público, e a guarda de
+    produção (abaixo) recusaria `SPA_URL` em loopback antes de o caso chegar ao que testa.
+    `outras` sobrescreve variáveis do ambiente, como `BASE_URL` e `EMAIL_BACKEND`."""
+    ambiente = {"BEHIND_TLS_PROXY": behind_tls_proxy, "BASE_URL": "http://localhost:8000"}
+    ambiente.update(outras)
     if spa_url is not None:
         ambiente["SPA_URL"] = spa_url
     if debug is not None:
@@ -123,3 +127,54 @@ class SpaUrlAceitaTests(SimpleTestCase):
         for valor, proxy in self.ACEITOS:
             with self.subTest(valor=valor, behind_tls_proxy=proxy):
                 self.assertEqual(carregar(valor, proxy)["SPA_URL"], valor)
+
+
+SMTP = "django.core.mail.backends.smtp.EmailBackend"
+BASE_PUBLICA = f"https://{HOST}"
+
+
+class GuardaDeProducaoTests(SimpleTestCase):
+    """TASK-028/T-70 — com `BASE_URL` público, o boot recusa `SPA_URL` em loopback e backend de
+    e-mail que não entrega, nomeando a variável e sem repetir o valor. Vermelho se a guarda sumir,
+    se uma das quatro classes de backend sair do conjunto, ou se a mensagem trouxer o valor."""
+
+    BACKENDS = ["console", "dummy", "locmem", "filebased"]
+
+    def test_spa_url_em_loopback_e_recusada_com_base_url_publico(self):
+        for spa in ("http://localhost:5173", "http://127.0.0.1:5173", "http://[::1]:5173"):
+            with self.subTest(spa=spa):
+                with self.assertRaises(ImproperlyConfigured) as ctx:
+                    carregar(spa, "False", BASE_URL=BASE_PUBLICA, EMAIL_BACKEND=SMTP)
+                mensagem = str(ctx.exception)
+                self.assertIn("SPA_URL aponta para loopback", mensagem)
+                self.assertIn("BASE_URL é público", mensagem)
+                self.assertNotIn(SENTINELA, mensagem)
+
+    def test_cada_backend_que_nao_entrega_e_recusado(self):
+        for nome in self.BACKENDS:
+            backend = f"django.core.mail.backends.{nome}.EmailBackend"
+            with self.subTest(backend=nome):
+                with self.assertRaises(ImproperlyConfigured) as ctx:
+                    carregar(
+                        "https://spa.exemplo.test", "False", BASE_URL=BASE_PUBLICA,
+                        EMAIL_BACKEND=backend,
+                    )
+                mensagem = str(ctx.exception)
+                self.assertIn("EMAIL_BACKEND não entrega e-mail", mensagem)
+                self.assertIn("smtp.EmailBackend", mensagem)
+                self.assertNotIn(SENTINELA, mensagem)
+                self.assertNotIn(backend, mensagem)
+
+    def test_com_base_publico_spa_publica_e_smtp_passam(self):
+        ns = carregar("https://spa.exemplo.test", "False", BASE_URL=BASE_PUBLICA, EMAIL_BACKEND=SMTP)
+        self.assertEqual(ns["EMAIL_BACKEND"], SMTP)
+
+    def test_base_url_local_nao_ativa_a_guarda(self):
+        for base in ("https://idp.localhost", "http://localhost:8000", "http://127.0.0.1:8000"):
+            for backend in self.BACKENDS:
+                with self.subTest(base=base, backend=backend):
+                    ns = carregar(
+                        "http://localhost:5173", "False", BASE_URL=base,
+                        EMAIL_BACKEND=f"django.core.mail.backends.{backend}.EmailBackend",
+                    )
+                    self.assertEqual(ns["SPA_URL"], "http://localhost:5173")

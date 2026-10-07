@@ -8,7 +8,7 @@ já isola `DATABASES`: cria e destrói `test_<dbname>` sem que o código de prod
 
 O que se troca é um valor só — o `filename` do handler `audit`, redirecionado para um arquivo
 dentro de um diretório temporário — e não o mecanismo. Formatador, filtro, handler
-(`WatchedFileHandler`) e os seis receptores de `accounts/auditoria.py` continuam sendo os
+(`WatchedFileHandler`) e os dezesseis receptores de `accounts/auditoria.py` continuam sendo os
 mesmos objetos sob teste e em produção; a escrita é real, em arquivo real, o que é o que permite
 a um teste futuro varrer a trilha em busca de campo proibido (AC-10) — um `NullHandler` não
 permitiria.
@@ -28,9 +28,11 @@ TASK-014/T-10, revisado por T-13 — o mesmo executor passou a desligar o limita
 (`config/limites.py`) para a suíte inteira, pela mesma razão e pelo mesmo precedente do bloco
 acima: o contador de cada caminho vive no Redis do ambiente, não volta com o rollback do
 `TestCase` e não é tocado por `DATABASES` nem por `LOGGING`. O desligamento esvazia o
-DICIONÁRIO INTEIRO — hoje os cinco caminhos de `RATE_LIMIT_POR_CAMINHO`, `/o/token/`,
+DICIONÁRIO INTEIRO — hoje os catorze caminhos de `RATE_LIMIT_POR_CAMINHO`, `/o/token/`,
 `/o/authorize/`, `/accounts/login/`, `/o/device-authorization/` (TASK-019/T-14) e
-`/o/logout/` (TASK-027, o último a entrar) —, e não apenas as que existiam quando o T-10
+`/o/logout/` (TASK-027), os quatro de `/api/conta/`, `/accounts/registrar/`,
+`/accounts/password_reset/`, `/accounts/password_change/`, `/accounts/email/` e
+`/accounts/excluir/` (TASK-028, os últimos a entrar) —, e não apenas as que existiam quando o T-10
 foi escrito: o contador de login tem as mesmas três propriedades que já condenavam os de
 `/o/`, e a folga dele é pior. Medido: cinco execuções consecutivas da suíte em menos de sessenta
 segundos já somavam ao contador do `runserver` da jornada de construção com só `/o/` ligado,
@@ -84,7 +86,7 @@ próprio ambiente escrevendo na mesma chave enquanto a suíte roda. Com o dicion
 nenhum teste que não se importe com limitação PODE ser afetado — por construção, e não por
 disciplina de quem escreve teste depois —, e a suíte volta a poder passar em qualquer ordem
 e em qualquer frequência. `RATE_LIMIT_POR_CAMINHO={}` não abre ramo dormente: é o caminho que
-toda requisição fora dos cinco caminhos limitados já percorre em produção
+toda requisição fora dos catorze caminhos limitados já percorre em produção
 (`config/limites.py`, `.get(request.path)` devolvendo `None`); o middleware continua na
 cadeia e continua executando.
 
@@ -96,7 +98,7 @@ resolvido. O contador do limitador de taxa é o único ponto com este defeito (o
 
 O valor de produção é guardado num atributo de módulo, não perdido: `T-17`, ampliado por
 `TASK-019/T-14`, o lê de volta por `tests.runner.RATE_LIMIT_DE_PRODUCAO` para provar que o
-caminho até o middleware continua existindo hoje para os cinco caminhos declarados em
+caminho até o middleware continua existindo hoje para os catorze caminhos declarados em
 `RATE_LIMIT_POR_CAMINHO` (`config/settings.py`). Os casos que testam o limitador com um teto
 próprio (`T-07`, `T-09`, `T-14`) o reativam por `override_settings`, sempre com `REMOTE_ADDR`
 forjado, apagando as próprias chaves ao fim.
@@ -165,20 +167,23 @@ acontecesse. O sinal deste runner, ao contrário, passa pelo mesmo `reload_oauth
 trás, e a primeira leitura real, seja de T-04 seja de qualquer outro teste, sempre parte de
 `_user_settings` limpo.
 
-Silêncio à parte, registrado e não resolvido aqui: as quatro neutralizações deste runner —
-trilha de auditoria, `RATE_LIMIT_POR_CAMINHO`, `SECURE_SSL_REDIRECT` e `OAUTH2_PROVIDER` — só
+Silêncio à parte, registrado e não resolvido aqui: as sete neutralizações deste runner —
+trilha de auditoria, `RATE_LIMIT_POR_CAMINHO`, `SECURE_SSL_REDIRECT`, `OAUTH2_PROVIDER`,
+`TETO_DE_ENVIOS_POR_DESTINATARIO`, `TETO_DE_AVISOS_POR_DESTINATARIO` e
+`ENVIO_DE_EMAIL_EM_SEGUNDO_PLANO` — só
 valem no processo em que `setup_test_environment()` roda. `manage.py test --parallel` com
 `multiprocessing.get_start_method() == "spawn"` (o default fora do Linux, e disponível nele por
 opção) faz cada worker refazer `django.setup()` e chamar
 `django.test.utils.setup_test_environment()` — a função do Django, não o método desta classe —
 diretamente na função `_init_worker` (`django/test/runner.py`), no ramo `if start_method ==
-"spawn":`, por volta das linhas 426-432 do Django instalado neste ambiente. Nenhuma das quatro
+"spawn":`, por volta das linhas 426-432 do Django instalado neste ambiente. Nenhuma das sete
 neutralizações chega aos workers spawnados: a trilha de
 auditoria voltaria a escrever no arquivo do ambiente, os tetos de taxa e o redirecionamento TLS
 valeriam os de produção contra um `Client` que fala HTTP puro, e `OAUTH2_PROVIDER` manteria
 `ALLOWED_REDIRECT_URI_SCHEMES` de produção contra as fixtures em `http://` de
-`tests/oauth_helpers.py`. Hoje a suíte roda sem `--parallel` (`README.md`), e o sintoma nunca
-se manifestou; o dia em que alguém acrescentar a flag, os quatro efeitos voltam de uma vez, sem
+`tests/oauth_helpers.py`; o teto de envios por destinatário e o envio em thread voltariam ao
+valor de produção. Hoje a suíte roda sem `--parallel` (`README.md`), e o sintoma nunca
+se manifestou; o dia em que alguém acrescentar a flag, os sete efeitos voltam de uma vez, sem
 aviso.
 """
 
@@ -192,7 +197,7 @@ from django.conf import settings
 from django.test.runner import DiscoverRunner
 from django.test.signals import setting_changed
 
-# Guarda o teto de produção (hoje cinco caminhos — ver docstring do módulo) enquanto a suíte
+# Guarda o teto de produção (hoje catorze caminhos — ver docstring do módulo) enquanto a suíte
 # roda com o limitador desligado. Atributo de módulo, e não de instância: é o que permite a
 # `tests/test_limite_oauth.py` lê-lo de fora, sem precisar segurar uma referência ao runner em
 # execução.
@@ -216,12 +221,23 @@ SECURE_SSL_REDIRECT_DE_PRODUCAO = None
 # neutralizada do início ao fim da suíte inteira, por construção deste mesmo runner.
 OAUTH2_PROVIDER_DE_PRODUCAO = None
 
+# TASK-028/T-13 — os dois valores do envio de e-mail (ADR 0031) que a suíte não herda, guardados
+# pelo mesmo precedente de `RATE_LIMIT_DE_PRODUCAO`: atributo de módulo, para
+# `tests/test_envio_settings.py` lê-los de fora e afirmar os literais de produção. Durante a
+# suíte, `TETO_DE_ENVIOS_POR_DESTINATARIO` vale `None`, porque o contador vive no Redis e não
+# volta com o rollback do `TestCase`; e `ENVIO_DE_EMAIL_EM_SEGUNDO_PLANO` vale `False`, para a
+# mensagem estar em `mail.outbox` quando o callback de commit retorna, sem thread nem corrida.
+TETO_DE_ENVIOS_DE_PRODUCAO = None
+# O teto dos avisos de segurança (20), neutralizado pela mesma razão do de cima: contador no Redis.
+TETO_DE_AVISOS_DE_PRODUCAO = None
+ENVIO_EM_SEGUNDO_PLANO_DE_PRODUCAO = None
+
 
 class RunnerComTrilhaIsolada(DiscoverRunner):
     """`DiscoverRunner` padrão, com o handler `audit` redirecionado durante a suíte, o teto de
-    requisição desligado, `SECURE_SSL_REDIRECT` neutralizado e `OAUTH2_PROVIDER` corrigido —
-    quatro valores da jornada em curso que a suíte não pode herdar sem se tornar dependente
-    dela.
+    requisição desligado, `SECURE_SSL_REDIRECT` neutralizado, `OAUTH2_PROVIDER` corrigido, o
+    tetos de envios e de avisos por destinatário desligados e o envio de e-mail síncrono — sete valores
+    da jornada em curso que a suíte não pode herdar sem se tornar dependente dela.
 
     `DiscoverRunner.run_tests` chama `setup_test_environment()` antes de `build_suite()`, que é
     quem descobre e importa os módulos de teste (`django/test/runner.py`, método `run_tests`).
@@ -253,9 +269,10 @@ class RunnerComTrilhaIsolada(DiscoverRunner):
 
         # TASK-014/T-10, revisado por T-13 e por TASK-019/T-14 — guarda o teto de produção e
         # desliga o limitador para a suíte inteira, ESVAZIANDO O DICIONÁRIO INTEIRO (hoje
-        # cinco caminhos: as duas de `/o/` do T-10 original, `/accounts/login/` que o T-13
-        # acrescentou, `/o/device-authorization/` que o T-14 acrescentou depois e `/o/logout/` do
-        # TASK-027 — nunca só as
+        # catorze caminhos: as duas de `/o/` do T-10 original, `/accounts/login/` que o T-13
+        # acrescentou, `/o/device-authorization/` que o T-14 acrescentou depois, `/o/logout/` do
+        # TASK-027, os quatro de `/api/conta/`, o cadastro e o pedido de recuperação do
+        # TASK-028 — nunca só as
         # que existiam quando cada um foi escrito). A razão completa está no docstring do
         # módulo; aqui, só a mecânica: `global`, e não um atributo de instância, porque o valor
         # guardado precisa ser legível de fora do runner (T-17, em
@@ -316,6 +333,17 @@ class RunnerComTrilhaIsolada(DiscoverRunner):
             enter=True,
         )
 
+        # TASK-028/T-13 — o teto de envios some e o envio em thread se desliga; os originais
+        # ficam nos atributos de módulo acima, e o teardown os repõe.
+        global TETO_DE_ENVIOS_DE_PRODUCAO, ENVIO_EM_SEGUNDO_PLANO_DE_PRODUCAO
+        TETO_DE_ENVIOS_DE_PRODUCAO = settings.TETO_DE_ENVIOS_POR_DESTINATARIO
+        ENVIO_EM_SEGUNDO_PLANO_DE_PRODUCAO = settings.ENVIO_DE_EMAIL_EM_SEGUNDO_PLANO
+        settings.TETO_DE_ENVIOS_POR_DESTINATARIO = None
+        global TETO_DE_AVISOS_DE_PRODUCAO
+        TETO_DE_AVISOS_DE_PRODUCAO = settings.TETO_DE_AVISOS_POR_DESTINATARIO
+        settings.TETO_DE_AVISOS_POR_DESTINATARIO = None
+        settings.ENVIO_DE_EMAIL_EM_SEGUNDO_PLANO = False
+
     def teardown_test_environment(self, **kwargs):
         # O diretório é removido ANTES do super(): teardown_test_environment() do DiscoverRunner
         # não toca em LOGGING, então a ordem entre as duas linhas não afeta o handler — mas
@@ -346,7 +374,7 @@ class RunnerComTrilhaIsolada(DiscoverRunner):
         logging.config.dictConfig(settings.LOGGING)
 
         # TASK-014/T-10, revisado por T-13 e por TASK-019/T-14 — repõe o teto de produção (hoje
-        # cinco caminhos), com a mesma disciplina do dictConfig acima: nenhuma configuração fica
+        # catorze caminhos), com a mesma disciplina do dictConfig acima: nenhuma configuração fica
         # trocada além da duração da suíte, nem para quem chame `run_tests()` de dentro de um
         # processo que continua vivo.
         settings.RATE_LIMIT_POR_CAMINHO = RATE_LIMIT_DE_PRODUCAO
@@ -355,6 +383,11 @@ class RunnerComTrilhaIsolada(DiscoverRunner):
         # pela mesma disciplina das duas linhas acima. Lida do `global`, e não de um atributo de
         # instância (ver razão completa em `setup_test_environment`).
         settings.SECURE_SSL_REDIRECT = SECURE_SSL_REDIRECT_DE_PRODUCAO
+
+        # TASK-028/T-13 — repõe os dois valores do envio de e-mail, pela mesma disciplina.
+        settings.TETO_DE_ENVIOS_POR_DESTINATARIO = TETO_DE_ENVIOS_DE_PRODUCAO
+        settings.TETO_DE_AVISOS_POR_DESTINATARIO = TETO_DE_AVISOS_DE_PRODUCAO
+        settings.ENVIO_DE_EMAIL_EM_SEGUNDO_PLANO = ENVIO_EM_SEGUNDO_PLANO_DE_PRODUCAO
 
         # TASK-019/T-01 — repõe `OAUTH2_PROVIDER` de produção e refaz o `reload()` do
         # toolkit pelo mesmo sinal do setup, com `enter=False`: sem isso, `oauth2_settings`

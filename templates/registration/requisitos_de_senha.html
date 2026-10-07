@@ -1,0 +1,9 @@
+{% comment %}
+Os requisitos de AUTH_PASSWORD_VALIDATORS, pelo texto de ajuda de cada validador: mudar a lista
+em config/settings.py muda esta tela sem tocar nela.
+{% endcomment %}
+<ul class="permissoes">
+    {% for requisito in requisitos %}
+        <li>{{ requisito }}</li>
+    {% endfor %}
+</ul>

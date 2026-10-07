@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+
+{% block title %}IdP — trocar o e-mail{% endblock %}
+
+{% block content %}
+    <div class="cartao">
+        <h1>Trocar o e-mail</h1>
+
+        <p>O e-mail novo passa a valer na hora, inclusive para entrar. Enviaremos um link de
+            confirmação a ele e um aviso ao e-mail atual.</p>
+
+        {{ form.non_field_errors }}
+
+        <form method="post">
+            {% csrf_token %}
+            <div class="campo">
+                <label for="{{ form.novo_email.id_for_label }}">E-mail novo</label>
+                {{ form.novo_email.errors }}
+                {{ form.novo_email }}
+            </div>
+
+            <div class="campo">
+                <label for="{{ form.senha.id_for_label }}">Senha atual</label>
+                {{ form.senha.errors }}
+                {{ form.senha }}
+            </div>
+
+            <div class="acoes">
+                <a class="botao" href="{{ spa_url }}/app/conta">Cancelar</a>
+                <button type="submit" class="primario">Trocar o e-mail</button>
+            </div>
+        </form>
+    </div>
+{% endblock %}

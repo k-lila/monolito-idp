@@ -1,6 +1,6 @@
-"""O que a trilha de auditoria afirma sobre quem autenticou.
+"""O que a trilha de auditoria afirma sobre quem autenticou e sobre o que mudou na conta.
 
-Seis receptores de sinal, um por evento, escrevendo no logger `audit` — arquivo próprio
+Dezesseis receptores de sinal, um por evento, escrevendo no logger `audit` — arquivo próprio
 e durável, fora do stdout do container (ADR — Architecture Decision Record — 0013). Moram
 em `accounts` porque é o app dono da pessoa. O formato da linha e o `request_id` são de
 `config/observabilidade.py`, que este módulo não importa.
@@ -9,6 +9,9 @@ O quinto evento, `user_locked_out`, entrou com o limitador de taxa e amplia o co
 ADR 0013 sem tocar no esquema de campos dela (ADR 0016). O sexto, `tokens_revogados`,
 entrou com o logout iniciado pela relying party (RP) e amplia o mesmo conjunto do mesmo jeito
 (ADR 0029). O sinal é deste projeto, e não de biblioteca: o toolkit não emite nada ao revogar.
+Os dez seguintes, os eventos de conta de `accounts/sinais.py`, entraram com a API e as páginas de
+conta e ampliam o mesmo conjunto (ADR 0031). Cada um traz no máximo um campo novo, só dele:
+`campos` em `conta_editada` e `termos_versao` em `termos_aceitos`.
 
 Regra de desenho, sem exceção: nunca entram na trilha `code`, `code_verifier`,
 `access_token`, `refresh_token`, `id_token`, senha, `SECRET_KEY` nem a chave privada RSA
@@ -26,7 +29,19 @@ from django.contrib.auth.signals import (
 )
 from oauth2_provider.signals import app_authorized
 
-from accounts.logout_rp import tokens_revogados
+from accounts.revogacao import tokens_revogados
+from accounts.sinais import (
+    conta_apagada,
+    conta_criada,
+    conta_desativada,
+    conta_editada,
+    email_confirmado,
+    email_trocado,
+    recuperacao_pedida,
+    senha_redefinida,
+    senha_trocada,
+    termos_aceitos,
+)
 from config.origem import origem_completa
 
 # A trilha: nível fixo em INFO e sem propagação para o console, declarados no LOGGING de
@@ -68,11 +83,10 @@ def _origem(request):
 def _resumo_do_identificador(identificador):
     """Resumo SHA-256 do identificador tentado, em hexadecimal completo.
 
-    Calculado sobre o valor **como recebido**, sem `strip` e sem `lower`. A razão é do
-    modelo: `accounts.User.email` é `unique=True` sob Postgres, cuja unicidade é sensível a
-    caixa — `A@x.com` e `a@x.com` são contas distintas, e normalizar fundiria duas contas
-    numa mesma linha da trilha. A consequência simétrica está aceita: duas tentativas
-    contra a mesma conta com caixas diferentes produzem resumos diferentes.
+    Calculado em minúsculas e sem `strip` (ADR 0031). O e-mail é gravado em minúsculas e o
+    banco recusa duas contas que só a caixa distingue, de modo que duas caixas do mesmo
+    endereço são a mesma conta e devem dar o mesmo resumo. As linhas anteriores à ADR 0031
+    trazem o resumo do valor como recebido, e ficam como estão.
 
     Hexadecimal completo, nunca truncado: truncar cria colisão sem comprar privacidade
     nenhuma — quem inverte o resumo inteiro por dicionário inverte o truncado do mesmo
@@ -81,7 +95,7 @@ def _resumo_do_identificador(identificador):
     # None quando authenticate() é chamado com outro nome de credencial, sem `username`.
     if identificador is None:
         return None
-    return hashlib.sha256(identificador.encode("utf-8")).hexdigest()
+    return hashlib.sha256(identificador.lower().encode("utf-8")).hexdigest()
 
 
 # Cada receptor abaixo tem o corpo inteiro capturado por um `except Exception` que grita no
@@ -106,8 +120,9 @@ def registrar_login(sender, request, user, **kwargs):
                 # `event` recebe o nome do sinal, e não um rótulo inventado: é o que leva
                 # quem lê a trilha até o emissor por um `grep`.
                 "event": "user_logged_in",
-                # `sub` como string, igual à claim `sub` de todo id_token.
-                "sub": str(user.pk),
+                # `sub` como string, igual à claim `sub` de todo id_token: o UUID da conta. As
+                # linhas anteriores à ADR 0031 trazem a chave primária, e ficam como estão.
+                "sub": str(user.sub),
                 "ip": ip,
                 "ip_src": ip_src,
                 "ip_edge": ip_edge,
@@ -153,7 +168,7 @@ def registrar_logout(sender, request, user, **kwargs):
                 # `user` é None quando o logout parte de uma requisição sem sessão
                 # autenticada. A linha é emitida assim mesmo, com o campo explicitamente
                 # vazio: o evento aconteceu, e omiti-lo faria a trilha subdeclarar.
-                "sub": str(user.pk) if user is not None else None,
+                "sub": str(user.sub) if user is not None else None,
                 "ip": ip,
                 "ip_src": ip_src,
                 "ip_edge": ip_edge,
@@ -167,7 +182,7 @@ def registrar_logout(sender, request, user, **kwargs):
 def registrar_autorizacao_de_aplicacao(sender, request, token, **kwargs):
     # O sinal é emitido em `oauth2_provider/views/base.py:506`, na requisição de /o/token/,
     # que é autenticada por cliente e não por sessão — `request.user` ali é anônimo. Daí a
-    # leitura de `token.user_id` e de `token.application.client_id`, e nunca de
+    # leitura de `token.user` e de `token.application.client_id`, e nunca de
     # `request.user`. O valor do token, `token.token`, não é lido em hipótese nenhuma.
     #
     # Esse mesmo caminho atende o grant de refresh: a trilha terá uma linha `app_authorized`
@@ -180,7 +195,7 @@ def registrar_autorizacao_de_aplicacao(sender, request, token, **kwargs):
             extra={
                 "event": "app_authorized",
                 # None no grant de client credentials, que não tem pessoa associada.
-                "sub": str(token.user_id) if token.user_id is not None else None,
+                "sub": str(token.user.sub) if token.user_id is not None else None,
                 "client_id": token.application.client_id,
                 "ip": ip,
                 "ip_src": ip_src,
@@ -220,20 +235,21 @@ def registrar_bloqueio(sender, request, username, **kwargs):
 
 
 def registrar_revogacao(sender, request, user, application, **kwargs):
-    # O sinal é emitido por `accounts/logout_rp.py`, uma vez por saída que revogou ao menos um
-    # token, antes do `user_logged_out` da mesma requisição (ADR 0029). `user` é o dono dos
-    # tokens revogados, que pode não ser a conta da sessão: com o hint de outra conta, ou sem
-    # sessão nenhuma, a linha seguinte de `user_logged_out` traz outro `sub`, ou nenhum.
+    # O sinal é emitido por `accounts/revogacao.py`, uma vez por Application com ao menos um
+    # token revogado (ADR 0031). No logout pela RP sai antes do `user_logged_out` da mesma
+    # requisição, e `user` é o dono dos tokens revogados, que pode não ser a conta da sessão:
+    # com o hint de outra conta, ou sem sessão nenhuma, a linha seguinte de `user_logged_out`
+    # traz outro `sub`, ou nenhum (ADR 0029).
     #
     # Sem contagem, sem `jti` e sem valor de token: a linha diz de quem e de qual RP, e o
     # esquema da ADR 0013 não ganha campo.
     try:
         ip, ip_src, ip_edge = _origem(request)
         trilha.info(
-            "tokens revogados no logout iniciado pela RP",
+            "tokens revogados",
             extra={
                 "event": "tokens_revogados",
-                "sub": str(user.pk),
+                "sub": str(user.sub),
                 "client_id": application.client_id,
                 "ip": ip,
                 "ip_src": ip_src,
@@ -245,8 +261,81 @@ def registrar_revogacao(sender, request, user, application, **kwargs):
         logger.exception("auditoria: falha ao registrar tokens_revogados")
 
 
+def _registrar_na_conta(evento, mensagem, request, sub, **campos):
+    """A linha de um evento de conta: a pessoa é a dona da conta, e o desfecho é sucesso.
+
+    `sub` vem do chamador, e não da conta, porque a conta apagada já não existe. `campos` são os
+    do evento, que nunca trazem e-mail nem valor de perfil.
+    """
+    try:
+        ip, ip_src, ip_edge = _origem(request)
+        trilha.info(
+            mensagem,
+            extra={
+                "event": evento,
+                "sub": str(sub),
+                **campos,
+                "ip": ip,
+                "ip_src": ip_src,
+                "ip_edge": ip_edge,
+                "outcome": "success",
+            },
+        )
+    except Exception:
+        logger.exception("auditoria: falha ao registrar %s", evento)
+
+
+def registrar_conta_criada(sender, request, user, **kwargs):
+    _registrar_na_conta("conta_criada", "conta criada pelo cadastro", request, user.sub)
+
+
+def registrar_email_confirmado(sender, request, user, **kwargs):
+    _registrar_na_conta("email_confirmado", "e-mail da conta confirmado", request, user.sub)
+
+
+def registrar_conta_editada(sender, request, user, campos, **kwargs):
+    # Os nomes, e nunca os valores: nome e apelido são dado pessoal, e a trilha não os guarda.
+    _registrar_na_conta(
+        "conta_editada", "perfil da conta editado", request, user.sub, campos=list(campos)
+    )
+
+
+def registrar_termos_aceitos(sender, request, user, termos_versao, **kwargs):
+    _registrar_na_conta(
+        "termos_aceitos", "termos aceitos", request, user.sub, termos_versao=termos_versao
+    )
+
+
+def registrar_email_trocado(sender, request, user, **kwargs):
+    _registrar_na_conta("email_trocado", "e-mail da conta trocado", request, user.sub)
+
+
+def registrar_senha_trocada(sender, request, user, **kwargs):
+    _registrar_na_conta("senha_trocada", "senha trocada", request, user.sub)
+
+
+def registrar_recuperacao_pedida(sender, request, user, **kwargs):
+    _registrar_na_conta(
+        "recuperacao_pedida", "link de redefinição de senha pedido", request, user.sub
+    )
+
+
+def registrar_senha_redefinida(sender, request, user, **kwargs):
+    _registrar_na_conta("senha_redefinida", "senha redefinida pelo link", request, user.sub)
+
+
+def registrar_conta_desativada(sender, request, user, **kwargs):
+    _registrar_na_conta(
+        "conta_desativada", "conta desativada pela própria pessoa", request, user.sub
+    )
+
+
+def registrar_conta_apagada(sender, request, sub, **kwargs):
+    _registrar_na_conta("conta_apagada", "conta apagada pela própria pessoa", request, sub)
+
+
 def ligar_receptores():
-    """Liga os seis receptores. Chamada por `AccountsConfig.ready()`."""
+    """Liga os dezesseis receptores. Chamada por `AccountsConfig.ready()`."""
     # Um dispatch_uid próprio por conexão: ready() pode rodar mais de uma vez, e sem ele o
     # mesmo receptor ficaria ligado duas vezes. O resultado seria linha duplicada na
     # trilha, indistinguível de duas tentativas de verdade.
@@ -273,4 +362,44 @@ def ligar_receptores():
     tokens_revogados.connect(
         registrar_revogacao,
         dispatch_uid="accounts.auditoria.registrar_revogacao",
+    )
+    email_confirmado.connect(
+        registrar_email_confirmado,
+        dispatch_uid="accounts.auditoria.registrar_email_confirmado",
+    )
+    conta_editada.connect(
+        registrar_conta_editada,
+        dispatch_uid="accounts.auditoria.registrar_conta_editada",
+    )
+    termos_aceitos.connect(
+        registrar_termos_aceitos,
+        dispatch_uid="accounts.auditoria.registrar_termos_aceitos",
+    )
+    conta_criada.connect(
+        registrar_conta_criada,
+        dispatch_uid="accounts.auditoria.registrar_conta_criada",
+    )
+    email_trocado.connect(
+        registrar_email_trocado,
+        dispatch_uid="accounts.auditoria.registrar_email_trocado",
+    )
+    senha_trocada.connect(
+        registrar_senha_trocada,
+        dispatch_uid="accounts.auditoria.registrar_senha_trocada",
+    )
+    recuperacao_pedida.connect(
+        registrar_recuperacao_pedida,
+        dispatch_uid="accounts.auditoria.registrar_recuperacao_pedida",
+    )
+    senha_redefinida.connect(
+        registrar_senha_redefinida,
+        dispatch_uid="accounts.auditoria.registrar_senha_redefinida",
+    )
+    conta_desativada.connect(
+        registrar_conta_desativada,
+        dispatch_uid="accounts.auditoria.registrar_conta_desativada",
+    )
+    conta_apagada.connect(
+        registrar_conta_apagada,
+        dispatch_uid="accounts.auditoria.registrar_conta_apagada",
     )

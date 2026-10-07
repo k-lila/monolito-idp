@@ -1,0 +1,6 @@
+{% autoescape off %}Olá,
+
+Em {{ quando|date:"d/m/Y \à\s H:i" }} (horário de Brasília), o e-mail da conta que usava este endereço foi trocado por outro. A partir de agora, este endereço não entra mais nessa conta.
+
+Se foi você, não é preciso fazer nada. Se não foi, fale com quem administra o sistema.
+{% endautoescape %}

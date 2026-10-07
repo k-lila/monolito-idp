@@ -122,12 +122,13 @@ def assinar(chave, cabecalho, claims):
     return token.serialize()
 
 
-def claims_de_hint(issuer, client_id, jti=None, sub="1"):
+def claims_de_hint(issuer, client_id, jti=None, sub=None):
     agora = timezone.now()
     return {
         "iss": issuer,
         "aud": client_id,
-        "sub": sub,
+        # O `sub` das claims é o UUID da conta (ADR 0031), nunca a chave primária.
+        "sub": sub or str(uuid.uuid4()),
         "jti": jti or uuid.uuid4().hex,
         "iat": int(agora.timestamp()),
         "exp": int((agora + timedelta(hours=1)).timestamp()),
